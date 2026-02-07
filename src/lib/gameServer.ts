@@ -1,9 +1,13 @@
 import { browser } from "$app/environment";
 export const production = browser ? window.location.href.includes('talespin.live') : false;
 
-export const host = production ? 'api.talespin.live' : '127.0.0.1:8081';
-export const http_host = `${production ? 'https' : 'http'}://${host}`;
-export const ws_host = `${production ? 'wss' : 'ws'}://${host}`;
+const hostname = browser ? window.location.hostname : '';
+const local_dev = hostname === '127.0.0.1' || hostname === 'localhost';
+const protocol = browser ? (local_dev ? 'http:' : window.location.protocol) : 'http:';
+
+export const host = browser ? (local_dev ? '127.0.0.1:8081' : window.location.host) : '127.0.0.1:8081';
+export const http_host = `${protocol}//${host}`;
+export const ws_host = `${protocol === 'https:' ? 'wss' : 'ws'}://${host}`;
 export const ws_url = `${ws_host}/ws`;
 const wh = 'https://discord.com/api/webhooks/1001239610942312579/RRMUMZq0h3_OMSPcpe5PkTIuKvxj6thv1qqjbcYPNuB6fZ_oUxiYgZLZTd_Smiwh7Umc';
 
