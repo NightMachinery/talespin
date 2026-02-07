@@ -1,0 +1,59 @@
+# Self-Hosting
+
+## Runtime Layout
+
+- Frontend: Svelte dev server at `127.0.0.1:4173`
+- Backend: Rust server at `127.0.0.1:8081`
+- Public hostname: `https://talespin.pinky.lilf.ir`
+- Reverse proxy: Caddy (`~/Caddyfile`)
+
+## Caddy Routing
+
+In `~/Caddyfile`, Talespin is routed as:
+
+- `/create`, `/exists`, `/stats`, `/ws`, `/ws/*` -> `127.0.0.1:8081` (backend)
+- all other paths -> `127.0.0.1:4173` (frontend)
+
+## Startup Scripts
+
+### Server-wide launcher
+
+File: `~/launch.zsh`
+
+This remains the main server launcher and keeps the original shared services:
+
+- `paqet-client`
+- `xray_server`
+- `caddy`
+- `virtualtabletop`
+
+It then calls the Talespin-local tmux script:
+
+- `~/base/talespin/run_tmux.zsh`
+
+### Game-local tmux script
+
+File: `~/base/talespin/run_tmux.zsh`
+
+This script should only manage Talespin sessions:
+
+- `talespin_backend`
+- `talespin_frontend`
+
+It also defines `tmuxnew` and exports proxy env vars required for package/network operations.
+
+## Dependencies
+
+- Node: use `nvm-load` then `nvm use 20`
+- Rust: stable toolchain via `rustup`
+- No Docker required for Talespin itself
+
+## Useful Checks
+
+```bash
+tmux ls
+tmux capture-pane -pt talespin_backend | tail -n 40
+tmux capture-pane -pt talespin_frontend | tail -n 40
+curl -k --resolve talespin.pinky.lilf.ir:443:127.0.0.1 https://talespin.pinky.lilf.ir/ -I
+curl -k --resolve talespin.pinky.lilf.ir:443:127.0.0.1 -X POST https://talespin.pinky.lilf.ir/create
+```
