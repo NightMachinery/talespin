@@ -39,6 +39,13 @@ Cache key is based on:
 - output/transform spec (ratio, long side, format/quality)
 - normalization pipeline version
 
+Cache hit integrity checks:
+
+- env var: `TALESPIN_VALIDATE_CACHE_HITS_P`
+- default: `y` (enabled)
+- when enabled, existing cache files are decoded/validated; corrupt/truncated files are deleted and rebuilt
+- when disabled, startup is faster but corrupt cache files can slip through
+
 ## Aspect Ratio and Size
 
 - env var: `TALESPIN_CARD_ASPECT_RATIO` (default `2:3`)
@@ -61,5 +68,6 @@ For default `2:3`, output size is `1024x1536`.
 
 - `TALESPIN_DISABLE_BUILTIN_IMAGES_P=y` disables built-in cards.
 - `TALESPIN_SNIFF_EXTENSIONLESS_IMAGES_P=y` enables content-sniffing for extensionless files.
+- Startup prints a short “Preparing card caches …” line before showing normalization progress.
 - If extra dirs are set but no supported images are found, startup fails with an error.
 - If built-ins are disabled and extra dirs yield zero images, startup fails with an error.

@@ -49,6 +49,7 @@ It also exports:
 - `TALESPIN_CARD_ASPECT_RATIO` (default `2:3`)
 - `TALESPIN_CARD_LONG_SIDE` (default `1536`)
 - `TALESPIN_CARD_CACHE_FORMAT` (default `avif`; `avif` or `jpeg`)
+- `TALESPIN_VALIDATE_CACHE_HITS_P` (default `y`; when `y`, corrupted cache files are detected and rebuilt)
 - `TALESPIN_SNIFF_EXTENSIONLESS_IMAGES_P` (default `n`; when `y`, extensionless files are sniffed and JPEG/PNG/WebP are accepted)
 - `TALESPIN_DEFAULT_WIN_POINTS` (default `10`, used when lobby creates `points` mode without explicit target)
 

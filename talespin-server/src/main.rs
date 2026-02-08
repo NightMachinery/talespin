@@ -51,6 +51,7 @@ const CACHE_DIR_ENV: &str = "TALESPIN_CACHE_DIR";
 const CARD_ASPECT_RATIO_ENV: &str = "TALESPIN_CARD_ASPECT_RATIO";
 const CARD_LONG_SIDE_ENV: &str = "TALESPIN_CARD_LONG_SIDE";
 const CARD_CACHE_FORMAT_ENV: &str = "TALESPIN_CARD_CACHE_FORMAT";
+const VALIDATE_CACHE_HITS_ENV: &str = "TALESPIN_VALIDATE_CACHE_HITS_P";
 const DEFAULT_WIN_POINTS_ENV: &str = "TALESPIN_DEFAULT_WIN_POINTS";
 
 const DEFAULT_CARD_ASPECT_RATIO: &str = "2:3";
@@ -63,6 +64,7 @@ const CARD_AVIF_QUALITY: u8 = 80;
 const CARD_AVIF_SPEED: u8 = 4;
 const CARD_JPEG_QUALITY: u8 = 90;
 const NORMALIZATION_PIPELINE_VERSION: &str = "v1";
+const DEFAULT_VALIDATE_CACHE_HITS: bool = true;
 
 #[derive(Debug, Clone, Copy)]
 enum CacheImageFormat {
@@ -109,6 +111,7 @@ struct NormalizationConfig {
     ratio_height: u32,
     long_side: u32,
     cache_format: CacheImageFormat,
+    validate_cache_hits: bool,
     cards_cache_dir: PathBuf,
 }
 
@@ -117,6 +120,7 @@ impl NormalizationConfig {
         let (ratio_width, ratio_height) = parse_ratio_from_env();
         let long_side = parse_long_side_from_env();
         let cache_format = parse_cache_image_format_from_env();
+        let validate_cache_hits = parse_validate_cache_hits_from_env();
 
         let cache_root = env::var(CACHE_DIR_ENV)
             .map(|v| expand_home(v.trim()))
@@ -134,6 +138,7 @@ impl NormalizationConfig {
             ratio_height,
             long_side,
             cache_format,
+            validate_cache_hits,
             cards_cache_dir,
         })
     }
@@ -287,6 +292,29 @@ fn parse_cache_image_format_from_env() -> CacheImageFormat {
     }
 
     DEFAULT_CARD_CACHE_FORMAT
+}
+
+fn parse_validate_cache_hits_from_env() -> bool {
+    if let Ok(raw) = env::var(VALIDATE_CACHE_HITS_ENV) {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "y" | "yes" | "true" | "1" => return true,
+            "n" | "no" | "false" | "0" => return false,
+            _ => {
+                println!(
+                    "Warning: invalid {}='{}'; using default {}",
+                    VALIDATE_CACHE_HITS_ENV,
+                    raw,
+                    if DEFAULT_VALIDATE_CACHE_HITS {
+                        "y"
+                    } else {
+                        "n"
+                    }
+                );
+            }
+        }
+    }
+
+    DEFAULT_VALIDATE_CACHE_HITS
 }
 
 fn parse_default_win_points_from_env() -> u16 {
@@ -521,6 +549,31 @@ fn center_crop_rect(
     }
 }
 
+fn validate_cached_image(
+    cache_path: &Path,
+    expected_width: u32,
+    expected_height: u32,
+) -> Result<()> {
+    let cache_bytes = fs::read(cache_path)
+        .with_context(|| format!("Failed to read cached image {}", cache_path.display()))?;
+    let cached_image = image::load_from_memory(&cache_bytes)
+        .with_context(|| format!("Failed to decode cached image {}", cache_path.display()))?;
+    let (cached_width, cached_height) = cached_image.dimensions();
+
+    if cached_width != expected_width || cached_height != expected_height {
+        return Err(anyhow!(
+            "Cached image {} has dimensions {}x{}, expected {}x{}",
+            cache_path.display(),
+            cached_width,
+            cached_height,
+            expected_width,
+            expected_height
+        ));
+    }
+
+    Ok(())
+}
+
 fn normalize_source_to_cache(
     source: &Path,
     config: &NormalizationConfig,
@@ -555,7 +608,26 @@ fn normalize_source_to_cache(
         config.cache_format.file_extension()
     ));
 
-    if !cache_path.exists() {
+    let mut should_rebuild_cache = !cache_path.exists();
+    if !should_rebuild_cache && config.validate_cache_hits {
+        if let Err(err) = validate_cached_image(&cache_path, output_width, output_height) {
+            println!(
+                "Warning: cached image {} is invalid/corrupt: {}. Rebuilding.",
+                cache_path.display(),
+                err
+            );
+            if let Err(remove_err) = fs::remove_file(&cache_path) {
+                println!(
+                    "Warning: failed to remove invalid cache file {}: {}",
+                    cache_path.display(),
+                    remove_err
+                );
+            }
+            should_rebuild_cache = true;
+        }
+    }
+
+    if should_rebuild_cache {
         let source_image = image::load_from_memory(&bytes)
             .with_context(|| format!("Failed to decode image {}", source.display()))?;
 
@@ -683,7 +755,23 @@ fn load_cards(
         }
     }
 
-    let progress = create_normalization_progress(sources_to_process.len());
+    let total_sources = sources_to_process.len();
+    if total_sources > 0 {
+        println!(
+            "Preparing card caches: {} and generating {} cache file{} from {} source image{}.",
+            if config.validate_cache_hits {
+                "checking existing cache entries for corruption"
+            } else {
+                "skipping cache-hit corruption checks"
+            },
+            config.cache_format.env_value(),
+            if total_sources == 1 { "" } else { "s" },
+            total_sources,
+            if total_sources == 1 { "" } else { "s" }
+        );
+    }
+
+    let progress = create_normalization_progress(total_sources);
     progress.set_message("warming up...");
 
     for (kind, source) in sources_to_process {
@@ -818,7 +906,7 @@ impl ServerState {
         )?;
 
         println!(
-            "Loaded {} cards ({} built-in, {} extra, {} failed; builtins {}; extensionless sniff {}; ratio {}:{}, long side {}; cache format {}; cache {}; default points target {})",
+            "Loaded {} cards ({} built-in, {} extra, {} failed; builtins {}; extensionless sniff {}; ratio {}:{}, long side {}; cache format {}; cache validation {}; cache {}; default points target {})",
             loaded_cards.deck.len(),
             loaded_cards.loaded_builtin,
             loaded_cards.loaded_extra,
@@ -833,6 +921,11 @@ impl ServerState {
             config.ratio_height,
             config.long_side,
             config.cache_format.env_value(),
+            if config.validate_cache_hits {
+                "enabled"
+            } else {
+                "disabled"
+            },
             config.cards_cache_dir.display(),
             default_win_points_target
         );

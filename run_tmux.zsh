@@ -73,6 +73,8 @@ export TALESPIN_CARD_LONG_SIDE="${TALESPIN_CARD_LONG_SIDE:-1536}"
 tmux set-environment -g TALESPIN_CARD_LONG_SIDE "$TALESPIN_CARD_LONG_SIDE"
 export TALESPIN_CARD_CACHE_FORMAT="${TALESPIN_CARD_CACHE_FORMAT:-avif}"
 tmux set-environment -g TALESPIN_CARD_CACHE_FORMAT "$TALESPIN_CARD_CACHE_FORMAT"
+export TALESPIN_VALIDATE_CACHE_HITS_P="${TALESPIN_VALIDATE_CACHE_HITS_P:-y}"
+tmux set-environment -g TALESPIN_VALIDATE_CACHE_HITS_P "$TALESPIN_VALIDATE_CACHE_HITS_P"
 ##
 
 tmuxnew talespin_backend zsh -lc 'cd ~/base/talespin/talespin-server && ./target/release/talespin-server'
