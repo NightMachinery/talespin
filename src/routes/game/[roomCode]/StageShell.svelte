@@ -1,5 +1,7 @@
 <script lang="ts">
+	import { cardsFitToHeight } from '$lib/viewOptions';
 	import Leaderboard from './Leaderboard.svelte';
+	import SidebarOptions from './SidebarOptions.svelte';
 	import type { PlayerInfo } from '$lib/types';
 
 	export let players: { [key: string]: PlayerInfo } = {};
@@ -12,6 +14,9 @@
 	const hasMobileTop = !!$$slots.mobileTop;
 	const hasMobileActions = !!$$slots.mobileActions;
 	const hasMobileBottom = !!$$slots.mobileBottom;
+	$: mainContentClass = `rounded-lg bg-black/10 p-2 sm:p-3 lg:p-4 ${
+		$cardsFitToHeight ? 'lg:h-full' : ''
+	}`;
 </script>
 
 <div class="w-full px-3 pt-3 lg:px-6 lg:pt-4">
@@ -24,7 +29,7 @@
 
 		<div class="flex flex-col gap-4 lg:h-[calc(100vh-2rem)] lg:flex-row">
 			<main class="order-1 min-h-[58vh] flex-1 lg:order-2 lg:min-h-0">
-				<div class="h-full rounded-lg bg-black/10 p-2 sm:p-3 lg:p-4">
+				<div class={mainContentClass}>
 					<slot />
 				</div>
 			</main>
@@ -50,6 +55,10 @@
 							<slot name="mobileBottom" />
 						</div>
 					{/if}
+
+					<div class="hidden lg:block">
+						<SidebarOptions />
+					</div>
 				</div>
 			</aside>
 		</div>

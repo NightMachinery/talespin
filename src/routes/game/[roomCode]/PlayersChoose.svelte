@@ -86,7 +86,7 @@
 
 	<div class="flex h-full flex-col">
 		<h2 class="mb-2 hidden text-lg font-semibold lg:block">Your hand</h2>
-		<div class="min-h-0 flex-1">
+		<div class="min-h-0 flex-1 overflow-y-auto">
 			<Images {displayImages} bind:selectedImage selectable={isChooser} mode="hand" />
 		</div>
 	</div>

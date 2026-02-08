@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { http_host } from '$lib/gameServer';
+	import { cardsFitToHeight } from '$lib/viewOptions';
 	import type GameServer from '$lib/gameServer';
 	import type { PlayerInfo } from '$lib/types';
 	import StageShell from './StageShell.svelte';
@@ -17,6 +18,13 @@
 
 	let cardToPlayer: { [key: string]: string } = {};
 	let cardToVoters: { [key: string]: string[] } = {};
+	$: resultsDesktopFitClass = $cardsFitToHeight ? 'lg:h-full' : '';
+	$: resultsSectionClass = $cardsFitToHeight
+		? 'grid w-full grid-cols-2 gap-3 overflow-y-auto lg:h-full lg:grid-cols-3 lg:grid-rows-2 lg:content-stretch'
+		: 'grid w-full grid-cols-2 gap-3 overflow-y-auto lg:grid-cols-3 lg:auto-rows-max lg:content-start';
+	$: resultsCardClass = (isActiveCard: boolean) =>
+		`${isActiveCard ? 'boujee-border' : ''} relative overflow-hidden rounded-lg ${resultsDesktopFitClass}`;
+	$: resultsImageClass = `relative w-full object-cover object-center aspect-[2/3] ${resultsDesktopFitClass}`;
 
 	$: {
 		cardToPlayer = {};
@@ -58,15 +66,13 @@
 
 	<div class="flex h-full flex-col">
 		<h2 class="mb-2 hidden text-lg font-semibold lg:block">Round cards</h2>
-		<section class="grid h-full w-full grid-cols-2 gap-3 overflow-y-auto lg:grid-cols-3">
+		<section class={resultsSectionClass}>
 			{#each displayImages as image}
-				<div
-					class={`${activeCard == image ? 'boujee-border' : ''} relative h-full overflow-hidden rounded-lg`}
-				>
+				<div class={resultsCardClass(activeCard == image)}>
 					<img
 						src={`${http_host}/cards/${image}`}
 						alt="You can't play this game without the images!"
-						class="relative h-full w-full object-cover object-center aspect-[2/3]"
+						class={resultsImageClass}
 					/>
 					{#if cardToVoters[image]}
 						<div class="absolute" style="top: 20px; right: 12px;">
