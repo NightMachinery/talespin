@@ -522,6 +522,13 @@ fn load_cards(
 #[derive(Debug, Deserialize)]
 struct CreateRoomRequest {
     win_condition: Option<WinCondition>,
+    creator_name: Option<String>,
+}
+
+#[derive(Debug)]
+struct CreateRoomConfig {
+    win_condition: WinCondition,
+    creator_name: Option<String>,
 }
 
 fn validate_win_condition(win_condition: WinCondition) -> Result<WinCondition> {
@@ -545,10 +552,13 @@ fn validate_win_condition(win_condition: WinCondition) -> Result<WinCondition> {
 fn parse_create_room_win_condition(
     body: &[u8],
     default_points_target: u16,
-) -> Result<WinCondition> {
+) -> Result<CreateRoomConfig> {
     if body.is_empty() || body.iter().all(|b| b.is_ascii_whitespace()) {
-        return Ok(WinCondition::Points {
-            target_points: default_points_target,
+        return Ok(CreateRoomConfig {
+            win_condition: WinCondition::Points {
+                target_points: default_points_target,
+            },
+            creator_name: None,
         });
     }
 
@@ -557,7 +567,11 @@ fn parse_create_room_win_condition(
     let requested = request.win_condition.unwrap_or(WinCondition::Points {
         target_points: default_points_target,
     });
-    validate_win_condition(requested)
+    let creator_name = request.creator_name.map(|name| name.trim().to_string());
+    Ok(CreateRoomConfig {
+        win_condition: validate_win_condition(requested)?,
+        creator_name: creator_name.filter(|name| !name.is_empty()),
+    })
 }
 
 // main object for server
@@ -602,14 +616,23 @@ impl ServerState {
         })
     }
 
-    async fn create_room(&self, win_condition: WinCondition) -> Result<ServerMsg> {
+    async fn create_room(
+        &self,
+        win_condition: WinCondition,
+        creator_name: Option<String>,
+    ) -> Result<ServerMsg> {
         let mut room_id = generate_room_id(4);
 
         while (self.get_room(&room_id)).is_some() {
             room_id = generate_room_id(4);
         }
 
-        let room = Room::new(&room_id, self.base_deck.clone(), win_condition);
+        let room = Room::new(
+            &room_id,
+            self.base_deck.clone(),
+            win_condition,
+            creator_name,
+        );
         let msg = room.get_room_state().await;
         self.rooms.insert(room_id.clone(), Arc::new(room));
         Ok(msg)
@@ -735,19 +758,21 @@ async fn card_handler(
 }
 
 async fn create_room_handler(State(state): State<Arc<ServerState>>, body: Bytes) -> String {
-    let win_condition =
-        match parse_create_room_win_condition(&body, state.default_win_points_target) {
-            Ok(win_condition) => win_condition,
-            Err(err) => {
-                println!("Failed to parse create-room payload: {}", err);
-                return serde_json::to_string(&room::ServerMsg::ErrorMsg(
-                    "Failed to create room".to_string(),
-                ))
-                .unwrap();
-            }
-        };
+    let room_config = match parse_create_room_win_condition(&body, state.default_win_points_target)
+    {
+        Ok(config) => config,
+        Err(err) => {
+            println!("Failed to parse create-room payload: {}", err);
+            return serde_json::to_string(&room::ServerMsg::ErrorMsg(
+                "Failed to create room".to_string(),
+            ))
+            .unwrap();
+        }
+    };
 
-    let room = state.create_room(win_condition).await;
+    let room = state
+        .create_room(room_config.win_condition, room_config.creator_name)
+        .await;
 
     match room {
         Ok(room_state) => serde_json::to_string(&room_state).unwrap(),

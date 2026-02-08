@@ -9,11 +9,15 @@
 	export let gameServer: GameServer;
 	export let name = '';
 	export let roomStateLoaded = false;
+	export let creator = '';
 	export let winCondition: WinCondition = {
 		mode: 'points',
 		target_points: 10
 	};
 	const toastStore = getToastStore();
+	$: playerEntries = Object.entries(players);
+	$: isCreator = creator !== '' && creator === name;
+	$: canStart = roomStateLoaded && isCreator && playerEntries.length >= 3;
 
 	function getInitialsFromString(name: string) {
 		return name
@@ -61,6 +65,17 @@
 			timeout: 2000
 		});
 	}
+
+	function startGame() {
+		gameServer.startGame();
+	}
+
+	function kickPlayer(playerName: string) {
+		if (!isCreator || playerName === creator) return;
+		if (!browser || window.confirm(`Kick ${playerName} from this lobby?`)) {
+			gameServer.kickPlayer(playerName);
+		}
+	}
 </script>
 
 <div class="m-auto w-80/10">
@@ -79,27 +94,44 @@
 				Copy Invite Link
 			</button>
 		</div>
-		<div class="container flex flex-wrap justify-center gap-4 mt-10">
-			{#each Object.entries(players) as [key, value]}
-				<div class=" p-5">
-					<div>
-						<Avatar
-							initials={getInitialsFromString(key)}
-							background={value.ready ? 'bg-success-500' : 'bg-error-500'}
-						/>
+		<div class="container mt-10 flex flex-col gap-3">
+			{#each playerEntries as [playerName, value]}
+				<div class="card p-3">
+					<div class="flex items-center justify-between gap-3">
+						<div class="flex items-center gap-3">
+							<Avatar
+								initials={getInitialsFromString(playerName)}
+								background={value.ready ? 'bg-success-500' : 'bg-error-500'}
+							/>
+							<div class="font-bold">
+								{playerName}
+								{#if playerName === creator}
+									<span class="ml-2 text-xs font-normal opacity-70">(host)</span>
+								{/if}
+							</div>
+						</div>
+						{#if isCreator && playerName !== creator}
+							<button
+								class="btn variant-filled px-3 py-1 text-sm"
+								on:click={() => kickPlayer(playerName)}
+							>
+								Kick
+							</button>
+						{/if}
 					</div>
-
-					<div class="font-bold text-center">{key}</div>
 				</div>
 			{/each}
 		</div>
 
 		<div class="flex flex-col gap-2 mt-10">
-			<button
-				disabled={players && players[name] ? players[name].ready : false}
-				class="btn variant-filled"
-				on:click={() => gameServer.ready()}>Ready</button
-			>
+			{#if isCreator}
+				<button class="btn variant-filled" disabled={!canStart} on:click={startGame}>Start Game</button>
+				{#if playerEntries.length < 3}
+					<p class="text-center text-sm opacity-70">Need at least 3 players to start.</p>
+				{/if}
+			{:else}
+				<p class="text-center text-sm opacity-70">Waiting for host to start the game.</p>
+			{/if}
 		</div>
 	</div>
 </div>

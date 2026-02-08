@@ -25,6 +25,7 @@
 	// game state
 	let players: { [key: string]: PlayerInfo } = {};
 	let stage: string = 'Joining';
+	let creator = '';
 	let activePlayer = '';
 	let description = '';
 	let roundNum = 0;
@@ -79,6 +80,7 @@
 			if (data.RoomState) {
 				const previousDeckRefillCount = deckRefillCount;
 				players = data.RoomState.players;
+				creator = data.RoomState.creator || '';
 				stage = data.RoomState.stage;
 				activePlayer = data.RoomState.active_player || '';
 				roundNum = data.RoomState.round;
@@ -134,6 +136,14 @@
 				});
 				console.log('hello');
 				goto('/');
+			} else if (data.Kicked) {
+				rejoin = false;
+				toastStore.trigger({
+					message: '👢 ' + (data.Kicked.reason || 'You were removed from the lobby'),
+					autohide: true,
+					timeout: 2500
+				});
+				goto('/');
 			} else if (data.EndGame) {
 				stage = 'End';
 			}
@@ -150,6 +160,7 @@
 				{players}
 				{roomCode}
 				{winCondition}
+				{creator}
 				roomStateLoaded={hasReceivedRoomState}
 			/>
 		</div>

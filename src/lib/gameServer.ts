@@ -93,6 +93,20 @@ class GameServer {
         });
     }
 
+    startGame() {
+        this.send({
+            StartGame: {}
+        });
+    }
+
+    kickPlayer(player: string) {
+        this.send({
+            KickPlayer: {
+                player
+            }
+        });
+    }
+
     activePlayerChoose(card: string, description: string) {
         this.send({
             ActivePlayerChooseCard: {

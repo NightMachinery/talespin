@@ -24,6 +24,7 @@ pub enum ServerMsg {
     RoomState {
         room_id: String,
         players: HashMap<String, PlayerInfo>,
+        creator: Option<String>,
         stage: RoomStage,
         active_player: Option<String>,
         player_order: Vec<String>,
@@ -51,6 +52,9 @@ pub enum ServerMsg {
         point_change: HashMap<String, u16>,
     },
     ErrorMsg(String),
+    Kicked {
+        reason: String,
+    },
     InvalidRoomId {},
     EndGame {},
 }
@@ -66,6 +70,8 @@ impl From<ServerMsg> for WsMessage {
 #[derive(Debug, Deserialize)]
 pub enum ClientMsg {
     Ready {},
+    StartGame {},
+    KickPlayer { player: String },
     JoinRoom { room_id: String, name: String },
     CreateRoom { name: String },
     ActivePlayerChooseCard { card: String, description: String },
@@ -103,6 +109,8 @@ pub struct PlayerInfo {
 #[derive(Debug)]
 struct RoomState {
     room_id: String,
+    // lobby creator / host
+    creator: Option<String>,
     // store general stats about each player
     players: HashMap<String, PlayerInfo>,
     // store 6 cards in hand per player
@@ -154,9 +162,15 @@ pub fn get_time_s() -> u64 {
 }
 
 impl Room {
-    pub fn new(room_id: &str, base_deck: Arc<Vec<String>>, win_condition: WinCondition) -> Self {
+    pub fn new(
+        room_id: &str,
+        base_deck: Arc<Vec<String>>,
+        win_condition: WinCondition,
+        creator: Option<String>,
+    ) -> Self {
         let state = RoomState {
             room_id: room_id.to_string(),
+            creator,
             players: HashMap::new(),
             deck: base_deck.to_vec(),
             stage: RoomStage::Joining,
@@ -434,9 +448,27 @@ impl Room {
 
         match msg {
             ClientMsg::Ready {} => {
-                if matches!(state.stage, RoomStage::Joining)
-                    || matches!(state.stage, RoomStage::Results)
-                {
+                if matches!(state.stage, RoomStage::Joining) {
+                    let is_creator = state.creator.as_deref() == Some(name);
+                    if !is_creator {
+                        return Ok(());
+                    }
+
+                    if state.players.len() < 3 {
+                        if let Some(tx) = state.player_to_socket.get(name) {
+                            tx.send(
+                                ServerMsg::ErrorMsg("Need at least 3 players".to_string()).into(),
+                            )
+                            .await?;
+                        }
+                        return Ok(());
+                    }
+
+                    self.init_round(&mut state).await?;
+                    return Ok(());
+                }
+
+                if matches!(state.stage, RoomStage::Results) {
                     state
                         .players
                         .get_mut(name)
@@ -451,7 +483,7 @@ impl Room {
                         return Ok(());
                     }
 
-                    // otherwise, check if everyone is ready for next round
+                    // check if everyone is ready for next round
                     if state.players.values().filter(|p| p.ready).count() == state.players.len() {
                         if state.players.len() >= 3 {
                             self.init_round(&mut state).await?;
@@ -462,6 +494,90 @@ impl Room {
                         }
                     }
                 }
+            }
+            ClientMsg::StartGame {} => {
+                if !matches!(state.stage, RoomStage::Joining) {
+                    return Ok(());
+                }
+
+                let is_creator = state.creator.as_deref() == Some(name);
+                if !is_creator {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg("Only the lobby creator can start".to_string())
+                                .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if state.players.len() < 3 {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(ServerMsg::ErrorMsg("Need at least 3 players".to_string()).into())
+                            .await?;
+                    }
+                    return Ok(());
+                }
+
+                self.init_round(&mut state).await?;
+            }
+            ClientMsg::KickPlayer { player } => {
+                if !matches!(state.stage, RoomStage::Joining) {
+                    return Ok(());
+                }
+
+                let is_creator = state.creator.as_deref() == Some(name);
+                if !is_creator {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only the lobby creator can kick players".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                let target = player.trim();
+                if target.is_empty() {
+                    return Ok(());
+                }
+
+                if target == name {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg("Creator cannot kick themselves".to_string())
+                                .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if !state.players.contains_key(target) {
+                    return Ok(());
+                }
+
+                state.players.remove(target);
+                state.player_hand.remove(target);
+                state.player_to_current_card.remove(target);
+                state.player_to_vote.remove(target);
+
+                if let Some(tx) = state.player_to_socket.remove(target) {
+                    let _ = tx
+                        .send(
+                            ServerMsg::Kicked {
+                                reason: "You were kicked from the lobby".to_string(),
+                            }
+                            .into(),
+                        )
+                        .await;
+                }
+
+                self.broadcast_msg(self.room_state(&state))?;
             }
             ClientMsg::ActivePlayerChooseCard { card, description } => {
                 if matches!(state.stage, RoomStage::ActiveChooses)
@@ -738,12 +854,16 @@ impl Room {
         } else if matches!(state.stage, RoomStage::Joining) {
             // still in joining and not yet joined
             if state.players.len() < 8 {
+                if state.creator.is_none() {
+                    state.creator = Some(name.to_string());
+                }
+
                 state.players.insert(
                     name.to_string(),
                     PlayerInfo {
                         connected: true,
                         points: 0,
-                        ready: false,
+                        ready: true,
                     },
                 );
             } else {
@@ -849,6 +969,7 @@ impl Room {
         ServerMsg::RoomState {
             room_id: state.room_id.clone(),
             players: state.players.clone(),
+            creator: state.creator.clone(),
             stage: state.stage,
             active_player: state.player_order.get(state.active_player).cloned(),
             player_order: state.player_order.clone(),

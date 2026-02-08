@@ -90,7 +90,8 @@
 				'Content-Type': 'application/json'
 			},
 			body: JSON.stringify({
-				win_condition: getWinConditionPayload()
+				win_condition: getWinConditionPayload(),
+				creator_name: name.trim()
 			})
 		});
 		res = await res.json();
