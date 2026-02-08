@@ -41,6 +41,8 @@ This script should only manage Talespin sessions:
 - `talespin_frontend`
 
 It also defines `tmuxnew` and exports proxy env vars required for package/network operations.
+It sets `TALESPIN_EXTRA_IMAGE_DIRS` (newline-separated dirs) for loading extra card images.
+You can set `TALESPIN_DISABLE_BUILTIN_IMAGES_P=y` to disable built-in cards.
 
 ## Dependencies
 
