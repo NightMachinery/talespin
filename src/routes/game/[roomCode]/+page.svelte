@@ -26,6 +26,7 @@
 	let players: { [key: string]: PlayerInfo } = {};
 	let stage: string = 'Joining';
 	let creator = '';
+	let moderators: string[] = [];
 	let activePlayer = '';
 	let description = '';
 	let roundNum = 0;
@@ -59,6 +60,18 @@
 		}
 	});
 
+	function leaveGame() {
+		if (!gameServer) {
+			goto('/');
+			return;
+		}
+
+		rejoin = false;
+		gameServer.leaveRoom();
+		gameServer.close();
+		goto('/');
+	}
+
 	onMount(() => {
 		roomCode = $page.params.roomCode;
 
@@ -81,6 +94,7 @@
 				const previousDeckRefillCount = deckRefillCount;
 				players = data.RoomState.players;
 				creator = data.RoomState.creator || '';
+				moderators = data.RoomState.moderators || [];
 				stage = data.RoomState.stage;
 				activePlayer = data.RoomState.active_player || '';
 				roundNum = data.RoomState.round;
@@ -143,6 +157,16 @@
 					autohide: true,
 					timeout: 2500
 				});
+				gameServer.close();
+				goto('/');
+			} else if (data.LeftRoom) {
+				rejoin = false;
+				toastStore.trigger({
+					message: '👋 ' + (data.LeftRoom.reason || 'You left the game'),
+					autohide: true,
+					timeout: 2000
+				});
+				gameServer.close();
 				goto('/');
 			} else if (data.EndGame) {
 				stage = 'End';
@@ -152,6 +176,12 @@
 </script>
 
 <div class="w-full">
+	{#if stage !== 'End'}
+		<div class="fixed right-3 top-3 z-40">
+			<button class="btn variant-filled px-3 py-1 text-sm" on:click={leaveGame}>Leave</button>
+		</div>
+	{/if}
+
 	{#if stage === 'Joining'}
 		<div class="pt-10">
 			<Joining
@@ -161,6 +191,7 @@
 				{roomCode}
 				{winCondition}
 				{creator}
+				{moderators}
 				roomStateLoaded={hasReceivedRoomState}
 			/>
 		</div>

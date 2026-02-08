@@ -99,10 +99,25 @@ class GameServer {
         });
     }
 
+    leaveRoom() {
+        this.send({
+            LeaveRoom: {}
+        });
+    }
+
     kickPlayer(player: string) {
         this.send({
             KickPlayer: {
                 player
+            }
+        });
+    }
+
+    setModerator(player: string, enabled: boolean) {
+        this.send({
+            SetModerator: {
+                player,
+                enabled
             }
         });
     }

@@ -10,14 +10,17 @@
 	export let name = '';
 	export let roomStateLoaded = false;
 	export let creator = '';
+	export let moderators: string[] = [];
 	export let winCondition: WinCondition = {
 		mode: 'points',
 		target_points: 10
 	};
 	const toastStore = getToastStore();
 	$: playerEntries = Object.entries(players);
+	$: moderatorSet = new Set(moderators);
 	$: isCreator = creator !== '' && creator === name;
-	$: canStart = roomStateLoaded && isCreator && playerEntries.length >= 3;
+	$: isModerator = moderatorSet.has(name);
+	$: canStart = roomStateLoaded && isModerator && playerEntries.length >= 3;
 
 	function getInitialsFromString(name: string) {
 		return name
@@ -70,11 +73,20 @@
 		gameServer.startGame();
 	}
 
+	function isPlayerModerator(playerName: string) {
+		return moderatorSet.has(playerName);
+	}
+
 	function kickPlayer(playerName: string) {
-		if (!isCreator || playerName === creator) return;
+		if (!isModerator || playerName === creator || playerName === name) return;
 		if (!browser || window.confirm(`Kick ${playerName} from this lobby?`)) {
 			gameServer.kickPlayer(playerName);
 		}
+	}
+
+	function setModerator(playerName: string, enabled: boolean) {
+		if (!isCreator || playerName === creator) return;
+		gameServer.setModerator(playerName, enabled);
 	}
 </script>
 
@@ -106,31 +118,52 @@
 							<div class="font-bold">
 								{playerName}
 								{#if playerName === creator}
-									<span class="ml-2 text-xs font-normal opacity-70">(host)</span>
+									<span class="ml-2 text-xs font-normal opacity-70">(creator)</span>
+								{:else if isPlayerModerator(playerName)}
+									<span class="ml-2 text-xs font-normal opacity-70">(mod)</span>
 								{/if}
 							</div>
 						</div>
-						{#if isCreator && playerName !== creator}
-							<button
-								class="btn variant-filled px-3 py-1 text-sm"
-								on:click={() => kickPlayer(playerName)}
-							>
-								Kick
-							</button>
-						{/if}
+						<div class="flex items-center gap-2">
+							{#if isCreator && playerName !== creator}
+								{#if isPlayerModerator(playerName)}
+									<button
+										class="btn variant-filled px-3 py-1 text-sm"
+										on:click={() => setModerator(playerName, false)}
+									>
+										Demote
+									</button>
+								{:else}
+									<button
+										class="btn variant-filled px-3 py-1 text-sm"
+										on:click={() => setModerator(playerName, true)}
+									>
+										Make Mod
+									</button>
+								{/if}
+							{/if}
+							{#if isModerator && playerName !== creator && playerName !== name}
+								<button
+									class="btn variant-filled px-3 py-1 text-sm"
+									on:click={() => kickPlayer(playerName)}
+								>
+									Kick
+								</button>
+							{/if}
+						</div>
 					</div>
 				</div>
 			{/each}
 		</div>
 
 		<div class="flex flex-col gap-2 mt-10">
-			{#if isCreator}
+			{#if isModerator}
 				<button class="btn variant-filled" disabled={!canStart} on:click={startGame}>Start Game</button>
 				{#if playerEntries.length < 3}
 					<p class="text-center text-sm opacity-70">Need at least 3 players to start.</p>
 				{/if}
 			{:else}
-				<p class="text-center text-sm opacity-70">Waiting for host to start the game.</p>
+				<p class="text-center text-sm opacity-70">Waiting for a moderator to start the game.</p>
 			{/if}
 		</div>
 	</div>
