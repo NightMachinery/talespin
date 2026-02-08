@@ -29,7 +29,12 @@
 	}
 
 	function setModerator(playerName: string, enabled: boolean) {
-		if (!isCreator || playerName === creator) return;
+		if (playerName === creator) return;
+		if (enabled) {
+			if (!isCreator && !isModerator) return;
+		} else if (!isCreator) {
+			return;
+		}
 		gameServer.setModerator(playerName, enabled);
 	}
 </script>

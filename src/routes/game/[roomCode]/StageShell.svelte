@@ -25,6 +25,10 @@
 	const hasMobileTop = !!$$slots.mobileTop;
 	const hasMobileActions = !!$$slots.mobileActions;
 	const hasMobileBottom = !!$$slots.mobileBottom;
+	$: moderatorSet = new Set(moderators);
+	$: isCreator = creator !== '' && creator === name;
+	$: isModerator = moderatorSet.has(name);
+	$: showMobileOptions = isCreator || isModerator;
 	$: mainContentClass = `rounded-lg bg-black/10 p-2 sm:p-3 lg:p-4 ${
 		$cardsFitToHeight ? 'lg:h-full' : ''
 	}`;
@@ -72,15 +76,21 @@
 						<slot name="leftRail" />
 					</div>
 
-					{#if hasMobileBottom}
-						<div class="lg:hidden">
-							<slot name="mobileBottom" />
-						</div>
-					{/if}
+						{#if hasMobileBottom}
+							<div class="lg:hidden">
+								<slot name="mobileBottom" />
+							</div>
+						{/if}
 
-					<div class="hidden lg:block">
-						<SidebarOptions {players} {name} {creator} {moderators} {gameServer} {stage} />
-					</div>
+						{#if showMobileOptions}
+							<div class="lg:hidden">
+								<SidebarOptions {players} {name} {creator} {moderators} {gameServer} {stage} />
+							</div>
+						{/if}
+
+						<div class="hidden lg:block">
+							<SidebarOptions {players} {name} {creator} {moderators} {gameServer} {stage} />
+						</div>
 				</div>
 			</aside>
 		</div>
