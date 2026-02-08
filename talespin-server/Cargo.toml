@@ -9,7 +9,8 @@ edition = "2021"
 anyhow = { version = "1.0.80", features = ["backtrace"] }
 axum = { version = "0.7.4", features = ["ws"] }
 dashmap = "5.5.3"
-image = { version = "0.25.2", default-features = false, features = ["jpeg", "png", "webp"] }
+image = { version = "0.25.2", default-features = false, features = ["avif", "jpeg", "png", "webp"] }
+indicatif = "0.17.11"
 infer = "0.16.0"
 rand = "0.8.5"
 serde = { version = "1.0.197", features = ["derive"] }

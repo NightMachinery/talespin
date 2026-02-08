@@ -11,7 +11,11 @@ use axum::{
     Router,
 };
 use dashmap::DashMap;
-use image::{codecs::jpeg::JpegEncoder, imageops::FilterType, DynamicImage, GenericImageView};
+use image::{
+    codecs::{avif::AvifEncoder, jpeg::JpegEncoder},
+    imageops::FilterType,
+    DynamicImage, ExtendedColorType, GenericImageView, ImageEncoder,
+};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::{
@@ -45,6 +49,7 @@ const SNIFF_EXTENSIONLESS_IMAGES_ENV: &str = "TALESPIN_SNIFF_EXTENSIONLESS_IMAGE
 const CACHE_DIR_ENV: &str = "TALESPIN_CACHE_DIR";
 const CARD_ASPECT_RATIO_ENV: &str = "TALESPIN_CARD_ASPECT_RATIO";
 const CARD_LONG_SIDE_ENV: &str = "TALESPIN_CARD_LONG_SIDE";
+const CARD_CACHE_FORMAT_ENV: &str = "TALESPIN_CARD_CACHE_FORMAT";
 const DEFAULT_WIN_POINTS_ENV: &str = "TALESPIN_DEFAULT_WIN_POINTS";
 
 const DEFAULT_CARD_ASPECT_RATIO: &str = "2:3";
@@ -53,14 +58,56 @@ const DEFAULT_WIN_POINTS: u16 = 10;
 const DEFAULT_CACHE_DIR: &str = "~/.cache/talespin";
 const CACHE_SUBDIR_CARDS: &str = "cards";
 
+const CARD_AVIF_QUALITY: u8 = 80;
+const CARD_AVIF_SPEED: u8 = 4;
 const CARD_JPEG_QUALITY: u8 = 90;
 const NORMALIZATION_PIPELINE_VERSION: &str = "v1";
+
+#[derive(Debug, Clone, Copy)]
+enum CacheImageFormat {
+    Avif,
+    Jpeg,
+}
+
+impl CacheImageFormat {
+    fn from_env_value(raw: &str) -> Option<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "avif" => Some(Self::Avif),
+            "jpeg" | "jpg" => Some(Self::Jpeg),
+            _ => None,
+        }
+    }
+
+    fn env_value(self) -> &'static str {
+        match self {
+            Self::Avif => "avif",
+            Self::Jpeg => "jpeg",
+        }
+    }
+
+    fn file_extension(self) -> &'static str {
+        match self {
+            Self::Avif => "avif",
+            Self::Jpeg => "jpg",
+        }
+    }
+
+    fn mime_type(self) -> &'static str {
+        match self {
+            Self::Avif => "image/avif",
+            Self::Jpeg => "image/jpeg",
+        }
+    }
+}
+
+const DEFAULT_CARD_CACHE_FORMAT: CacheImageFormat = CacheImageFormat::Avif;
 
 #[derive(Debug, Clone)]
 struct NormalizationConfig {
     ratio_width: u32,
     ratio_height: u32,
     long_side: u32,
+    cache_format: CacheImageFormat,
     cards_cache_dir: PathBuf,
 }
 
@@ -68,6 +115,7 @@ impl NormalizationConfig {
     fn from_env() -> Result<Self> {
         let (ratio_width, ratio_height) = parse_ratio_from_env();
         let long_side = parse_long_side_from_env();
+        let cache_format = parse_cache_image_format_from_env();
 
         let cache_root = env::var(CACHE_DIR_ENV)
             .map(|v| expand_home(v.trim()))
@@ -84,6 +132,7 @@ impl NormalizationConfig {
             ratio_width,
             ratio_height,
             long_side,
+            cache_format,
             cards_cache_dir,
         })
     }
@@ -182,6 +231,23 @@ fn parse_long_side_from_env() -> u32 {
     DEFAULT_CARD_LONG_SIDE
 }
 
+fn parse_cache_image_format_from_env() -> CacheImageFormat {
+    if let Ok(raw) = env::var(CARD_CACHE_FORMAT_ENV) {
+        if let Some(format) = CacheImageFormat::from_env_value(&raw) {
+            return format;
+        }
+
+        println!(
+            "Warning: invalid {}='{}'; using default {}",
+            CARD_CACHE_FORMAT_ENV,
+            raw,
+            DEFAULT_CARD_CACHE_FORMAT.env_value()
+        );
+    }
+
+    DEFAULT_CARD_CACHE_FORMAT
+}
+
 fn parse_default_win_points_from_env() -> u16 {
     if let Ok(raw) = env::var(DEFAULT_WIN_POINTS_ENV) {
         if let Ok(value) = raw.trim().parse::<u16>() {
@@ -243,10 +309,7 @@ fn sniff_supported_extensionless_image(path: &Path) -> bool {
     };
 
     match infer::get(&bytes) {
-        Some(kind) => matches!(
-            kind.mime_type(),
-            "image/jpeg" | "image/png" | "image/webp"
-        ),
+        Some(kind) => matches!(kind.mime_type(), "image/jpeg" | "image/png" | "image/webp"),
         None => false,
     }
 }
@@ -256,7 +319,9 @@ fn is_supported_image(path: &Path, sniff_extensionless_images: bool) -> bool {
         return true;
     }
 
-    sniff_extensionless_images && path.extension().is_none() && sniff_supported_extensionless_image(path)
+    sniff_extensionless_images
+        && path.extension().is_none()
+        && sniff_supported_extensionless_image(path)
 }
 
 fn cleanup_legacy_generated_cards() -> Result<()> {
@@ -425,19 +490,29 @@ fn normalize_source_to_cache(
     let source_hash = hash_hex(&bytes);
     let (output_width, output_height) = config.output_dimensions();
 
+    let encoding_descriptor = match config.cache_format {
+        CacheImageFormat::Avif => format!(
+            "fmt=avif|quality={}|speed={}",
+            CARD_AVIF_QUALITY, CARD_AVIF_SPEED
+        ),
+        CacheImageFormat::Jpeg => format!("fmt=jpeg|quality={}", CARD_JPEG_QUALITY),
+    };
     let transform_descriptor = format!(
-        "source={source_hash}|ratio={}:{}|long_side={}|output={}x{}|fmt=jpeg|quality={}|pipeline={}",
+        "source={source_hash}|ratio={}:{}|long_side={}|output={}x{}|{}|pipeline={}",
         config.ratio_width,
         config.ratio_height,
         config.long_side,
         output_width,
         output_height,
-        CARD_JPEG_QUALITY,
+        encoding_descriptor,
         NORMALIZATION_PIPELINE_VERSION
     );
     let final_hash = hash_hex(transform_descriptor.as_bytes());
     let card_id = final_hash.clone();
-    let cache_path = config.cards_cache_dir.join(format!("{final_hash}.jpg"));
+    let cache_path = config.cards_cache_dir.join(format!(
+        "{final_hash}.{}",
+        config.cache_format.file_extension()
+    ));
 
     if !cache_path.exists() {
         let source_image = image::load_from_memory(&bytes)
@@ -473,10 +548,28 @@ fn normalize_source_to_cache(
         let file = fs::File::create(&cache_path)
             .with_context(|| format!("Failed to create cache file {}", cache_path.display()))?;
         let mut writer = BufWriter::new(file);
-        let mut encoder = JpegEncoder::new_with_quality(&mut writer, CARD_JPEG_QUALITY);
-        encoder
-            .encode_image(&resized)
-            .with_context(|| format!("Failed to encode cached image {}", cache_path.display()))?;
+        match config.cache_format {
+            CacheImageFormat::Avif => {
+                let rgba = resized.to_rgba8();
+                let (width, height) = rgba.dimensions();
+                let encoder = AvifEncoder::new_with_speed_quality(
+                    &mut writer,
+                    CARD_AVIF_SPEED,
+                    CARD_AVIF_QUALITY,
+                );
+                encoder
+                    .write_image(rgba.as_raw(), width, height, ExtendedColorType::Rgba8)
+                    .with_context(|| {
+                        format!("Failed to encode cached image {}", cache_path.display())
+                    })?;
+            }
+            CacheImageFormat::Jpeg => {
+                let mut encoder = JpegEncoder::new_with_quality(&mut writer, CARD_JPEG_QUALITY);
+                encoder.encode_image(&resized).with_context(|| {
+                    format!("Failed to encode cached image {}", cache_path.display())
+                })?;
+            }
+        }
     }
 
     Ok((card_id, cache_path))
@@ -491,7 +584,11 @@ fn load_cards(
     let builtin_sources = if disable_builtin_images {
         Vec::new()
     } else {
-        collect_image_files_recursive(Path::new(BUILTIN_IMAGE_DIR), true, sniff_extensionless_images)?
+        collect_image_files_recursive(
+            Path::new(BUILTIN_IMAGE_DIR),
+            true,
+            sniff_extensionless_images,
+        )?
     };
 
     let mut extra_sources = Vec::new();
@@ -656,6 +753,7 @@ struct ServerState {
     rooms: DashMap<String, Arc<Room>>,
     base_deck: Arc<Vec<String>>,
     cards: Arc<HashMap<String, PathBuf>>,
+    card_content_type: &'static str,
     default_win_points_target: u16,
 }
 
@@ -677,7 +775,7 @@ impl ServerState {
         )?;
 
         println!(
-            "Loaded {} cards ({} built-in, {} extra, {} failed; builtins {}; extensionless sniff {}; ratio {}:{}, long side {}; cache {}; default points target {})",
+            "Loaded {} cards ({} built-in, {} extra, {} failed; builtins {}; extensionless sniff {}; ratio {}:{}, long side {}; cache format {}; cache {}; default points target {})",
             loaded_cards.deck.len(),
             loaded_cards.loaded_builtin,
             loaded_cards.loaded_extra,
@@ -691,6 +789,7 @@ impl ServerState {
             config.ratio_width,
             config.ratio_height,
             config.long_side,
+            config.cache_format.env_value(),
             config.cards_cache_dir.display(),
             default_win_points_target
         );
@@ -699,6 +798,7 @@ impl ServerState {
             rooms: DashMap::new(),
             base_deck: Arc::new(loaded_cards.deck),
             cards: Arc::new(loaded_cards.cards),
+            card_content_type: config.cache_format.mime_type(),
             default_win_points_target,
         })
     }
@@ -846,7 +946,7 @@ async fn card_handler(
     match tokio::fs::read(&cache_path).await {
         Ok(bytes) => (
             [
-                (header::CONTENT_TYPE, "image/jpeg"),
+                (header::CONTENT_TYPE, state.card_content_type),
                 (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
             ],
             bytes,

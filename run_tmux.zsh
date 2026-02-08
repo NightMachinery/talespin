@@ -8,6 +8,7 @@ tmuxnew () {
 export ALL_PROXY=http://127.0.0.1:1087 all_proxy=http://127.0.0.1:1087 http_proxy=http://127.0.0.1:1087 https_proxy=http://127.0.0.1:1087 HTTP_PROXY=http://127.0.0.1:1087 HTTPS_PROXY=http://127.0.0.1:1087
 
 export TALESPIN_PRODUCTION_P="${TALESPIN_PRODUCTION_P:-n}"
+tmux set-environment -g TALESPIN_PRODUCTION_P "$TALESPIN_PRODUCTION_P"
 ##
 export TALESPIN_DISABLE_BUILTIN_IMAGES_P="${TALESPIN_DISABLE_BUILTIN_IMAGES_P:-y}"
 export TALESPIN_AUTO_DOWNLOAD_EXTRA_IMAGES_P="${TALESPIN_AUTO_DOWNLOAD_EXTRA_IMAGES_P:-y}"
@@ -70,6 +71,8 @@ export TALESPIN_CARD_ASPECT_RATIO="${TALESPIN_CARD_ASPECT_RATIO:-2:3}"
 tmux set-environment -g TALESPIN_CARD_ASPECT_RATIO "$TALESPIN_CARD_ASPECT_RATIO"
 export TALESPIN_CARD_LONG_SIDE="${TALESPIN_CARD_LONG_SIDE:-1536}"
 tmux set-environment -g TALESPIN_CARD_LONG_SIDE "$TALESPIN_CARD_LONG_SIDE"
+export TALESPIN_CARD_CACHE_FORMAT="${TALESPIN_CARD_CACHE_FORMAT:-avif}"
+tmux set-environment -g TALESPIN_CARD_CACHE_FORMAT "$TALESPIN_CARD_CACHE_FORMAT"
 ##
 
 tmuxnew talespin_backend zsh -lc 'cd ~/base/talespin/talespin-server && ./target/release/talespin-server'
@@ -82,3 +85,5 @@ else
 fi
 
 TALESPIN_PRODUCTION_P="$TALESPIN_PRODUCTION_P" caddy reload --config ~/Caddyfile --adapter caddyfile
+#: If you’re running multiple Caddy instances, a reload will contact the admin endpoint (localhost:2019 by default) and tell the instance to reload without restarting. Existing connections stay, and the new config takes effect.
+# tmuxnew caddy caddy run --config ~/Caddyfile

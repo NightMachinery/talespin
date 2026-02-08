@@ -21,7 +21,7 @@ Set `TALESPIN_SNIFF_EXTENSIONLESS_IMAGES_P=y` to sniff extensionless files and a
 
 ## Runtime Flow
 
-The backend normalizes all source images into cached JPEG cards and serves them through:
+The backend normalizes all source images into cached cards and serves them through:
 
 - `GET /cards/:card_id`
 
@@ -43,12 +43,17 @@ Cache key is based on:
 
 - env var: `TALESPIN_CARD_ASPECT_RATIO` (default `2:3`)
 - env var: `TALESPIN_CARD_LONG_SIDE` (default `1536`)
+- env var: `TALESPIN_CARD_CACHE_FORMAT` (default `avif`; supported: `avif`, `jpeg`)
 
 Behavior:
 
 - image is center-cropped to target ratio
 - then resized to target dimensions derived from ratio and long side
-- output is JPEG quality 90
+- output is encoded with the selected cache format
+
+Defaults:
+
+- AVIF (`quality=80`, `speed=4`)
 
 For default `2:3`, output size is `1024x1536`.
 
