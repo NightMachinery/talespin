@@ -631,8 +631,28 @@ impl Room {
     pub async fn handle_client_msg(&self, name: &str, msg: WsMessage) -> Result<()> {
         let mut state = self.state.write().await;
 
-        let msg: ClientMsg = serde_json::from_str(msg.to_text()?)
-            .context(format!("Failed to deserialize client msg: {:?}", msg))?;
+        let msg: ClientMsg = match msg {
+            WsMessage::Text(text) => serde_json::from_str(&text)
+                .context(format!("Failed to deserialize client msg: {}", text))?,
+            WsMessage::Binary(bytes) => {
+                let text = match std::str::from_utf8(bytes.as_ref()) {
+                    Ok(text) => text,
+                    Err(_) => {
+                        println!(
+                            "Ignoring non-UTF8 binary client message from {} ({} bytes)",
+                            name,
+                            bytes.len()
+                        );
+                        return Ok(());
+                    }
+                };
+                serde_json::from_str(text)
+                    .context(format!("Failed to deserialize client msg (binary): {}", text))?
+            }
+            WsMessage::Ping(_) | WsMessage::Pong(_) | WsMessage::Close(_) => {
+                return Ok(());
+            }
+        };
 
         println!("Handling client message: {:?}", msg);
 
@@ -1176,6 +1196,11 @@ impl Room {
                 }
                 msg = socket.recv() => {
                     match msg {
+                        Some(Ok(WsMessage::Close(_))) => break,
+                        Some(Ok(WsMessage::Ping(payload))) => {
+                            socket.send(WsMessage::Pong(payload)).await?;
+                        }
+                        Some(Ok(WsMessage::Pong(_))) => {}
                         Some(Ok(msg)) => {
                             self.handle_client_msg(name, msg).await?;
                         }
