@@ -31,6 +31,14 @@ If multiple players are at or above 10 points, the game still ends (same thresho
 
 There is no explicit tie-breaker rule in code; end ranking is sorted by points descending, and equal-score ordering is not defined by a dedicated tie-break policy.
 
+## Q: What Happens When Cards Run Out?
+
+When the draw deck gets low, the server refills it from the base deck while excluding cards currently in players' hands.
+
+There is no dedicated "deck exhausted" end condition. The normal end condition is still points (`>= 10`).
+
+If a refill still cannot provide enough cards, the server returns a `Not enough cards in the deck` error.
+
 ## Not Supported (Current Implementation)
 
 - custom win threshold (for example first to 15)
