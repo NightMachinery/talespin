@@ -78,7 +78,7 @@
 	}
 
 	function kickPlayer(playerName: string) {
-		if (!isModerator || playerName === creator || playerName === name) return;
+		if (!isModerator || playerName === name) return;
 		if (!browser || window.confirm(`Kick ${playerName} from this lobby?`)) {
 			gameServer.kickPlayer(playerName);
 		}
@@ -147,10 +147,10 @@
 									</button>
 								{/if}
 							{/if}
-							{#if isModerator && playerName !== creator && playerName !== name}
-								<button
-									class="btn variant-filled px-3 py-1 text-sm"
-									on:click={() => kickPlayer(playerName)}
+								{#if isModerator && playerName !== name}
+									<button
+										class="btn variant-filled px-3 py-1 text-sm"
+										on:click={() => kickPlayer(playerName)}
 								>
 									Kick
 								</button>

@@ -323,6 +323,9 @@ impl Room {
 
         state.players.remove(player_name);
         state.moderators.remove(player_name);
+        if state.creator.as_deref() == Some(player_name) {
+            state.creator = None;
+        }
         state.removed_players.insert(player_name.to_string());
 
         if let Some(tx) = state.player_to_socket.remove(player_name) {
@@ -766,14 +769,6 @@ impl Room {
 
                 let target = player.trim();
                 if target.is_empty() {
-                    return Ok(());
-                }
-
-                if state.creator.as_deref() == Some(target) {
-                    if let Some(tx) = state.player_to_socket.get(name) {
-                        tx.send(ServerMsg::ErrorMsg("Creator cannot be kicked".to_string()).into())
-                            .await?;
-                    }
                     return Ok(());
                 }
 
