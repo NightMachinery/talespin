@@ -11,7 +11,7 @@
 
 In `~/Caddyfile`, Talespin is routed as:
 
-- `/create`, `/exists`, `/stats`, `/ws`, `/ws/*` -> `127.0.0.1:8081` (backend)
+- `/create`, `/exists`, `/stats`, `/ws`, `/ws/*`, `/cards`, `/cards/*` -> `127.0.0.1:8081` (backend)
 - all other paths -> `127.0.0.1:4173` (frontend)
 
 ## Startup Scripts
@@ -43,6 +43,11 @@ This script should only manage Talespin sessions:
 It also defines `tmuxnew` and exports proxy env vars required for package/network operations.
 It sets `TALESPIN_EXTRA_IMAGE_DIRS` (newline-separated dirs) for loading extra card images.
 You can set `TALESPIN_DISABLE_BUILTIN_IMAGES_P=y` to disable built-in cards.
+It also exports:
+
+- `TALESPIN_CACHE_DIR` (default `~/.cache/talespin`)
+- `TALESPIN_CARD_ASPECT_RATIO` (default `2:3`)
+- `TALESPIN_CARD_LONG_SIDE` (default `1536`)
 
 ## Dependencies
 
