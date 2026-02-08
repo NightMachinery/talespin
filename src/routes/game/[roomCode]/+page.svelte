@@ -55,7 +55,8 @@
 		roomCode = $page.params.roomCode;
 
 		if (name === '') {
-			goto('/');
+			goto(`/?room=${roomCode}`);
+			return;
 		}
 
 		gameServer = new GameServer();

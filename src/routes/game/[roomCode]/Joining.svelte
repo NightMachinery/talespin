@@ -1,18 +1,50 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import type GameServer from '$lib/gameServer';
 	import type { PlayerInfo } from '$lib/types';
-	import { Avatar } from '@skeletonlabs/skeleton';
+	import { Avatar, getToastStore } from '@skeletonlabs/skeleton';
 
 	export let players: { [key: string]: PlayerInfo } = {};
 	export let roomCode: string = '';
 	export let gameServer: GameServer;
 	export let name = '';
+	const toastStore = getToastStore();
 
 	function getInitialsFromString(name: string) {
 		return name
 			.split(' ')
 			.map((n) => n[0])
 			.join('');
+	}
+
+	function getInviteLink() {
+		if (!browser) return '';
+		return `${window.location.origin}/?room=${encodeURIComponent(roomCode)}`;
+	}
+
+	async function copyInviteLink() {
+		const inviteLink = getInviteLink();
+		if (!inviteLink) return;
+
+		try {
+			await navigator.clipboard.writeText(inviteLink);
+		} catch {
+			const textArea = document.createElement('textarea');
+			textArea.value = inviteLink;
+			textArea.style.position = 'fixed';
+			textArea.style.opacity = '0';
+			document.body.appendChild(textArea);
+			textArea.focus();
+			textArea.select();
+			document.execCommand('copy');
+			document.body.removeChild(textArea);
+		}
+
+		toastStore.trigger({
+			message: '🔗 Invite link copied',
+			autohide: true,
+			timeout: 2000
+		});
 	}
 </script>
 
@@ -23,6 +55,11 @@
 			You are in room
 			<code class="code text-lg">{roomCode}</code>
 		</h2>
+		<div class="flex justify-center mt-4">
+			<button class="btn variant-filled" on:click={() => copyInviteLink()}>
+				Copy Invite Link
+			</button>
+		</div>
 		<div class="container flex flex-wrap justify-center gap-4 mt-10">
 			{#each Object.entries(players) as [key, value]}
 				<div class=" p-5">

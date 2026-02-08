@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { fade } from 'svelte/transition';
 	import { goto } from '$app/navigation';
 	import { getToastStore } from '@skeletonlabs/skeleton';
@@ -10,11 +11,26 @@
 	let name = get(nameStore) || '';
 	let roomCode = '';
 	let joinGameClicked = false;
+	let lockedRoomCode = false;
 	let toastStore = getToastStore();
 
 	$: nameStore.set(name);
 
+	onMount(() => {
+		const url = new URL(window.location.href);
+		const linkedRoomCode = (url.searchParams.get('room') || '').trim().toLowerCase();
+		if (linkedRoomCode) {
+			roomCode = linkedRoomCode;
+			joinGameClicked = true;
+			lockedRoomCode = true;
+		}
+	});
+
 	async function createGame() {
+		if (lockedRoomCode) {
+			return joinGame();
+		}
+
 		if (roomCode !== '') {
 			return joinGame();
 		}
@@ -81,13 +97,16 @@
 					type="text"
 					id="roomCode"
 					bind:value={roomCode}
+					disabled={lockedRoomCode}
 					class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 mb-4 leading-tight focus:outline-none focus:shadow-outline"
 				/>
 			</div>
 		{/if}
 
 		<div class="flex justify-between mb-4">
-			<button on:click={() => createGame()} class="btn variant-filled">Create Game</button>
+			<button disabled={lockedRoomCode} on:click={() => createGame()} class="btn variant-filled">
+				Create Game
+			</button>
 			<button on:click={() => joinGame()} class="btn variant-filled">Join Game</button>
 		</div>
 	</div>
