@@ -23,7 +23,7 @@ You can also load images from extra directories via:
 - format: newline-separated absolute/`~/...` directory paths
 - optional env var `TALESPIN_DISABLE_BUILTIN_IMAGES_P`; set to `y` to use only extra-dir images
 
-At startup, the backend imports supported files (`.jpg`, `.jpeg`, `.png`) from those directories and links/copies them into `static/assets/cards/` with generated names, so they are usable by the existing frontend.
+At startup, the backend scans those directories recursively, imports supported files (`.jpg`, `.jpeg`, `.png`), and links/copies them into `static/assets/cards/` with generated names, so they are usable by the existing frontend.
 If custom dirs are configured but no supported images are found, the backend exits with an error.
 
 ## Size/Resize Behavior

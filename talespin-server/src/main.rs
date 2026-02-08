@@ -11,7 +11,7 @@ use axum::{
 };
 use dashmap::DashMap;
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap, HashSet},
+    collections::{hash_map::DefaultHasher, HashMap, HashSet, VecDeque},
     env, fs,
     hash::{Hash, Hasher},
     io::ErrorKind,
@@ -135,61 +135,86 @@ fn load_extra_cards(base_deck_dir: &Path, extra_image_dirs: &[PathBuf]) -> Resul
     let mut seen_sources = HashSet::new();
 
     for dir_path in extra_image_dirs {
-        let entries = match fs::read_dir(&dir_path) {
-            Ok(entries) => entries,
-            Err(err) => {
-                println!(
-                    "Warning: unable to read extra image dir {}: {}",
-                    dir_path.display(),
-                    err
-                );
-                continue;
-            }
-        };
+        let mut dirs_to_scan = VecDeque::from([dir_path.clone()]);
 
-        for entry in entries {
-            let entry = match entry {
-                Ok(e) => e,
+        while let Some(scan_dir) = dirs_to_scan.pop_front() {
+            let entries = match fs::read_dir(&scan_dir) {
+                Ok(entries) => entries,
                 Err(err) => {
                     println!(
-                        "Warning: failed reading entry in {}: {}",
-                        dir_path.display(),
+                        "Warning: unable to read extra image dir {}: {}",
+                        scan_dir.display(),
                         err
                     );
                     continue;
                 }
             };
 
-            let source = entry.path();
-            if !source.is_file() || !is_supported_image(&source) {
-                continue;
-            }
-            if !seen_sources.insert(source.clone()) {
-                continue;
-            }
+            for entry in entries {
+                let entry = match entry {
+                    Ok(e) => e,
+                    Err(err) => {
+                        println!(
+                            "Warning: failed reading entry in {}: {}",
+                            scan_dir.display(),
+                            err
+                        );
+                        continue;
+                    }
+                };
 
-            let mut hasher = DefaultHasher::new();
-            source.to_string_lossy().hash(&mut hasher);
-            let hash = hasher.finish();
-            let ext = source
-                .extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or("jpg")
-                .to_ascii_lowercase();
-            let target_name = format!("{EXTRA_CARD_PREFIX}{hash:016x}.{ext}");
-            let target = base_deck_dir.join(target_name);
+                let file_type = match entry.file_type() {
+                    Ok(file_type) => file_type,
+                    Err(err) => {
+                        println!(
+                            "Warning: failed to read entry type {}: {}",
+                            entry.path().display(),
+                            err
+                        );
+                        continue;
+                    }
+                };
 
-            if target.exists() {
-                let _ = fs::remove_file(&target);
-            }
+                if file_type.is_dir() {
+                    dirs_to_scan.push_back(entry.path());
+                    continue;
+                }
 
-            match link_or_copy_image(&source, &target) {
-                Ok(_) => loaded += 1,
-                Err(err) => println!(
-                    "Warning: failed to register extra image {}: {}",
-                    source.display(),
-                    err
-                ),
+                if !file_type.is_file() {
+                    continue;
+                }
+
+                let source = entry.path();
+                if !is_supported_image(&source) {
+                    continue;
+                }
+                if !seen_sources.insert(source.clone()) {
+                    continue;
+                }
+
+                let mut hasher = DefaultHasher::new();
+                source.to_string_lossy().hash(&mut hasher);
+                let hash = hasher.finish();
+                let ext = source
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("jpg")
+                    .to_ascii_lowercase();
+                let target_name = format!("{EXTRA_CARD_PREFIX}{hash:016x}.{ext}");
+                let target = base_deck_dir.join(target_name);
+
+                if target.exists() {
+                    let _ = fs::remove_file(&target);
+                }
+
+                match link_or_copy_image(&source, &target) {
+                    Ok(_) => loaded += 1,
+                    Err(err) => println!(
+                        "Warning: failed to register extra image {}: {}",
+                        source.display(),
+                        err
+                    ),
+                }
             }
         }
     }
