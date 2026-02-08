@@ -24,6 +24,15 @@ export TALESPIN_CARD_ASPECT_RATIO="${TALESPIN_CARD_ASPECT_RATIO:-2:3}"
 tmux set-environment -g TALESPIN_CARD_ASPECT_RATIO "$TALESPIN_CARD_ASPECT_RATIO"
 export TALESPIN_CARD_LONG_SIDE="${TALESPIN_CARD_LONG_SIDE:-1536}"
 tmux set-environment -g TALESPIN_CARD_LONG_SIDE "$TALESPIN_CARD_LONG_SIDE"
+export TALESPIN_PRODUCTION_P="${TALESPIN_PRODUCTION_P:-n}"
 
 tmuxnew talespin_backend zsh -lc 'cd ~/base/talespin/talespin-server && ./target/release/talespin-server'
-tmuxnew talespin_frontend zsh -lc 'source ~/.shared.sh; nvm-load; nvm use 20; cd ~/base/talespin; npm run dev -- --host 127.0.0.1 --port 4173'
+
+if [[ "$TALESPIN_PRODUCTION_P" == [yY] ]]; then
+	tmux kill-session -t talespin_frontend &> /dev/null || true
+	zsh -lc 'source ~/.shared.sh; nvm-load; nvm use 20; cd ~/base/talespin; npm run build'
+else
+	tmuxnew talespin_frontend zsh -lc 'source ~/.shared.sh; nvm-load; nvm use 20; cd ~/base/talespin; npm run dev -- --host 127.0.0.1 --port 4173 --debug'
+fi
+
+TALESPIN_PRODUCTION_P="$TALESPIN_PRODUCTION_P" caddy reload --config ~/Caddyfile --adapter caddyfile
