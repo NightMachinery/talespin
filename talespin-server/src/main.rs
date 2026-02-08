@@ -257,9 +257,34 @@ fn cleanup_legacy_generated_cards() -> Result<()> {
 fn collect_image_files_recursive(root: &Path, strict_root: bool) -> Result<Vec<PathBuf>> {
     let mut found = Vec::new();
     let mut dirs_to_scan = VecDeque::from([root.to_path_buf()]);
+    let mut visited_dirs = HashSet::new();
 
     while let Some(scan_dir) = dirs_to_scan.pop_front() {
-        let entries = match fs::read_dir(&scan_dir) {
+        let resolved_scan_dir = match fs::canonicalize(&scan_dir) {
+            Ok(path) => path,
+            Err(err) => {
+                if strict_root && scan_dir == root {
+                    return Err(anyhow!(
+                        "Unable to resolve image directory {}: {}",
+                        scan_dir.display(),
+                        err
+                    ));
+                }
+
+                println!(
+                    "Warning: unable to resolve image directory {}: {}",
+                    scan_dir.display(),
+                    err
+                );
+                continue;
+            }
+        };
+
+        if !visited_dirs.insert(resolved_scan_dir.clone()) {
+            continue;
+        }
+
+        let entries = match fs::read_dir(&resolved_scan_dir) {
             Ok(entries) => entries,
             Err(err) => {
                 if strict_root && scan_dir == root {
@@ -285,7 +310,7 @@ fn collect_image_files_recursive(root: &Path, strict_root: bool) -> Result<Vec<P
                 Err(err) => {
                     println!(
                         "Warning: failed reading entry in {}: {}",
-                        scan_dir.display(),
+                        resolved_scan_dir.display(),
                         err
                     );
                     continue;
@@ -304,13 +329,27 @@ fn collect_image_files_recursive(root: &Path, strict_root: bool) -> Result<Vec<P
                 }
             };
 
-            if file_type.is_dir() {
-                dirs_to_scan.push_back(entry.path());
+            let resolved_entry = match fs::canonicalize(entry.path()) {
+                Ok(path) => path,
+                Err(err) => {
+                    println!(
+                        "Warning: unable to resolve entry {}: {}",
+                        entry.path().display(),
+                        err
+                    );
+                    continue;
+                }
+            };
+
+            if file_type.is_dir() || resolved_entry.is_dir() {
+                dirs_to_scan.push_back(resolved_entry);
                 continue;
             }
 
-            if file_type.is_file() && is_supported_image(&entry.path()) {
-                found.push(entry.path());
+            if (file_type.is_file() || resolved_entry.is_file())
+                && is_supported_image(&resolved_entry)
+            {
+                found.push(resolved_entry);
             }
         }
     }
