@@ -1,6 +1,8 @@
 <script lang="ts">
 	import type GameServer from '$lib/gameServer';
+	import type { PlayerInfo } from '$lib/types';
 	import Images from './Images.svelte';
+	import StageShell from './StageShell.svelte';
 	import { getToastStore } from '@skeletonlabs/skeleton';
 
 	export let displayImages: string[] = [];
@@ -8,9 +10,15 @@
 	export let activePlayer = '';
 	export let gameServer: GameServer;
 	export let description = '';
+	export let players: { [key: string]: PlayerInfo } = {};
+	export let stage = '';
+	export let pointChange: { [key: string]: number } = {};
+	export let roundNum = 0;
 
 	let toastStore = getToastStore();
 	let selectedImage = '';
+	let isChooser = false;
+	$: isChooser = activePlayer !== name;
 
 	if (name !== activePlayer) {
 		toastStore.trigger({
@@ -30,28 +38,56 @@
 	}
 </script>
 
-<div class="flex justify-center">
-	<div>
-		<div class="py-5">
-			{#if activePlayer === name}
-				<h1 class="text-3xl">Sit tight!</h1>
-				<p>Players are choosing cards that match "{description}"</p>
-			{:else}
-				<h1 class="text-2xl">Your turn!</h1>
+<StageShell {players} {stage} {pointChange} {activePlayer} {roundNum} showMobileActions={isChooser}>
+	<svelte:fragment slot="leftRail">
+		{#if isChooser}
+			<div class="card light space-y-2 p-4">
+				<h1 class="text-xl font-semibold">Your turn!</h1>
 				<p>
 					Choose a card that <span class="boujee-text">{activePlayer}</span> would put for "{description}"
 				</p>
-			{/if}
-		</div>
-		<h1 class="text-xl">Your hand:</h1>
-		<Images {displayImages} bind:selectedImage selectable={activePlayer !== name} />
-
-		{#if activePlayer !== name}
-			<div class="flex justify-center mt-5">
-				<button class="btn variant-filled" disabled={selectedImage === ''} on:click={choose}
+			</div>
+			<div class="card light p-4">
+				<button class="btn variant-filled w-full" disabled={selectedImage === ''} on:click={choose}
 					>Choose</button
 				>
 			</div>
+		{:else}
+			<div class="card light space-y-2 p-4">
+				<h1 class="text-2xl">Sit tight!</h1>
+				<p>Players are choosing cards that match "{description}"</p>
+			</div>
 		{/if}
+	</svelte:fragment>
+
+	<svelte:fragment slot="mobileTop">
+		{#if isChooser}
+			<div class="card light space-y-2 p-4">
+				<h1 class="text-xl font-semibold">Your turn!</h1>
+				<p>
+					Choose a card that <span class="boujee-text">{activePlayer}</span> would put for "{description}"
+				</p>
+			</div>
+		{:else}
+			<div class="card light space-y-2 p-4">
+				<h1 class="text-2xl">Sit tight!</h1>
+				<p>Players are choosing cards that match "{description}"</p>
+			</div>
+		{/if}
+	</svelte:fragment>
+
+	<svelte:fragment slot="mobileActions">
+		{#if isChooser}
+			<button class="btn variant-filled w-full" disabled={selectedImage === ''} on:click={choose}
+				>Choose</button
+			>
+		{/if}
+	</svelte:fragment>
+
+	<div class="flex h-full flex-col">
+		<h2 class="mb-2 hidden text-lg font-semibold lg:block">Your hand</h2>
+		<div class="min-h-0 flex-1">
+			<Images {displayImages} bind:selectedImage selectable={isChooser} mode="hand" />
+		</div>
 	</div>
-</div>
+</StageShell>

@@ -1,20 +1,26 @@
 <script lang="ts">
-	import { Accordion, AccordionItem, ProgressBar } from '@skeletonlabs/skeleton';
-	import { InfoIcon } from 'svelte-feather-icons';
+	import { Accordion, AccordionItem } from '@skeletonlabs/skeleton';
 	import { getToastStore } from '@skeletonlabs/skeleton';
 
-	import GameServer from '$lib/gameServer';
+	import type GameServer from '$lib/gameServer';
+	import type { PlayerInfo } from '$lib/types';
 	import Images from './Images.svelte';
-	import ActiveChooses from './ActiveChooses.svelte';
+	import StageShell from './StageShell.svelte';
 
 	export let displayImages: string[] = [];
 	export let name = '';
 	export let activePlayer = '';
 	export let gameServer: GameServer;
 	export let description = '';
+	export let players: { [key: string]: PlayerInfo } = {};
+	export let stage = '';
+	export let pointChange: { [key: string]: number } = {};
+	export let roundNum = 0;
 
 	let selectedImage = '';
 	let toastStore = getToastStore();
+	let isVoter = false;
+	$: isVoter = activePlayer !== name;
 
 	function vote() {
 		gameServer.vote(selectedImage);
@@ -26,114 +32,148 @@
 	}
 </script>
 
-<div class="flex justify-center">
-	<div>
-		<div class="mt-5">
-			{#if activePlayer === name}
-				<h1 class="text-2xl mb-3">Tallying the votes!</h1>
-				<h1 class="text-xl mt-7">Here's what everyone chose:</h1>
-				<Images {displayImages} bind:selectedImage selectable={activePlayer !== name} />
+<StageShell {players} {stage} {pointChange} {activePlayer} {roundNum} showMobileActions={isVoter}>
+	<svelte:fragment slot="leftRail">
+		<div class="card light p-4">
+			<h2 class="mb-2 text-lg font-semibold">How points work</h2>
+			<Accordion>
+				<AccordionItem>
+					<svelte:fragment slot="summary">
+						<strong
+							>If all players find <span class="boujee-text">{activePlayer}'s</span> card:</strong
+						>
+					</svelte:fragment>
+					<svelte:fragment slot="content">
+						<ul class="ml-8">
+							<li>+0 for <span class="font-bold">{activePlayer}</span></li>
+							<li>+2 for everyone else</li>
+						</ul>
+					</svelte:fragment>
+				</AccordionItem>
+				<AccordionItem>
+					<svelte:fragment slot="summary">
+						<strong
+							>If nobody finds <span class="boujee-text">{activePlayer}'s</span> card:</strong
+						>
+					</svelte:fragment>
+					<svelte:fragment slot="content">
+						<ul class="ml-8">
+							<li>+0 for <span class="font-bold">{activePlayer}</span></li>
+							<li>+2 for everyone else</li>
+							<li>+1 bonus point for each vote your card receives</li>
+						</ul>
+					</svelte:fragment>
+				</AccordionItem>
+				<AccordionItem>
+					<svelte:fragment slot="summary">
+						<strong>Otherwise</strong>
+					</svelte:fragment>
+					<svelte:fragment slot="content">
+						<ul class="ml-8">
+							<li>+3 for <span class="font-bold">{activePlayer}</span></li>
+							<li>+3 for you if you find <span>{activePlayer}'s</span> card</li>
+							<li>+1 bonus point for each vote your card receives</li>
+						</ul>
+					</svelte:fragment>
+				</AccordionItem>
+			</Accordion>
+		</div>
 
-				<h1 class="text-xl my-5">How points work</h1>
-				<div class="card light mb-20">
-					<Accordion>
-						<AccordionItem>
-							<svelte:fragment slot="summary">
-								<strong>If all players find your card:</strong>
-							</svelte:fragment>
-							<svelte:fragment slot="content">
-								<ul class="ml-8">
-									<li>+0 for you</li>
-									<li>+2 for everyone else</li>
-								</ul>
-							</svelte:fragment>
-						</AccordionItem>
-						<AccordionItem>
-							<svelte:fragment slot="summary">
-								<strong>If nobody finds your card:</strong>
-							</svelte:fragment>
-							<svelte:fragment slot="content">
-								<ul class="ml-8">
-									<li>+0 for you</li>
-									<li>+2 for everyone else</li>
-									<li>+1 bonus point for each vote a player receives</li>
-								</ul>
-							</svelte:fragment>
-						</AccordionItem>
-						<AccordionItem>
-							<svelte:fragment slot="summary">
-								<strong>Otherwise</strong>
-							</svelte:fragment>
-							<svelte:fragment slot="content">
-								<ul class="ml-8">
-									<li>+3 for you</li>
-									<li>+3 for those you find your card</li>
-									<li>+1 bonus point for each vote a player receives</li>
-								</ul>
-							</svelte:fragment>
-						</AccordionItem>
-					</Accordion>
-				</div>
-			{:else}
-				<h1 class="text-2xl">
+		{#if isVoter}
+			<div class="card light space-y-2 p-4">
+				<h1 class="text-xl font-semibold">
 					Which card did <span class="font-bold">{activePlayer}</span> choose for "{description}"?
 				</h1>
-				<p class="text-xl mt-5">Don't fall for the fakes!</p>
-				<Images {displayImages} bind:selectedImage selectable={activePlayer !== name} />
+				<p>Don't fall for the fakes!</p>
+			</div>
+			<div class="card light p-4">
+				<button class="btn variant-filled w-full" disabled={selectedImage === ''} on:click={vote}
+					>Vote</button
+				>
+			</div>
+		{:else}
+			<div class="card light space-y-2 p-4">
+				<h1 class="text-xl font-semibold">Tallying the votes!</h1>
+				<p>Everyone is voting on the clue "{description}".</p>
+			</div>
+		{/if}
+	</svelte:fragment>
 
-				<div class="flex justify-center">
-					<button class="btn variant-filled mt-5" disabled={selectedImage === ''} on:click={vote}
-						>Vote</button
-					>
-				</div>
+	<svelte:fragment slot="mobileTop">
+		{#if isVoter}
+			<div class="card light space-y-2 p-4">
+				<h1 class="text-xl font-semibold">
+					Which card did <span class="font-bold">{activePlayer}</span> choose for "{description}"?
+				</h1>
+				<p>Don't fall for the fakes!</p>
+			</div>
+		{:else}
+			<div class="card light space-y-2 p-4">
+				<h1 class="text-xl font-semibold">Tallying the votes!</h1>
+				<p>Everyone is voting on the clue "{description}".</p>
+			</div>
+		{/if}
+	</svelte:fragment>
 
-				<!-- TODO ADD TOAST -->
+	<svelte:fragment slot="mobileBottom">
+		<div class="card light p-4">
+			<h2 class="mb-2 text-lg font-semibold">How points work</h2>
+			<Accordion>
+				<AccordionItem>
+					<svelte:fragment slot="summary">
+						<strong
+							>If all players find <span class="boujee-text">{activePlayer}'s</span> card:</strong
+						>
+					</svelte:fragment>
+					<svelte:fragment slot="content">
+						<ul class="ml-8">
+							<li>+0 for <span class="font-bold">{activePlayer}</span></li>
+							<li>+2 for everyone else</li>
+						</ul>
+					</svelte:fragment>
+				</AccordionItem>
+				<AccordionItem>
+					<svelte:fragment slot="summary">
+						<strong
+							>If nobody finds <span class="boujee-text">{activePlayer}'s</span> card:</strong
+						>
+					</svelte:fragment>
+					<svelte:fragment slot="content">
+						<ul class="ml-8">
+							<li>+0 for <span class="font-bold">{activePlayer}</span></li>
+							<li>+2 for everyone else</li>
+							<li>+1 bonus point for each vote your card receives</li>
+						</ul>
+					</svelte:fragment>
+				</AccordionItem>
+				<AccordionItem>
+					<svelte:fragment slot="summary">
+						<strong>Otherwise</strong>
+					</svelte:fragment>
+					<svelte:fragment slot="content">
+						<ul class="ml-8">
+							<li>+3 for <span class="font-bold">{activePlayer}</span></li>
+							<li>+3 for you if you find <span>{activePlayer}'s</span> card</li>
+							<li>+1 bonus point for each vote your card receives</li>
+						</ul>
+					</svelte:fragment>
+				</AccordionItem>
+			</Accordion>
+		</div>
+	</svelte:fragment>
 
-				<h1 class="text-xl my-5 mt-20">How points work</h1>
-				<div class="card light mb-20">
-					<Accordion>
-						<AccordionItem>
-							<svelte:fragment slot="summary">
-								<strong
-									>If all players find <span class="boujee-text">{activePlayer}'s</span> card:</strong
-								>
-							</svelte:fragment>
-							<svelte:fragment slot="content">
-								<ul class="ml-8">
-									<li>+0 for <span class="font-bold">{activePlayer}</span></li>
-									<li>+2 for everyone else</li>
-								</ul>
-							</svelte:fragment>
-						</AccordionItem>
-						<AccordionItem>
-							<svelte:fragment slot="summary">
-								<strong
-									>If nobody finds <span class="boujee-text">{activePlayer}'s</span> card:</strong
-								>
-							</svelte:fragment>
-							<svelte:fragment slot="content">
-								<ul class="ml-8">
-									<li>+0 for <span class="font-bold">{activePlayer}</span></li>
-									<li>+2 for everyone else</li>
-									<li>+1 bonus point for each vote your card receives</li>
-								</ul>
-							</svelte:fragment>
-						</AccordionItem>
-						<AccordionItem>
-							<svelte:fragment slot="summary">
-								<strong>Otherwise</strong>
-							</svelte:fragment>
-							<svelte:fragment slot="content">
-								<ul class="ml-8">
-									<li>+3 for <span class="font-bold">{activePlayer}</span></li>
-									<li>+3 for you if you find <span>{activePlayer}'s</span> card</li>
-									<li>+1 bonus point for each vote your card receives</li>
-								</ul>
-							</svelte:fragment>
-						</AccordionItem>
-					</Accordion>
-				</div>
-			{/if}
+	<svelte:fragment slot="mobileActions">
+		{#if isVoter}
+			<button class="btn variant-filled w-full" disabled={selectedImage === ''} on:click={vote}
+				>Vote</button
+			>
+		{/if}
+	</svelte:fragment>
+
+	<div class="flex h-full flex-col">
+		<h2 class="mb-2 hidden text-lg font-semibold lg:block">Cards on table</h2>
+		<div class="min-h-0 flex-1 overflow-y-auto">
+			<Images {displayImages} bind:selectedImage selectable={isVoter} mode="board" />
 		</div>
 	</div>
-</div>
+</StageShell>

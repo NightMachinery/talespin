@@ -1,22 +1,30 @@
 <script lang="ts">
 	import type GameServer from '$lib/gameServer';
+	import type { PlayerInfo } from '$lib/types';
 	import Images from './Images.svelte';
+	import StageShell from './StageShell.svelte';
 	import { getToastStore } from '@skeletonlabs/skeleton';
 
-	export let displayImages: string[];
-	export let activePlayer: string;
-	export let name: string;
+	export let displayImages: string[] = [];
+	export let activePlayer = '';
+	export let name = '';
 	export let gameServer: GameServer;
+	export let players: { [key: string]: PlayerInfo } = {};
+	export let stage = '';
+	export let pointChange: { [key: string]: number } = {};
+	export let roundNum = 0;
 
 	let toastStore = getToastStore();
 	let descriptionBox = '';
 	let selectedImage = '';
+	let isActivePlayer = false;
+	$: isActivePlayer = activePlayer === name;
 
 	function activePlayerChoose() {
 		gameServer.activePlayerChoose(selectedImage, descriptionBox);
 	}
 
-	if (name === activePlayer) {
+	if (activePlayer === name) {
 		toastStore.trigger({
 			message: '👉 Your turn!',
 			autohide: true,
@@ -25,39 +33,77 @@
 	}
 </script>
 
-<div class="flex justify-center">
-	<div>
-		<div class="py-5">
-			{#if activePlayer === name}
-				<h1 class="text-2xl">Choose a card and write a one-word description</h1>
-			{:else}
-				<h1 class="text-3xl">Sit tight!</h1>
-				<p>
-					Waiting for <span class="boujee-text">{activePlayer}</span> to choose a card and description
-				</p>
-			{/if}
-		</div>
-
-		<h1 class="text-xl">{name}, your six cards:</h1>
-		<Images {displayImages} bind:selectedImage selectable={activePlayer === name} />
-
-		{#if activePlayer === name}
-			<div class="mt-5">
+<StageShell {players} {stage} {pointChange} {activePlayer} {roundNum} showMobileActions={isActivePlayer}>
+	<svelte:fragment slot="leftRail">
+		{#if isActivePlayer}
+			<div class="card light space-y-2 p-4">
+				<h1 class="text-xl font-semibold">Choose a card and write a one-word description</h1>
+				<p class="opacity-80">Pick your card and clue, then lock it in.</p>
+			</div>
+			<div class="card light space-y-3 p-4">
+				<label class="text-sm font-semibold" for="description-desktop">Description</label>
 				<input
+					id="description-desktop"
 					type="text"
 					placeholder="Description"
 					bind:value={descriptionBox}
-					class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline mt-5 mb-5"
+					class="w-full rounded border px-3 py-2 text-gray-700 shadow"
 				/>
-
-				<div class="flex justify-center">
-					<button
-						class="btn variant-filled"
-						disabled={selectedImage === '' || descriptionBox === ''}
-						on:click={activePlayerChoose}>Choose</button
-					>
-				</div>
+				<button
+					class="btn variant-filled w-full"
+					disabled={selectedImage === '' || descriptionBox === ''}
+					on:click={activePlayerChoose}>Choose</button
+				>
+			</div>
+		{:else}
+			<div class="card light space-y-2 p-4">
+				<h1 class="text-2xl">Sit tight!</h1>
+				<p>
+					Waiting for <span class="boujee-text">{activePlayer}</span> to choose a card and description
+				</p>
 			</div>
 		{/if}
+	</svelte:fragment>
+
+	<svelte:fragment slot="mobileTop">
+		{#if isActivePlayer}
+			<div class="card light space-y-2 p-4">
+				<h1 class="text-xl font-semibold">Choose a card and write a one-word description</h1>
+				<p class="opacity-80">Pick your card and clue, then lock it in.</p>
+			</div>
+		{:else}
+			<div class="card light space-y-2 p-4">
+				<h1 class="text-2xl">Sit tight!</h1>
+				<p>
+					Waiting for <span class="boujee-text">{activePlayer}</span> to choose a card and description
+				</p>
+			</div>
+		{/if}
+	</svelte:fragment>
+
+	<svelte:fragment slot="mobileActions">
+		{#if isActivePlayer}
+			<div class="space-y-3">
+				<input
+					id="description-mobile"
+					type="text"
+					placeholder="Description"
+					bind:value={descriptionBox}
+					class="w-full rounded border px-3 py-2 text-gray-700 shadow"
+				/>
+				<button
+					class="btn variant-filled w-full"
+					disabled={selectedImage === '' || descriptionBox === ''}
+					on:click={activePlayerChoose}>Choose</button
+				>
+			</div>
+		{/if}
+	</svelte:fragment>
+
+	<div class="flex h-full flex-col">
+		<h2 class="mb-2 hidden text-lg font-semibold lg:block">{name}, your six cards</h2>
+		<div class="min-h-0 flex-1">
+			<Images {displayImages} bind:selectedImage selectable={isActivePlayer} mode="hand" />
+		</div>
 	</div>
-</div>
+</StageShell>

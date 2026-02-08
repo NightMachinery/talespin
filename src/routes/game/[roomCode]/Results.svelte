@@ -1,22 +1,26 @@
 <script lang="ts">
 	import { http_host } from '$lib/gameServer';
 	import type GameServer from '$lib/gameServer';
-	import { Avatar } from '@skeletonlabs/skeleton';
+	import type { PlayerInfo } from '$lib/types';
+	import StageShell from './StageShell.svelte';
 
 	export let displayImages: string[] = [];
 	export let activeCard = '';
-	// export let activePlayer = '';
-	// export let name = '';
-	// export let description = '';
+	export let activePlayer = '';
 	export let gameServer: GameServer;
 	export let playerToCurrentCard: { [key: string]: string } = {};
 	export let playerToVote: { [key: string]: string } = {};
+	export let players: { [key: string]: PlayerInfo } = {};
+	export let stage = '';
+	export let pointChange: { [key: string]: number } = {};
+	export let roundNum = 0;
 
 	let cardToPlayer: { [key: string]: string } = {};
 	let cardToVoters: { [key: string]: string[] } = {};
 
 	$: {
-		console.log('updated');
+		cardToPlayer = {};
+		cardToVoters = {};
 		Object.entries(playerToCurrentCard).forEach(([key, value]) => {
 			cardToPlayer[value] = key;
 		});
@@ -30,17 +34,39 @@
 	}
 </script>
 
-<div class="flex justify-center">
-	<div>
-		<section class="grid grid-cols-2 md:grid-cols-3 gap-4 mt-5 max-w-3xl">
+<StageShell {players} {stage} {pointChange} {activePlayer} {roundNum}>
+	<svelte:fragment slot="leftRail">
+		<div class="card light space-y-2 p-4">
+			<h1 class="text-xl font-semibold">Round complete</h1>
+			<p>Review votes and scores, then continue to the next round.</p>
+		</div>
+		<div class="card light p-4">
+			<button class="btn variant-filled w-full" on:click={() => gameServer.ready()}>Next Round</button>
+		</div>
+	</svelte:fragment>
+
+	<svelte:fragment slot="mobileTop">
+		<div class="card light space-y-2 p-4">
+			<h1 class="text-xl font-semibold">Round complete</h1>
+			<p>Review votes and scores, then continue to the next round.</p>
+		</div>
+	</svelte:fragment>
+
+	<svelte:fragment slot="mobileActions">
+		<button class="btn variant-filled w-full" on:click={() => gameServer.ready()}>Next Round</button>
+	</svelte:fragment>
+
+	<div class="flex h-full flex-col">
+		<h2 class="mb-2 hidden text-lg font-semibold lg:block">Round cards</h2>
+		<section class="grid h-full w-full grid-cols-2 gap-3 overflow-y-auto lg:grid-cols-3">
 			{#each displayImages as image}
 				<div
-					class={`${activeCard == image ? 'boujee-border' : ''} rounded-lg overflow-hidden relative`}
+					class={`${activeCard == image ? 'boujee-border' : ''} relative h-full overflow-hidden rounded-lg`}
 				>
 					<img
 						src={`${http_host}/cards/${image}`}
 						alt="You can't play this game without the images!"
-						class="relative"
+						class="relative h-full w-full object-cover object-center aspect-[2/3]"
 					/>
 					{#if cardToVoters[image]}
 						<div class="absolute" style="top: 20px; right: 12px;">
@@ -63,9 +89,7 @@
 			{/each}
 		</section>
 	</div>
-</div>
-
-<button class="btn variant-filled mt-5" on:click={() => gameServer.ready()}>Next Round</button>
+</StageShell>
 
 <style>
 	@property --bg-angle {
