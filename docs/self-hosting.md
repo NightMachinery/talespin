@@ -57,6 +57,14 @@ It also exports:
 
 - Node: use `nvm-load` then `nvm use 20`
 - Rust: stable toolchain via `rustup`
+- Ubuntu packages for AVIF decode support (required by backend build with `avif-native`):
+  - `pkg-config`
+  - `libdav1d-dev`
+  - install command:
+    ```bash
+    sudo apt-get update
+    sudo apt-get install -y pkg-config libdav1d-dev
+    ```
 - No Docker required for Talespin itself
 
 ## Useful Checks

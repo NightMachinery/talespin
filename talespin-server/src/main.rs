@@ -12,17 +12,19 @@ use axum::{
 };
 use dashmap::DashMap;
 use image::{
-    codecs::{avif::AvifEncoder, jpeg::JpegEncoder},
+    codecs::jpeg::JpegEncoder,
     imageops::FilterType,
-    DynamicImage, ExtendedColorType, GenericImageView, ImageEncoder,
+    GenericImageView,
 };
 use indicatif::{ProgressBar, ProgressStyle};
+use ravif::{Encoder as RavifEncoder, Img as RavifImg};
+use rgb::FromSlice;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     env, fs,
-    io::BufWriter,
+    io::{BufWriter, Write},
     net::SocketAddr,
     path::{Path, PathBuf},
     sync::Arc,
@@ -61,7 +63,8 @@ const DEFAULT_CACHE_DIR: &str = "~/.cache/talespin";
 const CACHE_SUBDIR_CARDS: &str = "cards";
 
 const CARD_AVIF_QUALITY: u8 = 80;
-const CARD_AVIF_SPEED: u8 = 4;
+const CARD_AVIF_SPEED: u8 = 10;
+const CARD_AVIF_THREADS: Option<usize> = None;
 const CARD_JPEG_QUALITY: u8 = 90;
 const NORMALIZATION_PIPELINE_VERSION: &str = "v1";
 const DEFAULT_VALIDATE_CACHE_HITS: bool = true;
@@ -585,10 +588,15 @@ fn normalize_source_to_cache(
     let (output_width, output_height) = config.output_dimensions();
 
     let encoding_descriptor = match config.cache_format {
-        CacheImageFormat::Avif => format!(
-            "fmt=avif|quality={}|speed={}",
-            CARD_AVIF_QUALITY, CARD_AVIF_SPEED
-        ),
+        CacheImageFormat::Avif => {
+            let avif_threads = CARD_AVIF_THREADS
+                .map(|threads| threads.to_string())
+                .unwrap_or_else(|| "default".to_string());
+            format!(
+                "fmt=avif|backend=ravif|quality={}|speed={}|threads={}|channels=rgb",
+                CARD_AVIF_QUALITY, CARD_AVIF_SPEED, avif_threads
+            )
+        }
         CacheImageFormat::Jpeg => format!("fmt=jpeg|quality={}", CARD_JPEG_QUALITY),
     };
     let transform_descriptor = format!(
@@ -648,33 +656,34 @@ fn normalize_source_to_cache(
             config.ratio_height,
         );
 
-        let cropped =
-            image::imageops::crop_imm(&source_image, crop_x, crop_y, crop_width, crop_height)
-                .to_image();
-
-        let resized = DynamicImage::ImageRgba8(cropped).resize_exact(
-            output_width,
-            output_height,
-            FilterType::Lanczos3,
-        );
+        let cropped = source_image.crop_imm(crop_x, crop_y, crop_width, crop_height);
+        let resized = cropped.resize_exact(output_width, output_height, FilterType::Lanczos3);
 
         let file = fs::File::create(&cache_path)
             .with_context(|| format!("Failed to create cache file {}", cache_path.display()))?;
         let mut writer = BufWriter::new(file);
         match config.cache_format {
             CacheImageFormat::Avif => {
-                let rgba = resized.to_rgba8();
-                let (width, height) = rgba.dimensions();
-                let encoder = AvifEncoder::new_with_speed_quality(
-                    &mut writer,
-                    CARD_AVIF_SPEED,
-                    CARD_AVIF_QUALITY,
-                );
-                encoder
-                    .write_image(rgba.as_raw(), width, height, ExtendedColorType::Rgba8)
+                let ravif_encoder = RavifEncoder::new()
+                    .with_quality(CARD_AVIF_QUALITY as f32)
+                    .with_speed(CARD_AVIF_SPEED)
+                    .with_num_threads(CARD_AVIF_THREADS);
+
+                let rgb = resized.to_rgb8();
+                let (width, height) = rgb.dimensions();
+                let width = usize::try_from(width).context("AVIF width does not fit usize")?;
+                let height = usize::try_from(height).context("AVIF height does not fit usize")?;
+                let pixels = rgb.as_raw().as_slice().as_rgb();
+                let avif_file = ravif_encoder
+                    .encode_rgb(RavifImg::new(pixels, width, height))
                     .with_context(|| {
                         format!("Failed to encode cached image {}", cache_path.display())
-                    })?;
+                    })?
+                    .avif_file;
+
+                writer.write_all(&avif_file).with_context(|| {
+                    format!("Failed to write cached image {}", cache_path.display())
+                })?;
             }
             CacheImageFormat::Jpeg => {
                 let mut encoder = JpegEncoder::new_with_quality(&mut writer, CARD_JPEG_QUALITY);

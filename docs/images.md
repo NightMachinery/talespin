@@ -36,14 +36,14 @@ Cards are not copied/symlinked into `static/assets/cards/` at runtime anymore.
 Cache key is based on:
 
 - SHA-256 of source file bytes
-- output/transform spec (ratio, long side, format/quality)
+- output/transform spec (ratio, long side, format + encoder settings)
 - normalization pipeline version
 
 Cache hit integrity checks:
 
 - env var: `TALESPIN_VALIDATE_CACHE_HITS_P`
 - default: `y` (enabled)
-- when enabled, existing cache files are decoded/validated; corrupt/truncated files are deleted and rebuilt
+- when enabled, existing cache files are fully decoded/validated (AVIF decode uses the native dav1d stack via `image`'s `avif-native` feature); corrupt/truncated files are deleted and rebuilt
 - when disabled, startup is faster but corrupt cache files can slip through
 
 ## Aspect Ratio and Size
@@ -60,7 +60,7 @@ Behavior:
 
 Defaults:
 
-- AVIF (`quality=80`, `speed=4`)
+- AVIF (`quality=80`, `speed=10`, backend `ravif`, threads `default` (library-managed), channels `rgb` / no alpha)
 
 For default `2:3`, output size is `1024x1536`.
 
