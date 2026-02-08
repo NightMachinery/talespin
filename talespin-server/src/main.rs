@@ -1,20 +1,21 @@
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use axum::{
     extract::{
         ws::{Message as WsMessage, WebSocket},
-        Json, State, WebSocketUpgrade,
+        Json, Path as AxumPath, State, WebSocketUpgrade,
     },
-    http::{header, Method},
-    response::IntoResponse,
+    http::{header, Method, StatusCode},
+    response::{IntoResponse, Response},
     routing::{get, post},
     Router,
 };
 use dashmap::DashMap;
+use image::{codecs::jpeg::JpegEncoder, imageops::FilterType, DynamicImage, GenericImageView};
+use sha2::{Digest, Sha256};
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap, HashSet, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     env, fs,
-    hash::{Hash, Hasher},
-    io::ErrorKind,
+    io::BufWriter,
     net::SocketAddr,
     path::{Path, PathBuf},
     sync::Arc,
@@ -31,10 +32,81 @@ use room::{get_time_s, Room, ServerMsg};
 
 const GARBAGE_COLLECT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60 * 20); // 20 minutes
 const GC_ROOM_TIMEOUT_S: u64 = 60 * 60; // 1 hour
-const BASE_DECK_DIR: &str = "../static/assets/cards/";
+
+const BUILTIN_IMAGE_DIR: &str = "../static/assets/cards/";
+const LEGACY_EXTRA_CARD_PREFIX: &str = "extra_dir__";
+
 const EXTRA_IMAGE_DIRS_ENV: &str = "TALESPIN_EXTRA_IMAGE_DIRS";
 const DISABLE_BUILTIN_IMAGES_ENV: &str = "TALESPIN_DISABLE_BUILTIN_IMAGES_P";
-const EXTRA_CARD_PREFIX: &str = "extra_dir__";
+const CACHE_DIR_ENV: &str = "TALESPIN_CACHE_DIR";
+const CARD_ASPECT_RATIO_ENV: &str = "TALESPIN_CARD_ASPECT_RATIO";
+const CARD_LONG_SIDE_ENV: &str = "TALESPIN_CARD_LONG_SIDE";
+
+const DEFAULT_CARD_ASPECT_RATIO: &str = "2:3";
+const DEFAULT_CARD_LONG_SIDE: u32 = 1536;
+const DEFAULT_CACHE_DIR: &str = "~/.cache/talespin";
+const CACHE_SUBDIR_CARDS: &str = "cards";
+
+const CARD_JPEG_QUALITY: u8 = 90;
+const NORMALIZATION_PIPELINE_VERSION: &str = "v1";
+
+#[derive(Debug, Clone)]
+struct NormalizationConfig {
+    ratio_width: u32,
+    ratio_height: u32,
+    long_side: u32,
+    cards_cache_dir: PathBuf,
+}
+
+impl NormalizationConfig {
+    fn from_env() -> Result<Self> {
+        let (ratio_width, ratio_height) = parse_ratio_from_env();
+        let long_side = parse_long_side_from_env();
+
+        let cache_root = env::var(CACHE_DIR_ENV)
+            .map(|v| expand_home(v.trim()))
+            .unwrap_or_else(|_| expand_home(DEFAULT_CACHE_DIR));
+        let cards_cache_dir = cache_root.join(CACHE_SUBDIR_CARDS);
+        fs::create_dir_all(&cards_cache_dir).with_context(|| {
+            format!(
+                "Failed to create cards cache directory {}",
+                cards_cache_dir.display()
+            )
+        })?;
+
+        Ok(Self {
+            ratio_width,
+            ratio_height,
+            long_side,
+            cards_cache_dir,
+        })
+    }
+
+    fn output_dimensions(&self) -> (u32, u32) {
+        if self.ratio_width <= self.ratio_height {
+            let height = self.long_side.max(1);
+            let width = (((height as f64) * (self.ratio_width as f64) / (self.ratio_height as f64))
+                .round() as u32)
+                .max(1);
+            (width, height)
+        } else {
+            let width = self.long_side.max(1);
+            let height = (((width as f64) * (self.ratio_height as f64) / (self.ratio_width as f64))
+                .round() as u32)
+                .max(1);
+            (width, height)
+        }
+    }
+}
+
+#[derive(Debug)]
+struct LoadedCards {
+    deck: Vec<String>,
+    cards: HashMap<String, PathBuf>,
+    loaded_builtin: usize,
+    loaded_extra: usize,
+    failed_sources: usize,
+}
 
 fn expand_home(path: &str) -> PathBuf {
     if path == "~" {
@@ -42,6 +114,7 @@ fn expand_home(path: &str) -> PathBuf {
             return PathBuf::from(home);
         }
     }
+
     if let Some(rest) = path.strip_prefix("~/") {
         if let Ok(home) = env::var("HOME") {
             return PathBuf::from(home).join(rest);
@@ -51,11 +124,56 @@ fn expand_home(path: &str) -> PathBuf {
     PathBuf::from(path)
 }
 
-fn is_supported_image(path: &Path) -> bool {
-    path.extension()
-        .and_then(|ext| ext.to_str())
-        .map(|ext| matches!(ext.to_ascii_lowercase().as_str(), "jpg" | "jpeg" | "png"))
-        .unwrap_or(false)
+fn hash_hex(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
+}
+
+fn parse_ratio(raw: &str) -> Option<(u32, u32)> {
+    let parts: Vec<&str> = raw.trim().split(':').collect();
+    if parts.len() != 2 {
+        return None;
+    }
+
+    let width = parts[0].trim().parse::<u32>().ok()?;
+    let height = parts[1].trim().parse::<u32>().ok()?;
+
+    if width == 0 || height == 0 {
+        return None;
+    }
+
+    Some((width, height))
+}
+
+fn parse_ratio_from_env() -> (u32, u32) {
+    if let Ok(raw) = env::var(CARD_ASPECT_RATIO_ENV) {
+        if let Some((w, h)) = parse_ratio(&raw) {
+            return (w, h);
+        }
+
+        println!(
+            "Warning: invalid {}='{}'; using default {}",
+            CARD_ASPECT_RATIO_ENV, raw, DEFAULT_CARD_ASPECT_RATIO
+        );
+    }
+
+    parse_ratio(DEFAULT_CARD_ASPECT_RATIO).expect("DEFAULT_CARD_ASPECT_RATIO must be a valid ratio")
+}
+
+fn parse_long_side_from_env() -> u32 {
+    if let Ok(raw) = env::var(CARD_LONG_SIDE_ENV) {
+        if let Ok(long_side) = raw.trim().parse::<u32>() {
+            if long_side > 0 {
+                return long_side;
+            }
+        }
+
+        println!(
+            "Warning: invalid {}='{}'; using default {}",
+            CARD_LONG_SIDE_ENV, raw, DEFAULT_CARD_LONG_SIDE
+        );
+    }
+
+    DEFAULT_CARD_LONG_SIDE
 }
 
 fn env_is_y(key: &str) -> bool {
@@ -76,73 +194,75 @@ fn get_extra_image_dirs() -> Vec<PathBuf> {
         .unwrap_or_else(|_| Vec::new())
 }
 
-fn clear_old_extra_links(base_deck_dir: &Path) -> Result<()> {
-    for entry in fs::read_dir(base_deck_dir)? {
+fn is_supported_image(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| {
+            matches!(
+                ext.to_ascii_lowercase().as_str(),
+                "jpg" | "jpeg" | "png" | "webp"
+            )
+        })
+        .unwrap_or(false)
+}
+
+fn cleanup_legacy_generated_cards() -> Result<()> {
+    let builtin_dir = Path::new(BUILTIN_IMAGE_DIR);
+    if !builtin_dir.exists() {
+        return Ok(());
+    }
+
+    for entry in fs::read_dir(builtin_dir)? {
         let entry = entry?;
         let file_name = entry.file_name();
-        if file_name.to_string_lossy().starts_with(EXTRA_CARD_PREFIX) {
+        if file_name
+            .to_string_lossy()
+            .starts_with(LEGACY_EXTRA_CARD_PREFIX)
+        {
             if let Err(err) = fs::remove_file(entry.path()) {
-                if err.kind() != ErrorKind::NotFound {
-                    println!(
-                        "Warning: failed to remove stale extra card link {}: {}",
-                        entry.path().display(),
-                        err
-                    );
-                }
+                println!(
+                    "Warning: failed to remove legacy generated card {}: {}",
+                    entry.path().display(),
+                    err
+                );
             }
         }
     }
-    Ok(())
-}
-
-fn link_or_copy_image(source: &Path, target: &Path) -> Result<()> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::symlink;
-
-        if let Err(link_err) = symlink(source, target) {
-            fs::copy(source, target).map_err(|copy_err| {
-                anyhow!(
-                    "failed to link {} -> {} ({}) and copy fallback also failed ({})",
-                    source.display(),
-                    target.display(),
-                    link_err,
-                    copy_err
-                )
-            })?;
-        }
-    }
-
-    #[cfg(not(unix))]
-    {
-        fs::copy(source, target).map_err(|copy_err| {
-            anyhow!(
-                "failed to copy {} -> {} ({})",
-                source.display(),
-                target.display(),
-                copy_err
-            )
-        })?;
-    }
 
     Ok(())
 }
 
-fn load_extra_cards(base_deck_dir: &Path, extra_image_dirs: &[PathBuf]) -> Result<usize> {
-    clear_old_extra_links(base_deck_dir)?;
+fn collect_image_files_recursive(root: &Path, strict_root: bool) -> Result<Vec<PathBuf>> {
+    let mut found = Vec::new();
+    let mut dirs_to_scan = VecDeque::from([root.to_path_buf()]);
 
-    let mut loaded = 0usize;
-    let mut seen_sources = HashSet::new();
+    while let Some(scan_dir) = dirs_to_scan.pop_front() {
+        let entries = match fs::read_dir(&scan_dir) {
+            Ok(entries) => entries,
+            Err(err) => {
+                if strict_root && scan_dir == root {
+                    return Err(anyhow!(
+                        "Unable to read image directory {}: {}",
+                        scan_dir.display(),
+                        err
+                    ));
+                }
 
-    for dir_path in extra_image_dirs {
-        let mut dirs_to_scan = VecDeque::from([dir_path.clone()]);
+                println!(
+                    "Warning: unable to read image directory {}: {}",
+                    scan_dir.display(),
+                    err
+                );
+                continue;
+            }
+        };
 
-        while let Some(scan_dir) = dirs_to_scan.pop_front() {
-            let entries = match fs::read_dir(&scan_dir) {
-                Ok(entries) => entries,
+        for entry in entries {
+            let entry = match entry {
+                Ok(e) => e,
                 Err(err) => {
                     println!(
-                        "Warning: unable to read extra image dir {}: {}",
+                        "Warning: failed reading entry in {}: {}",
                         scan_dir.display(),
                         err
                     );
@@ -150,102 +270,232 @@ fn load_extra_cards(base_deck_dir: &Path, extra_image_dirs: &[PathBuf]) -> Resul
                 }
             };
 
-            for entry in entries {
-                let entry = match entry {
-                    Ok(e) => e,
-                    Err(err) => {
-                        println!(
-                            "Warning: failed reading entry in {}: {}",
-                            scan_dir.display(),
-                            err
-                        );
-                        continue;
-                    }
-                };
-
-                let file_type = match entry.file_type() {
-                    Ok(file_type) => file_type,
-                    Err(err) => {
-                        println!(
-                            "Warning: failed to read entry type {}: {}",
-                            entry.path().display(),
-                            err
-                        );
-                        continue;
-                    }
-                };
-
-                if file_type.is_dir() {
-                    dirs_to_scan.push_back(entry.path());
-                    continue;
-                }
-
-                if !file_type.is_file() {
-                    continue;
-                }
-
-                let source = entry.path();
-                if !is_supported_image(&source) {
-                    continue;
-                }
-                if !seen_sources.insert(source.clone()) {
-                    continue;
-                }
-
-                let mut hasher = DefaultHasher::new();
-                source.to_string_lossy().hash(&mut hasher);
-                let hash = hasher.finish();
-                let ext = source
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .unwrap_or("jpg")
-                    .to_ascii_lowercase();
-                let target_name = format!("{EXTRA_CARD_PREFIX}{hash:016x}.{ext}");
-                let target = base_deck_dir.join(target_name);
-
-                if target.exists() {
-                    let _ = fs::remove_file(&target);
-                }
-
-                match link_or_copy_image(&source, &target) {
-                    Ok(_) => loaded += 1,
-                    Err(err) => println!(
-                        "Warning: failed to register extra image {}: {}",
-                        source.display(),
+            let file_type = match entry.file_type() {
+                Ok(file_type) => file_type,
+                Err(err) => {
+                    println!(
+                        "Warning: failed to read entry type {}: {}",
+                        entry.path().display(),
                         err
-                    ),
+                    );
+                    continue;
                 }
+            };
+
+            if file_type.is_dir() {
+                dirs_to_scan.push_back(entry.path());
+                continue;
+            }
+
+            if file_type.is_file() && is_supported_image(&entry.path()) {
+                found.push(entry.path());
             }
         }
     }
 
-    Ok(loaded)
+    found.sort();
+    Ok(found)
 }
 
-fn load_base_deck(base_deck_dir: &Path) -> Result<Vec<String>> {
-    let mut base_deck: Vec<String> = fs::read_dir(base_deck_dir)?
-        .filter_map(|res| match res {
-            Ok(entry) => Some(entry),
+fn center_crop_rect(
+    src_width: u32,
+    src_height: u32,
+    ratio_width: u32,
+    ratio_height: u32,
+) -> (u32, u32, u32, u32) {
+    let src_width_u64 = src_width as u64;
+    let src_height_u64 = src_height as u64;
+    let ratio_width_u64 = ratio_width as u64;
+    let ratio_height_u64 = ratio_height as u64;
+
+    if src_width_u64 * ratio_height_u64 > src_height_u64 * ratio_width_u64 {
+        let crop_width = ((src_height_u64 * ratio_width_u64) / ratio_height_u64).max(1) as u32;
+        let offset_x = (src_width.saturating_sub(crop_width)) / 2;
+        (offset_x, 0, crop_width, src_height)
+    } else {
+        let crop_height = ((src_width_u64 * ratio_height_u64) / ratio_width_u64).max(1) as u32;
+        let offset_y = (src_height.saturating_sub(crop_height)) / 2;
+        (0, offset_y, src_width, crop_height)
+    }
+}
+
+fn normalize_source_to_cache(
+    source: &Path,
+    config: &NormalizationConfig,
+) -> Result<(String, PathBuf)> {
+    let bytes = fs::read(source)
+        .with_context(|| format!("Failed to read source image {}", source.display()))?;
+
+    let source_hash = hash_hex(&bytes);
+    let (output_width, output_height) = config.output_dimensions();
+
+    let transform_descriptor = format!(
+        "source={source_hash}|ratio={}:{}|long_side={}|output={}x{}|fmt=jpeg|quality={}|pipeline={}",
+        config.ratio_width,
+        config.ratio_height,
+        config.long_side,
+        output_width,
+        output_height,
+        CARD_JPEG_QUALITY,
+        NORMALIZATION_PIPELINE_VERSION
+    );
+    let final_hash = hash_hex(transform_descriptor.as_bytes());
+    let card_id = final_hash.clone();
+    let cache_path = config.cards_cache_dir.join(format!("{final_hash}.jpg"));
+
+    if !cache_path.exists() {
+        let source_image = image::load_from_memory(&bytes)
+            .with_context(|| format!("Failed to decode image {}", source.display()))?;
+
+        let (src_width, src_height) = source_image.dimensions();
+        if src_width == 0 || src_height == 0 {
+            return Err(anyhow!(
+                "Image {} has invalid dimensions {}x{}",
+                source.display(),
+                src_width,
+                src_height
+            ));
+        }
+
+        let (crop_x, crop_y, crop_width, crop_height) = center_crop_rect(
+            src_width,
+            src_height,
+            config.ratio_width,
+            config.ratio_height,
+        );
+
+        let cropped =
+            image::imageops::crop_imm(&source_image, crop_x, crop_y, crop_width, crop_height)
+                .to_image();
+
+        let resized = DynamicImage::ImageRgba8(cropped).resize_exact(
+            output_width,
+            output_height,
+            FilterType::Lanczos3,
+        );
+
+        let file = fs::File::create(&cache_path)
+            .with_context(|| format!("Failed to create cache file {}", cache_path.display()))?;
+        let mut writer = BufWriter::new(file);
+        let mut encoder = JpegEncoder::new_with_quality(&mut writer, CARD_JPEG_QUALITY);
+        encoder
+            .encode_image(&resized)
+            .with_context(|| format!("Failed to encode cached image {}", cache_path.display()))?;
+    }
+
+    Ok((card_id, cache_path))
+}
+
+fn load_cards(
+    config: &NormalizationConfig,
+    extra_image_dirs: &[PathBuf],
+    disable_builtin_images: bool,
+) -> Result<LoadedCards> {
+    let builtin_sources = if disable_builtin_images {
+        Vec::new()
+    } else {
+        collect_image_files_recursive(Path::new(BUILTIN_IMAGE_DIR), true)?
+    };
+
+    let mut extra_sources = Vec::new();
+    for dir in extra_image_dirs {
+        extra_sources.extend(collect_image_files_recursive(dir, false)?);
+    }
+
+    if !extra_image_dirs.is_empty() && extra_sources.is_empty() {
+        return Err(anyhow!(
+            "No supported images (.jpg/.jpeg/.png/.webp) were found in {}. Checked {} director{}.",
+            EXTRA_IMAGE_DIRS_ENV,
+            extra_image_dirs.len(),
+            if extra_image_dirs.len() == 1 {
+                "y"
+            } else {
+                "ies"
+            }
+        ));
+    }
+
+    if disable_builtin_images && extra_sources.is_empty() {
+        return Err(anyhow!(
+            "{}=y requires at least one image from {}, but none were loaded.",
+            DISABLE_BUILTIN_IMAGES_ENV,
+            EXTRA_IMAGE_DIRS_ENV
+        ));
+    }
+
+    let mut seen_sources = HashSet::new();
+    let mut seen_card_ids = HashSet::new();
+    let mut deck = Vec::new();
+    let mut cards = HashMap::new();
+    let mut loaded_builtin = 0usize;
+    let mut loaded_extra = 0usize;
+    let mut failed_sources = 0usize;
+
+    for source in builtin_sources {
+        if !seen_sources.insert(source.clone()) {
+            continue;
+        }
+
+        match normalize_source_to_cache(&source, config) {
+            Ok((card_id, cache_path)) => {
+                if seen_card_ids.insert(card_id.clone()) {
+                    deck.push(card_id.clone());
+                    cards.insert(card_id, cache_path);
+                    loaded_builtin += 1;
+                }
+            }
             Err(err) => {
+                failed_sources += 1;
                 println!(
-                    "Warning: failed reading deck entry in {}: {}",
-                    base_deck_dir.display(),
+                    "Warning: failed to normalize built-in image {}: {}",
+                    source.display(),
                     err
                 );
-                None
             }
-        })
-        .filter_map(|entry| {
-            if !is_supported_image(&entry.path()) {
-                return None;
+        }
+    }
+
+    for source in extra_sources {
+        if !seen_sources.insert(source.clone()) {
+            continue;
+        }
+
+        match normalize_source_to_cache(&source, config) {
+            Ok((card_id, cache_path)) => {
+                if seen_card_ids.insert(card_id.clone()) {
+                    deck.push(card_id.clone());
+                    cards.insert(card_id, cache_path);
+                    loaded_extra += 1;
+                }
             }
+            Err(err) => {
+                failed_sources += 1;
+                println!(
+                    "Warning: failed to normalize extra image {}: {}",
+                    source.display(),
+                    err
+                );
+            }
+        }
+    }
 
-            entry.file_name().into_string().ok()
-        })
-        .collect();
+    if deck.is_empty() {
+        return Err(anyhow!(
+            "No cards available after loading images. Check {} and {}.",
+            BUILTIN_IMAGE_DIR,
+            EXTRA_IMAGE_DIRS_ENV
+        ));
+    }
 
-    base_deck.sort();
-    Ok(base_deck)
+    deck.sort();
+
+    Ok(LoadedCards {
+        deck,
+        cards,
+        loaded_builtin,
+        loaded_extra,
+        failed_sources,
+    })
 }
 
 // main object for server
@@ -253,69 +503,42 @@ fn load_base_deck(base_deck_dir: &Path) -> Result<Vec<String>> {
 struct ServerState {
     rooms: DashMap<String, Arc<Room>>,
     base_deck: Arc<Vec<String>>,
+    cards: Arc<HashMap<String, PathBuf>>,
 }
 
 impl ServerState {
     fn new() -> Result<Self> {
-        let base_deck_dir = Path::new(BASE_DECK_DIR);
+        cleanup_legacy_generated_cards()?;
+
+        let config = NormalizationConfig::from_env()?;
         let extra_image_dirs = get_extra_image_dirs();
-        let loaded_extra_cards = load_extra_cards(base_deck_dir, &extra_image_dirs)?;
         let disable_builtin_images = env_is_y(DISABLE_BUILTIN_IMAGES_ENV);
 
-        if !extra_image_dirs.is_empty() && loaded_extra_cards == 0 {
-            return Err(anyhow!(
-                "No supported images (.jpg/.jpeg/.png) were found in {}. Checked {} director{}.",
-                EXTRA_IMAGE_DIRS_ENV,
-                extra_image_dirs.len(),
-                if extra_image_dirs.len() == 1 {
-                    "y"
-                } else {
-                    "ies"
-                }
-            ));
-        }
-
-        if disable_builtin_images && loaded_extra_cards == 0 {
-            return Err(anyhow!(
-                "{}=y requires at least one image from {}, but none were loaded.",
-                DISABLE_BUILTIN_IMAGES_ENV,
-                EXTRA_IMAGE_DIRS_ENV
-            ));
-        }
-
-        let mut base_deck = load_base_deck(base_deck_dir)?;
-        if disable_builtin_images {
-            base_deck.retain(|f| f.starts_with(EXTRA_CARD_PREFIX));
-        }
-
-        if base_deck.is_empty() {
-            return Err(anyhow!(
-                "No cards available after loading images. Check built-in cards and {}.",
-                EXTRA_IMAGE_DIRS_ENV
-            ));
-        }
+        let loaded_cards = load_cards(&config, &extra_image_dirs, disable_builtin_images)?;
 
         println!(
-            "Loaded {} cards ({} extra cards from custom dirs; builtins {})",
-            base_deck.len(),
-            loaded_extra_cards,
-            if disable_builtin_images {
-                "disabled"
-            } else {
-                "enabled"
-            }
+            "Loaded {} cards ({} built-in, {} extra, {} failed; builtins {}; ratio {}:{}, long side {}; cache {})",
+            loaded_cards.deck.len(),
+            loaded_cards.loaded_builtin,
+            loaded_cards.loaded_extra,
+            loaded_cards.failed_sources,
+            if disable_builtin_images { "disabled" } else { "enabled" },
+            config.ratio_width,
+            config.ratio_height,
+            config.long_side,
+            config.cards_cache_dir.display()
         );
 
         Ok(ServerState {
             rooms: DashMap::new(),
-            base_deck: Arc::new(base_deck),
+            base_deck: Arc::new(loaded_cards.deck),
+            cards: Arc::new(loaded_cards.cards),
         })
     }
 
     async fn create_room(&self) -> Result<ServerMsg> {
         let mut room_id = generate_room_id(4);
 
-        // println!("create room: 0");
         while (self.get_room(&room_id)).is_some() {
             room_id = generate_room_id(4);
         }
@@ -327,7 +550,6 @@ impl ServerState {
     }
 
     async fn join_room(&self, room_id: &str, socket: &mut WebSocket, name: &str) -> Result<()> {
-        // hold no reference to inside the dashmap to prevent deadlock
         if let Some(room) = self.get_room(room_id) {
             room.on_connection(socket, name).await;
         } else {
@@ -357,7 +579,6 @@ impl ServerState {
     fn garbage_collect(&self) {
         let mut to_remove = Vec::new();
         for entry in &self.rooms {
-            // hasn't been accessed in an hour
             if entry.value().num_active() == 0
                 && get_time_s() - entry.value().last_access() > GC_ROOM_TIMEOUT_S
             {
@@ -381,7 +602,7 @@ async fn garbage_collect(state: Arc<ServerState>) {
 
 fn generate_room_id(length: usize) -> String {
     let mut rng = rand::thread_rng();
-    let letters = Uniform::new_inclusive(b'a', b'z'); // Range of lowercase letters
+    let letters = Uniform::new_inclusive(b'a', b'z');
     (0..length)
         .map(|_| letters.sample(&mut rng) as char)
         .collect()
@@ -393,10 +614,6 @@ async fn main() {
 
     tokio::spawn(garbage_collect(state.clone()));
 
-    // tracing_subscriber::fmt()
-    //     .with_max_level(tracing::Level::DEBUG)
-    //     .init();
-
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods([Method::GET, Method::POST])
@@ -404,6 +621,7 @@ async fn main() {
 
     let app = Router::new()
         .route("/ws", get(ws_handler))
+        .route("/cards/:card_id", get(card_handler))
         .route("/create", post(create_room_handler))
         .route("/exists", post(exists_handler))
         .route("/stats", get(stats_handler))
@@ -422,9 +640,36 @@ async fn main() {
     .unwrap();
 }
 
+async fn card_handler(
+    AxumPath(card_id): AxumPath<String>,
+    State(state): State<Arc<ServerState>>,
+) -> Response {
+    let Some(cache_path) = state.cards.get(&card_id).cloned() else {
+        return (StatusCode::NOT_FOUND, "Card not found").into_response();
+    };
+
+    match tokio::fs::read(&cache_path).await {
+        Ok(bytes) => (
+            [
+                (header::CONTENT_TYPE, "image/jpeg"),
+                (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
+            ],
+            bytes,
+        )
+            .into_response(),
+        Err(err) => {
+            println!(
+                "Warning: failed to read cached card image {}: {}",
+                cache_path.display(),
+                err
+            );
+            (StatusCode::NOT_FOUND, "Card image unavailable").into_response()
+        }
+    }
+}
+
 async fn create_room_handler(State(state): State<Arc<ServerState>>) -> String {
     let room = state.create_room().await;
-    // json response with room id
 
     if let Ok(room_state) = room {
         serde_json::to_string(&room_state).unwrap()
