@@ -16,6 +16,7 @@ use image::{
     imageops::FilterType,
     DynamicImage, ExtendedColorType, GenericImageView, ImageEncoder,
 };
+use indicatif::{ProgressBar, ProgressStyle};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::{
@@ -161,6 +162,46 @@ struct LoadedCards {
     loaded_builtin: usize,
     loaded_extra: usize,
     failed_sources: usize,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum SourceKind {
+    Builtin,
+    Extra,
+}
+
+impl SourceKind {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Builtin => "built-in",
+            Self::Extra => "extra",
+        }
+    }
+}
+
+fn create_normalization_progress(total_sources: usize) -> ProgressBar {
+    if total_sources == 0 {
+        return ProgressBar::hidden();
+    }
+
+    let progress = ProgressBar::new(total_sources as u64);
+    let style = ProgressStyle::with_template(
+        "{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} ({percent}%) eta {eta_precise} {msg}",
+    )
+    .expect("progress template must be valid")
+    .progress_chars("=> ");
+    progress.set_style(style);
+    progress.enable_steady_tick(std::time::Duration::from_millis(120));
+    progress
+}
+
+fn source_progress_message(kind: SourceKind, source: &Path) -> String {
+    let short_name = source
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| name.to_string())
+        .unwrap_or_else(|| source.display().to_string());
+    format!("{}: {}", kind.label(), short_name)
 }
 
 fn expand_home(path: &str) -> PathBuf {
@@ -628,54 +669,56 @@ fn load_cards(
     let mut loaded_builtin = 0usize;
     let mut loaded_extra = 0usize;
     let mut failed_sources = 0usize;
+    let mut sources_to_process = Vec::with_capacity(builtin_sources.len() + extra_sources.len());
 
     for source in builtin_sources {
-        if !seen_sources.insert(source.clone()) {
-            continue;
-        }
-
-        match normalize_source_to_cache(&source, config) {
-            Ok((card_id, cache_path)) => {
-                if seen_card_ids.insert(card_id.clone()) {
-                    deck.push(card_id.clone());
-                    cards.insert(card_id, cache_path);
-                    loaded_builtin += 1;
-                }
-            }
-            Err(err) => {
-                failed_sources += 1;
-                println!(
-                    "Warning: failed to normalize built-in image {}: {}",
-                    source.display(),
-                    err
-                );
-            }
+        if seen_sources.insert(source.clone()) {
+            sources_to_process.push((SourceKind::Builtin, source));
         }
     }
 
     for source in extra_sources {
-        if !seen_sources.insert(source.clone()) {
-            continue;
+        if seen_sources.insert(source.clone()) {
+            sources_to_process.push((SourceKind::Extra, source));
         }
+    }
+
+    let progress = create_normalization_progress(sources_to_process.len());
+    progress.set_message("warming up...");
+
+    for (kind, source) in sources_to_process {
+        progress.set_message(source_progress_message(kind, &source));
 
         match normalize_source_to_cache(&source, config) {
             Ok((card_id, cache_path)) => {
                 if seen_card_ids.insert(card_id.clone()) {
                     deck.push(card_id.clone());
                     cards.insert(card_id, cache_path);
-                    loaded_extra += 1;
+                    match kind {
+                        SourceKind::Builtin => loaded_builtin += 1,
+                        SourceKind::Extra => loaded_extra += 1,
+                    }
                 }
             }
             Err(err) => {
                 failed_sources += 1;
                 println!(
-                    "Warning: failed to normalize extra image {}: {}",
+                    "Warning: failed to normalize {} image {}: {}",
+                    kind.label(),
                     source.display(),
                     err
                 );
             }
         }
+
+        progress.inc(1);
     }
+
+    progress.finish_with_message(format!(
+        "Normalization complete ({} unique cards, {} failed sources)",
+        deck.len(),
+        failed_sources
+    ));
 
     if deck.is_empty() {
         return Err(anyhow!(
