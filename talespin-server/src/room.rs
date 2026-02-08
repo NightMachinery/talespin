@@ -3,13 +3,15 @@ use axum::{extract::ws::Message as WsMessage, extract::ws::WebSocket};
 use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc,
     },
 };
 use tokio::sync::{broadcast, mpsc, RwLock, RwLockWriteGuard};
+
+const MODERATOR_ABSENCE_PROMOTION_DELAY_S: u64 = 5 * 60;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
 #[serde(tag = "mode", rename_all = "snake_case")]
@@ -25,6 +27,7 @@ pub enum ServerMsg {
         room_id: String,
         players: HashMap<String, PlayerInfo>,
         creator: Option<String>,
+        moderators: Vec<String>,
         stage: RoomStage,
         active_player: Option<String>,
         player_order: Vec<String>,
@@ -52,6 +55,9 @@ pub enum ServerMsg {
         point_change: HashMap<String, u16>,
     },
     ErrorMsg(String),
+    LeftRoom {
+        reason: String,
+    },
     Kicked {
         reason: String,
     },
@@ -71,7 +77,9 @@ impl From<ServerMsg> for WsMessage {
 pub enum ClientMsg {
     Ready {},
     StartGame {},
+    LeaveRoom {},
     KickPlayer { player: String },
+    SetModerator { player: String, enabled: bool },
     JoinRoom { room_id: String, name: String },
     CreateRoom { name: String },
     ActivePlayerChooseCard { card: String, description: String },
@@ -111,6 +119,12 @@ struct RoomState {
     room_id: String,
     // lobby creator / host
     creator: Option<String>,
+    // moderation privileges; creator is auto-included while present
+    moderators: HashSet<String>,
+    // when no moderators are connected, this starts the host-migration timer
+    no_connected_moderator_since_s: Option<u64>,
+    // players removed from this room explicitly (leave/kick)
+    removed_players: HashSet<String>,
     // store general stats about each player
     players: HashMap<String, PlayerInfo>,
     // store 6 cards in hand per player
@@ -126,6 +140,8 @@ struct RoomState {
     active_player: usize, // index into player_order
     // map to mpsc which sends messages to specific players
     player_to_socket: HashMap<String, mpsc::Sender<ServerMsg>>,
+    // cards that have left hands (played or dropped by leaving players)
+    discard_pile: Vec<String>,
 
     /** Round-specific information */
     // chosen description by active player
@@ -171,12 +187,16 @@ impl Room {
         let state = RoomState {
             room_id: room_id.to_string(),
             creator,
+            moderators: HashSet::new(),
+            no_connected_moderator_since_s: None,
+            removed_players: HashSet::new(),
             players: HashMap::new(),
             deck: base_deck.to_vec(),
             stage: RoomStage::Joining,
             player_order: Vec::new(),
             player_hand: HashMap::new(),
             player_to_socket: HashMap::new(),
+            discard_pile: Vec::new(),
             active_player: 0,
             current_description: "".to_string(),
             player_to_current_card: HashMap::new(),
@@ -194,6 +214,167 @@ impl Room {
             base_deck,
             last_access: AtomicU64::new(get_time_s()),
         }
+    }
+
+    fn is_creator(&self, state: &RwLockWriteGuard<RoomState>, name: &str) -> bool {
+        state.creator.as_deref() == Some(name)
+    }
+
+    fn is_moderator(&self, state: &RwLockWriteGuard<RoomState>, name: &str) -> bool {
+        state.players.contains_key(name) && state.moderators.contains(name)
+    }
+
+    fn clean_moderators(&self, state: &mut RwLockWriteGuard<RoomState>) {
+        let active_players = state.players.keys().cloned().collect::<HashSet<String>>();
+        state
+            .moderators
+            .retain(|name| active_players.contains(name));
+
+        if let Some(creator) = state.creator.clone() {
+            if active_players.contains(&creator) {
+                state.moderators.insert(creator);
+            }
+        }
+    }
+
+    fn has_connected_moderator(&self, state: &RwLockWriteGuard<RoomState>) -> bool {
+        state.moderators.iter().any(|name| {
+            state
+                .players
+                .get(name)
+                .map(|player| player.connected)
+                .unwrap_or(false)
+        })
+    }
+
+    fn maybe_promote_moderator(&self, state: &mut RwLockWriteGuard<RoomState>) -> bool {
+        self.clean_moderators(state);
+
+        if self.has_connected_moderator(state) {
+            state.no_connected_moderator_since_s = None;
+            return false;
+        }
+
+        let now = get_time_s();
+        let since = state.no_connected_moderator_since_s.get_or_insert(now);
+        if now.saturating_sub(*since) < MODERATOR_ABSENCE_PROMOTION_DELAY_S {
+            return false;
+        }
+
+        let candidates: Vec<String> = state
+            .players
+            .iter()
+            .filter(|(_, player)| player.connected)
+            .map(|(name, _)| name.clone())
+            .filter(|name| !state.moderators.contains(name))
+            .collect();
+
+        if candidates.is_empty() {
+            return false;
+        }
+
+        let mut rng = rand::thread_rng();
+        let promoted = candidates.choose(&mut rng).unwrap().to_string();
+        state.moderators.insert(promoted);
+        state.no_connected_moderator_since_s = None;
+        true
+    }
+
+    async fn remove_player(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+        player_name: &str,
+        personal_msg: Option<ServerMsg>,
+    ) -> Result<bool> {
+        if !state.players.contains_key(player_name) {
+            return Ok(false);
+        }
+
+        let mut moved_cards = HashSet::new();
+        if let Some(hand) = state.player_hand.remove(player_name) {
+            for card in hand {
+                if moved_cards.insert(card.clone()) {
+                    state.discard_pile.push(card);
+                }
+            }
+        }
+
+        if let Some(card) = state.player_to_current_card.remove(player_name) {
+            if moved_cards.insert(card.clone()) {
+                state.discard_pile.push(card);
+            }
+        }
+
+        state.player_to_vote.remove(player_name);
+
+        if let Some(pos) = state
+            .player_order
+            .iter()
+            .position(|player| player == player_name)
+        {
+            state.player_order.remove(pos);
+            if pos < state.active_player && state.active_player > 0 {
+                state.active_player -= 1;
+            }
+            if state.active_player >= state.player_order.len() {
+                state.active_player = 0;
+            }
+        }
+
+        state.players.remove(player_name);
+        state.moderators.remove(player_name);
+        state.removed_players.insert(player_name.to_string());
+
+        if let Some(tx) = state.player_to_socket.remove(player_name) {
+            if let Some(msg) = personal_msg {
+                let _ = tx.send(msg.into()).await;
+            }
+        }
+
+        self.clean_moderators(state);
+        Ok(true)
+    }
+
+    async fn after_player_removed(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+    ) -> Result<()> {
+        if matches!(state.stage, RoomStage::Joining) {
+            self.broadcast_msg(self.room_state(state))?;
+            return Ok(());
+        }
+
+        if state.players.len() < 3 {
+            state.stage = RoomStage::End;
+            self.broadcast_msg(ServerMsg::EndGame {})?;
+            self.broadcast_msg(self.room_state(state))?;
+            return Ok(());
+        }
+
+        if matches!(state.stage, RoomStage::End) {
+            self.broadcast_msg(self.room_state(state))?;
+            return Ok(());
+        }
+
+        if matches!(state.stage, RoomStage::Results) {
+            if self.should_end_game(state) {
+                state.stage = RoomStage::End;
+                self.broadcast_msg(ServerMsg::EndGame {})?;
+                self.broadcast_msg(self.room_state(state))?;
+                return Ok(());
+            }
+
+            if state.players.values().all(|player| player.ready) {
+                self.init_round(state).await?;
+                return Ok(());
+            }
+
+            self.broadcast_msg(self.room_state(state))?;
+            return Ok(());
+        }
+
+        self.init_round(state).await?;
+        Ok(())
     }
 
     fn get_msg(
@@ -277,7 +458,8 @@ impl Room {
         for (player, card) in state.player_to_current_card.clone().iter() {
             if let Some(hand) = state.player_hand.get_mut(player) {
                 if let Some(pos) = hand.iter().position(|e| e == card) {
-                    hand.remove(pos);
+                    let played_card = hand.remove(pos);
+                    state.discard_pile.push(played_card);
                 }
             }
         }
@@ -340,23 +522,31 @@ impl Room {
                 return false;
             }
 
-            let mut new_deck = self.base_deck.to_vec();
+            if !state.discard_pile.is_empty() {
+                let mut refill = std::mem::take(&mut state.discard_pile);
+                refill.shuffle(&mut rand::thread_rng());
+                state.deck.append(&mut refill);
+            } else {
+                // fallback for older rooms where discard wasn't tracked
+                let mut new_deck = self.base_deck.to_vec();
 
-            // get all cards currently in hands
-            let mut all_hands = Vec::new();
-            for player in state.player_hand.keys() {
-                all_hands.append(&mut state.player_hand[player].clone());
-            }
-
-            // remove cards from deck
-            for card in all_hands {
-                if let Some(pos) = new_deck.iter().position(|e| e == &card) {
-                    new_deck.remove(pos);
+                // get all cards currently in hands
+                let mut all_hands = Vec::new();
+                for player in state.player_hand.keys() {
+                    all_hands.append(&mut state.player_hand[player].clone());
                 }
+
+                // remove cards from deck
+                for card in all_hands {
+                    if let Some(pos) = new_deck.iter().position(|e| e == &card) {
+                        new_deck.remove(pos);
+                    }
+                }
+
+                state.deck = new_deck;
+                state.deck.shuffle(&mut rand::thread_rng());
             }
 
-            state.deck = new_deck;
-            state.deck.shuffle(&mut rand::thread_rng());
             state.deck_refill_count += 1;
             return true;
         }
@@ -446,11 +636,19 @@ impl Room {
 
         println!("Handling client message: {:?}", msg);
 
+        if self.maybe_promote_moderator(&mut state) {
+            self.broadcast_msg(self.room_state(&state))?;
+        }
+
+        if !matches!(msg, ClientMsg::Ping {}) && !state.players.contains_key(name) {
+            return Ok(());
+        }
+
         match msg {
             ClientMsg::Ready {} => {
                 if matches!(state.stage, RoomStage::Joining) {
-                    let is_creator = state.creator.as_deref() == Some(name);
-                    if !is_creator {
+                    let can_start = self.is_moderator(&state, name);
+                    if !can_start {
                         return Ok(());
                     }
 
@@ -500,12 +698,10 @@ impl Room {
                     return Ok(());
                 }
 
-                let is_creator = state.creator.as_deref() == Some(name);
-                if !is_creator {
+                if !self.is_moderator(&state, name) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
-                            ServerMsg::ErrorMsg("Only the lobby creator can start".to_string())
-                                .into(),
+                            ServerMsg::ErrorMsg("Only moderators can start".to_string()).into(),
                         )
                         .await?;
                     }
@@ -522,19 +718,30 @@ impl Room {
 
                 self.init_round(&mut state).await?;
             }
+            ClientMsg::LeaveRoom {} => {
+                let removed = self
+                    .remove_player(
+                        &mut state,
+                        name,
+                        Some(ServerMsg::LeftRoom {
+                            reason: "You left the game".to_string(),
+                        }),
+                    )
+                    .await?;
+                if removed {
+                    self.after_player_removed(&mut state).await?;
+                }
+            }
             ClientMsg::KickPlayer { player } => {
                 if !matches!(state.stage, RoomStage::Joining) {
                     return Ok(());
                 }
 
-                let is_creator = state.creator.as_deref() == Some(name);
-                if !is_creator {
+                if !self.is_moderator(&state, name) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
-                            ServerMsg::ErrorMsg(
-                                "Only the lobby creator can kick players".to_string(),
-                            )
-                            .into(),
+                            ServerMsg::ErrorMsg("Only moderators can kick players".to_string())
+                                .into(),
                         )
                         .await?;
                     }
@@ -546,10 +753,54 @@ impl Room {
                     return Ok(());
                 }
 
-                if target == name {
+                if state.creator.as_deref() == Some(target) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(ServerMsg::ErrorMsg("Creator cannot be kicked".to_string()).into())
+                            .await?;
+                    }
+                    return Ok(());
+                }
+
+                let removed = self
+                    .remove_player(
+                        &mut state,
+                        target,
+                        Some(ServerMsg::Kicked {
+                            reason: "You were kicked from the game".to_string(),
+                        }),
+                    )
+                    .await?;
+                if removed {
+                    self.after_player_removed(&mut state).await?;
+                }
+            }
+            ClientMsg::SetModerator { player, enabled } => {
+                if !matches!(state.stage, RoomStage::Joining) {
+                    return Ok(());
+                }
+
+                if !self.is_creator(&state, name) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
-                            ServerMsg::ErrorMsg("Creator cannot kick themselves".to_string())
+                            ServerMsg::ErrorMsg(
+                                "Only the creator can manage moderators".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                let target = player.trim();
+                if target.is_empty() || !state.players.contains_key(target) {
+                    return Ok(());
+                }
+
+                if state.creator.as_deref() == Some(target) && !enabled {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg("Creator must remain a moderator".to_string())
                                 .into(),
                         )
                         .await?;
@@ -557,34 +808,26 @@ impl Room {
                     return Ok(());
                 }
 
-                if !state.players.contains_key(target) {
-                    return Ok(());
+                if enabled {
+                    state.moderators.insert(target.to_string());
+                } else {
+                    state.moderators.remove(target);
                 }
-
-                state.players.remove(target);
-                state.player_hand.remove(target);
-                state.player_to_current_card.remove(target);
-                state.player_to_vote.remove(target);
-
-                if let Some(tx) = state.player_to_socket.remove(target) {
-                    let _ = tx
-                        .send(
-                            ServerMsg::Kicked {
-                                reason: "You were kicked from the lobby".to_string(),
-                            }
-                            .into(),
-                        )
-                        .await;
-                }
-
+                self.clean_moderators(&mut state);
                 self.broadcast_msg(self.room_state(&state))?;
             }
             ClientMsg::ActivePlayerChooseCard { card, description } => {
                 if matches!(state.stage, RoomStage::ActiveChooses)
+                    && !state.player_order.is_empty()
                     && state.player_order[state.active_player] == name
                 {
                     // verify that player has this card
-                    if !state.player_hand[name].contains(&card) {
+                    if !state
+                        .player_hand
+                        .get(name)
+                        .map(|cards| cards.contains(&card))
+                        .unwrap_or(false)
+                    {
                         return Err(anyhow!("Invalid card chosen by active player"));
                     }
 
@@ -621,9 +864,17 @@ impl Room {
             }
             ClientMsg::PlayerChooseCard { card } => {
                 if matches!(state.stage, RoomStage::PlayersChoose) {
+                    if state.player_order.is_empty() {
+                        return Ok(());
+                    }
                     if state.player_order[state.active_player] != name {
                         // verify that player has this card
-                        if !state.player_hand.get(name).unwrap().contains(&card) {
+                        if !state
+                            .player_hand
+                            .get(name)
+                            .map(|cards| cards.contains(&card))
+                            .unwrap_or(false)
+                        {
                             return Err(anyhow!("Invalid card chosen by player"));
                         }
 
@@ -647,6 +898,9 @@ impl Room {
             }
             ClientMsg::Vote { card } => {
                 if matches!(state.stage, RoomStage::Voting) {
+                    if state.player_order.is_empty() {
+                        return Ok(());
+                    }
                     // verify that the player is not the active player
                     if state.player_order[state.active_player] == name {
                         println!(
@@ -663,18 +917,17 @@ impl Room {
                     }
 
                     // verify that this player is not voting for their own code or send an error message
-                    if state.player_to_current_card.get(name).unwrap() == &card {
-                        state
-                            .player_to_socket
-                            .get(name)
-                            .unwrap()
-                            .send(
-                                ServerMsg::ErrorMsg(
-                                    "You cannot vote for your own card".to_string(),
+                    if state.player_to_current_card.get(name).map(|v| v == &card) == Some(true) {
+                        if let Some(socket) = state.player_to_socket.get(name) {
+                            socket
+                                .send(
+                                    ServerMsg::ErrorMsg(
+                                        "You cannot vote for your own card".to_string(),
+                                    )
+                                    .into(),
                                 )
-                                .into(),
-                            )
-                            .await?;
+                                .await?;
+                        }
                         return Ok(());
                     }
 
@@ -807,8 +1060,11 @@ impl Room {
         self.last_access.store(get_time_s(), Ordering::Relaxed);
         let mut state = self.state.write().await;
 
-        if matches!(state.stage, RoomStage::Joining) {
+        if state.removed_players.remove(name) {
+            // already removed explicitly (leave/kick)
+        } else if matches!(state.stage, RoomStage::Joining) {
             state.players.remove(name);
+            state.moderators.remove(name);
         } else {
             if let Some(player) = state.players.get_mut(name) {
                 player.connected = false;
@@ -816,6 +1072,8 @@ impl Room {
         }
 
         state.player_to_socket.remove(name);
+        self.clean_moderators(&mut state);
+        self.maybe_promote_moderator(&mut state);
 
         if let Err(e) = res {
             println!("Error in run_ws_loop: {:?}", e);
@@ -878,6 +1136,12 @@ impl Room {
                 .await?;
             return Err(anyhow!("Game has already started"));
         }
+
+        if state.creator.as_deref() == Some(name) {
+            state.moderators.insert(name.to_string());
+        }
+        self.clean_moderators(&mut state);
+        self.maybe_promote_moderator(&mut state);
 
         self.broadcast_msg(self.room_state(&state).into())?; // will not receive this one yet
         socket.send(self.room_state(&state).into()).await?;
@@ -952,6 +1216,13 @@ impl Room {
         }
     }
 
+    pub async fn run_maintenance(&self) {
+        let mut state = self.state.write().await;
+        if self.maybe_promote_moderator(&mut state) {
+            let _ = self.broadcast_msg(self.room_state(&state));
+        }
+    }
+
     pub fn num_active(&self) -> usize {
         self.broadcast.receiver_count()
     }
@@ -966,10 +1237,14 @@ impl Room {
     }
 
     fn room_state(&self, state: &RwLockWriteGuard<RoomState>) -> ServerMsg {
+        let mut moderators = state.moderators.iter().cloned().collect::<Vec<_>>();
+        moderators.sort();
+
         ServerMsg::RoomState {
             room_id: state.room_id.clone(),
             players: state.players.clone(),
             creator: state.creator.clone(),
+            moderators,
             stage: state.stage,
             active_player: state.player_order.get(state.active_player).cloned(),
             player_order: state.player_order.clone(),

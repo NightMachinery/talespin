@@ -33,6 +33,7 @@ use rand::distributions::{Distribution, Uniform};
 use room::{get_time_s, Room, ServerMsg, WinCondition};
 
 const GARBAGE_COLLECT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60 * 20); // 20 minutes
+const ROOM_MAINTENANCE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
 const GC_ROOM_TIMEOUT_S: u64 = 60 * 60; // 1 hour
 
 const BUILTIN_IMAGE_DIR: &str = "../static/assets/cards/";
@@ -680,12 +681,30 @@ impl ServerState {
             self.rooms.remove(&room_id);
         }
     }
+
+    async fn run_room_maintenance(&self) {
+        let rooms: Vec<Arc<Room>> = self
+            .rooms
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect();
+        for room in rooms {
+            room.run_maintenance().await;
+        }
+    }
 }
 
 async fn garbage_collect(state: Arc<ServerState>) {
     loop {
         tokio::time::sleep(GARBAGE_COLLECT_INTERVAL).await;
         state.garbage_collect();
+    }
+}
+
+async fn room_maintenance(state: Arc<ServerState>) {
+    loop {
+        tokio::time::sleep(ROOM_MAINTENANCE_INTERVAL).await;
+        state.run_room_maintenance().await;
     }
 }
 
@@ -702,6 +721,7 @@ async fn main() {
     let state = Arc::new(ServerState::new().unwrap());
 
     tokio::spawn(garbage_collect(state.clone()));
+    tokio::spawn(room_maintenance(state.clone()));
 
     let cors = CorsLayer::new()
         .allow_origin(Any)
