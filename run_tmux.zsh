@@ -15,7 +15,22 @@ typeset -a talespin_custom_image_dirs=(
 	~/Pictures/SurrealPictures/chosen_1
 	~/base/virtualtabletop/library/games/Dreamcatcher/assets
 )
-export TALESPIN_EXTRA_IMAGE_DIRS="${(@F)talespin_custom_image_dirs}"
+typeset -a talespin_existing_image_dirs=()
+for image_dir in "${talespin_custom_image_dirs[@]}"; do
+	resolved_image_dir="${~image_dir}"
+	if [[ -d "$resolved_image_dir" ]]; then
+		talespin_existing_image_dirs+=("$resolved_image_dir")
+	else
+		echo "Skipping missing image directory: $resolved_image_dir"
+	fi
+done
+
+if (( ${#talespin_existing_image_dirs[@]} == 0 )); then
+	echo "No valid custom image directories found; forcing built-in images on."
+	TALESPIN_DISABLE_BUILTIN_IMAGES_P='n'
+fi
+
+export TALESPIN_EXTRA_IMAGE_DIRS="${(@F)talespin_existing_image_dirs}"
 tmux set-environment -g TALESPIN_EXTRA_IMAGE_DIRS "$TALESPIN_EXTRA_IMAGE_DIRS"
 tmux set-environment -g TALESPIN_DISABLE_BUILTIN_IMAGES_P "$TALESPIN_DISABLE_BUILTIN_IMAGES_P"
 export TALESPIN_SNIFF_EXTENSIONLESS_IMAGES_P="${TALESPIN_SNIFF_EXTENSIONLESS_IMAGES_P:-y}"
