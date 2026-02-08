@@ -1,5 +1,6 @@
 <script lang="ts">
-	import type { PlayerInfo } from '$lib/types';
+	import { onDestroy } from 'svelte';
+	import type { PlayerInfo, WinCondition } from '$lib/types';
 
 	export let players: { [key: string]: PlayerInfo } = {};
 	// export let name = '';
@@ -7,13 +8,51 @@
 	export let activePlayer = '';
 	export let pointChange: { [key: string]: number } = {};
 	export let roundNum: number;
+	export let cardsRemaining = 0;
+	export let deckRefillFlashToken = 0;
+	export let winCondition: WinCondition = {
+		mode: 'points',
+		target_points: 10
+	};
+
 	let sortedPlayersList: string[] = [];
+	let winConditionLabel = '';
+	let previousFlashToken = 0;
+	let cardsRemainingFlashing = false;
+	let cardsRemainingFlashTimeout: ReturnType<typeof setTimeout> | undefined = undefined;
 
 	$: {
 		sortedPlayersList = Object.keys(players).sort((a, b) => {
 			return players[b].points - players[a].points;
 		});
 	}
+
+	$: {
+		if (winCondition.mode === 'points') {
+			winConditionLabel = `First to ${winCondition.target_points} points!`;
+		} else if (winCondition.mode === 'cycles') {
+			winConditionLabel = `${winCondition.target_cycles} full storyteller cycle${winCondition.target_cycles === 1 ? '' : 's'}`;
+		} else {
+			winConditionLabel = 'Play until cards finish';
+		}
+	}
+
+	$: if (deckRefillFlashToken > previousFlashToken) {
+		previousFlashToken = deckRefillFlashToken;
+		cardsRemainingFlashing = true;
+		if (cardsRemainingFlashTimeout) {
+			clearTimeout(cardsRemainingFlashTimeout);
+		}
+		cardsRemainingFlashTimeout = setTimeout(() => {
+			cardsRemainingFlashing = false;
+		}, 900);
+	}
+
+	onDestroy(() => {
+		if (cardsRemainingFlashTimeout) {
+			clearTimeout(cardsRemainingFlashTimeout);
+		}
+	});
 </script>
 
 <div class="w-full">
@@ -47,9 +86,29 @@
 			{/each}
 		</div>
 		<br />
-		<p>First to 10 points!</p>
+		<p>{winConditionLabel}</p>
+		<p
+			class={`mt-1 inline-block rounded px-2 py-0.5 ${cardsRemainingFlashing ? 'cards-refilled-flash' : ''}`}
+		>
+			Cards left: {cardsRemaining}
+		</p>
 	</div>
 </div>
 
 <style>
+	.cards-refilled-flash {
+		animation: cards-refilled-pulse 0.9s ease-out;
+		background: rgba(255, 255, 255, 0.2);
+	}
+
+	@keyframes cards-refilled-pulse {
+		0% {
+			background: rgba(74, 222, 128, 0.65);
+			transform: scale(1.02);
+		}
+		100% {
+			background: rgba(255, 255, 255, 0.2);
+			transform: scale(1);
+		}
+	}
 </style>

@@ -6,7 +6,7 @@
 	import { getToastStore } from '@skeletonlabs/skeleton';
 
 	import { nameStore } from '$lib/store';
-	import type { PlayerInfo } from '$lib/types';
+	import type { PlayerInfo, WinCondition } from '$lib/types';
 	import GameServer from '$lib/gameServer';
 
 	import Joining from './Joining.svelte';
@@ -28,6 +28,14 @@
 	let activePlayer = '';
 	let description = '';
 	let roundNum = 0;
+	let cardsRemaining = 0;
+	let deckRefillCount = 0;
+	let deckRefillFlashToken = 0;
+	let hasReceivedRoomState = false;
+	let winCondition: WinCondition = {
+		mode: 'points',
+		target_points: 10
+	};
 
 	// UI state
 	let displayImages: string[] = [];
@@ -69,10 +77,20 @@
 			console.log(data);
 
 			if (data.RoomState) {
+				const previousDeckRefillCount = deckRefillCount;
 				players = data.RoomState.players;
 				stage = data.RoomState.stage;
 				activePlayer = data.RoomState.active_player || '';
 				roundNum = data.RoomState.round;
+				cardsRemaining = data.RoomState.cards_remaining || 0;
+				deckRefillCount = data.RoomState.deck_refill_count || 0;
+				if (data.RoomState.win_condition) {
+					winCondition = data.RoomState.win_condition;
+				}
+				if (hasReceivedRoomState && deckRefillCount > previousDeckRefillCount) {
+					deckRefillFlashToken += 1;
+				}
+				hasReceivedRoomState = true;
 				if (!rejoin) {
 					toastStore.trigger({
 						message: '👋 Connected to room!',
@@ -129,13 +147,66 @@
 			<Joining {name} {gameServer} {players} {roomCode} />
 		</div>
 	{:else if stage === 'ActiveChooses'}
-		<ActiveChooses {displayImages} {activePlayer} {name} {gameServer} {players} {stage} {pointChange} {roundNum} />
+		<ActiveChooses
+			{displayImages}
+			{activePlayer}
+			{name}
+			{gameServer}
+			{players}
+			{stage}
+			{pointChange}
+			{roundNum}
+			{cardsRemaining}
+			{deckRefillFlashToken}
+			{winCondition}
+		/>
 	{:else if stage === 'PlayersChoose'}
-		<PlayersChoose {displayImages} {name} {activePlayer} {gameServer} {description} {players} {stage} {pointChange} {roundNum} />
+		<PlayersChoose
+			{displayImages}
+			{name}
+			{activePlayer}
+			{gameServer}
+			{description}
+			{players}
+			{stage}
+			{pointChange}
+			{roundNum}
+			{cardsRemaining}
+			{deckRefillFlashToken}
+			{winCondition}
+		/>
 	{:else if stage === 'Voting'}
-		<Voting {displayImages} {activePlayer} {name} {gameServer} {description} {players} {stage} {pointChange} {roundNum} disabledCard={votingDisabledCard} />
+		<Voting
+			{displayImages}
+			{activePlayer}
+			{name}
+			{gameServer}
+			{description}
+			{players}
+			{stage}
+			{pointChange}
+			{roundNum}
+			{cardsRemaining}
+			{deckRefillFlashToken}
+			{winCondition}
+			disabledCard={votingDisabledCard}
+		/>
 	{:else if stage === 'Results'}
-		<Results {displayImages} {gameServer} {playerToCurrentCard} {playerToVote} {activeCard} {activePlayer} {players} {stage} {pointChange} {roundNum} />
+		<Results
+			{displayImages}
+			{gameServer}
+			{playerToCurrentCard}
+			{playerToVote}
+			{activeCard}
+			{activePlayer}
+			{players}
+			{stage}
+			{pointChange}
+			{roundNum}
+			{cardsRemaining}
+			{deckRefillFlashToken}
+			{winCondition}
+		/>
 	{:else if stage === 'End'}
 		<div class="pt-10">
 			<End {players} />

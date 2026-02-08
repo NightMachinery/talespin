@@ -11,6 +11,14 @@ use std::{
 };
 use tokio::sync::{broadcast, mpsc, RwLock, RwLockWriteGuard};
 
+#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[serde(tag = "mode", rename_all = "snake_case")]
+pub enum WinCondition {
+    Points { target_points: u16 },
+    Cycles { target_cycles: u16 },
+    CardsFinish,
+}
+
 #[derive(Debug, Serialize, Clone)]
 pub enum ServerMsg {
     RoomState {
@@ -20,6 +28,9 @@ pub enum ServerMsg {
         active_player: Option<String>,
         player_order: Vec<String>,
         round: u16,
+        cards_remaining: u32,
+        deck_refill_count: u32,
+        win_condition: WinCondition,
     },
     StartRound {
         hand: Vec<String>,
@@ -116,6 +127,10 @@ struct RoomState {
     // for each player, the card they voted for as being the active's card
     // they cannot vote for themselves
     player_to_vote: HashMap<String, String>,
+    // configured win condition for this room
+    win_condition: WinCondition,
+    // increments whenever draw deck is refilled from base deck
+    deck_refill_count: u32,
 }
 
 // main object representing a game
@@ -139,7 +154,7 @@ pub fn get_time_s() -> u64 {
 }
 
 impl Room {
-    pub fn new(room_id: &str, base_deck: Arc<Vec<String>>) -> Self {
+    pub fn new(room_id: &str, base_deck: Arc<Vec<String>>, win_condition: WinCondition) -> Self {
         let state = RoomState {
             room_id: room_id.to_string(),
             players: HashMap::new(),
@@ -153,6 +168,8 @@ impl Room {
             player_to_current_card: HashMap::new(),
             player_to_vote: HashMap::new(),
             round: 0,
+            win_condition,
+            deck_refill_count: 0,
         };
 
         let (tx, _) = broadcast::channel(10);
@@ -303,8 +320,12 @@ impl Room {
         Ok(())
     }
 
-    fn check_deck(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
+    fn check_deck(&self, state: &mut RwLockWriteGuard<'_, RoomState>) -> bool {
         if state.deck.len() < state.player_order.len() {
+            if matches!(state.win_condition, WinCondition::CardsFinish) {
+                return false;
+            }
+
             let mut new_deck = self.base_deck.to_vec();
 
             // get all cards currently in hands
@@ -322,7 +343,11 @@ impl Room {
 
             state.deck = new_deck;
             state.deck.shuffle(&mut rand::thread_rng());
+            state.deck_refill_count += 1;
+            return true;
         }
+
+        false
     }
 
     async fn init_round(&self, state: &mut RwLockWriteGuard<'_, RoomState>) -> Result<()> {
@@ -330,17 +355,20 @@ impl Room {
             return Err(anyhow!("Not enough players"));
         }
 
-        state.round += 1;
+        let is_first_round = state.round == 0;
+        let next_active_player = if is_first_round {
+            0
+        } else {
+            (state.active_player + 1) % state.player_order.len()
+        };
 
         // finalize players
-        if state.round == 1 {
+        if is_first_round {
             // first round
             state.active_player = 0;
             state.player_order = state.players.keys().cloned().collect::<Vec<_>>();
             state.player_order.shuffle(&mut rand::thread_rng());
         } else {
-            state.active_player = (state.active_player + 1) % state.player_order.len();
-
             // not enough cards, reload
             self.check_deck(state);
         }
@@ -362,13 +390,23 @@ impl Room {
             }
 
             while player_hand.get(player).unwrap().len() < 6 {
-                player_hand.get_mut(player).unwrap().push(
-                    deck.pop()
-                        .ok_or_else(|| anyhow!("Not enough cards in the deck"))?,
-                );
+                let next_card = match deck.pop() {
+                    Some(card) => card,
+                    None => {
+                        if matches!(state.win_condition, WinCondition::CardsFinish) {
+                            state.stage = RoomStage::End;
+                            self.broadcast_msg(ServerMsg::EndGame {})?;
+                            return Ok(());
+                        }
+                        return Err(anyhow!("Not enough cards in the deck"));
+                    }
+                };
+                player_hand.get_mut(player).unwrap().push(next_card);
             }
         }
 
+        state.round += 1;
+        state.active_player = next_active_player;
         state.deck = deck;
         state.player_hand = player_hand;
         state.stage = RoomStage::ActiveChooses;
@@ -407,15 +445,7 @@ impl Room {
 
                     self.broadcast_msg(self.room_state(&state))?;
 
-                    // if any player has 10 points, end game
-                    let max_points = state
-                        .players
-                        .values()
-                        .map(|p| p.points)
-                        .max()
-                        .unwrap_or_default();
-
-                    if max_points >= 10 {
+                    if self.should_end_game(&state) {
                         state.stage = RoomStage::End;
                         self.broadcast_msg(self.get_msg(None, &state)?)?;
                         return Ok(());
@@ -615,6 +645,39 @@ impl Room {
         point_change
     }
 
+    fn should_end_game(&self, state: &RwLockWriteGuard<RoomState>) -> bool {
+        match state.win_condition {
+            WinCondition::Points { target_points } => {
+                let max_points = state
+                    .players
+                    .values()
+                    .map(|p| p.points)
+                    .max()
+                    .unwrap_or_default();
+                max_points >= target_points
+            }
+            WinCondition::Cycles { target_cycles } => {
+                if state.round == 0 {
+                    return false;
+                }
+
+                let players_per_cycle = if !state.player_order.is_empty() {
+                    state.player_order.len()
+                } else {
+                    state.players.len()
+                };
+
+                if players_per_cycle == 0 {
+                    return false;
+                }
+
+                let required_rounds = u32::from(target_cycles) * players_per_cycle as u32;
+                u32::from(state.round) >= required_rounds
+            }
+            WinCondition::CardsFinish => false,
+        }
+    }
+
     pub async fn on_connection(&self, socket: &mut WebSocket, name: &str) {
         // public funciton
         if let Err(e) = self.attempt_join(socket, name).await {
@@ -790,6 +853,9 @@ impl Room {
             active_player: state.player_order.get(state.active_player).cloned(),
             player_order: state.player_order.clone(),
             round: state.round,
+            cards_remaining: state.deck.len() as u32,
+            deck_refill_count: state.deck_refill_count,
+            win_condition: state.win_condition,
         }
     }
 }

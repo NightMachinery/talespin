@@ -2,7 +2,7 @@
 	import { http_host } from '$lib/gameServer';
 	import { cardsFitToHeight } from '$lib/viewOptions';
 	import type GameServer from '$lib/gameServer';
-	import type { PlayerInfo } from '$lib/types';
+	import type { PlayerInfo, WinCondition } from '$lib/types';
 	import StageShell from './StageShell.svelte';
 
 	export let displayImages: string[] = [];
@@ -15,6 +15,12 @@
 	export let stage = '';
 	export let pointChange: { [key: string]: number } = {};
 	export let roundNum = 0;
+	export let cardsRemaining = 0;
+	export let deckRefillFlashToken = 0;
+	export let winCondition: WinCondition = {
+		mode: 'points',
+		target_points: 10
+	};
 
 	let cardToPlayer: { [key: string]: string } = {};
 	let cardToVoters: { [key: string]: string[] } = {};
@@ -42,14 +48,25 @@
 	}
 </script>
 
-<StageShell {players} {stage} {pointChange} {activePlayer} {roundNum}>
+<StageShell
+	{players}
+	{stage}
+	{pointChange}
+	{activePlayer}
+	{roundNum}
+	{cardsRemaining}
+	{deckRefillFlashToken}
+	{winCondition}
+>
 	<svelte:fragment slot="leftRail">
 		<div class="card light space-y-2 p-4">
 			<h1 class="text-xl font-semibold">Round complete</h1>
 			<p>Review votes and scores, then continue to the next round.</p>
 		</div>
 		<div class="card light p-4">
-			<button class="btn variant-filled w-full" on:click={() => gameServer.ready()}>Next Round</button>
+			<button class="btn variant-filled w-full" on:click={() => gameServer.ready()}
+				>Next Round</button
+			>
 		</div>
 	</svelte:fragment>
 
@@ -61,7 +78,8 @@
 	</svelte:fragment>
 
 	<svelte:fragment slot="mobileActions">
-		<button class="btn variant-filled w-full" on:click={() => gameServer.ready()}>Next Round</button>
+		<button class="btn variant-filled w-full" on:click={() => gameServer.ready()}>Next Round</button
+		>
 	</svelte:fragment>
 
 	<div class="flex h-full flex-col">

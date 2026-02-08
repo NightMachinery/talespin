@@ -2,13 +2,19 @@
 	import { cardsFitToHeight } from '$lib/viewOptions';
 	import Leaderboard from './Leaderboard.svelte';
 	import SidebarOptions from './SidebarOptions.svelte';
-	import type { PlayerInfo } from '$lib/types';
+	import type { PlayerInfo, WinCondition } from '$lib/types';
 
 	export let players: { [key: string]: PlayerInfo } = {};
 	export let stage = '';
 	export let activePlayer = '';
 	export let pointChange: { [key: string]: number } = {};
 	export let roundNum = 0;
+	export let cardsRemaining = 0;
+	export let deckRefillFlashToken = 0;
+	export let winCondition: WinCondition = {
+		mode: 'points',
+		target_points: 10
+	};
 	export let showMobileActions = true;
 
 	const hasMobileTop = !!$$slots.mobileTop;
@@ -43,8 +49,19 @@
 			{/if}
 
 			<aside class="order-3 w-full lg:order-1 lg:w-[340px] lg:shrink-0">
-				<div class="flex flex-col gap-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto lg:pr-1">
-					<Leaderboard {players} {stage} {pointChange} {activePlayer} {roundNum} />
+				<div
+					class="flex flex-col gap-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto lg:pr-1"
+				>
+					<Leaderboard
+						{players}
+						{stage}
+						{pointChange}
+						{activePlayer}
+						{roundNum}
+						{cardsRemaining}
+						{deckRefillFlashToken}
+						{winCondition}
+					/>
 
 					<div class="hidden lg:block">
 						<slot name="leftRail" />

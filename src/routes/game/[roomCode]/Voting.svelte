@@ -3,7 +3,7 @@
 	import { getToastStore } from '@skeletonlabs/skeleton';
 
 	import type GameServer from '$lib/gameServer';
-	import type { PlayerInfo } from '$lib/types';
+	import type { PlayerInfo, WinCondition } from '$lib/types';
 	import Images from './Images.svelte';
 	import StageShell from './StageShell.svelte';
 
@@ -16,6 +16,12 @@
 	export let stage = '';
 	export let pointChange: { [key: string]: number } = {};
 	export let roundNum = 0;
+	export let cardsRemaining = 0;
+	export let deckRefillFlashToken = 0;
+	export let winCondition: WinCondition = {
+		mode: 'points',
+		target_points: 10
+	};
 	export let disabledCard = '';
 
 	let selectedImage = '';
@@ -33,7 +39,17 @@
 	}
 </script>
 
-<StageShell {players} {stage} {pointChange} {activePlayer} {roundNum} showMobileActions={isVoter}>
+<StageShell
+	{players}
+	{stage}
+	{pointChange}
+	{activePlayer}
+	{roundNum}
+	{cardsRemaining}
+	{deckRefillFlashToken}
+	{winCondition}
+	showMobileActions={isVoter}
+>
 	<svelte:fragment slot="leftRail">
 		{#if isVoter}
 			<div class="card light space-y-2 p-4">
@@ -72,9 +88,7 @@
 				</AccordionItem>
 				<AccordionItem>
 					<svelte:fragment slot="summary">
-						<strong
-							>If nobody finds <span class="boujee-text">{activePlayer}'s</span> card:</strong
-						>
+						<strong>If nobody finds <span class="boujee-text">{activePlayer}'s</span> card:</strong>
 					</svelte:fragment>
 					<svelte:fragment slot="content">
 						<ul class="ml-8">
@@ -135,9 +149,7 @@
 				</AccordionItem>
 				<AccordionItem>
 					<svelte:fragment slot="summary">
-						<strong
-							>If nobody finds <span class="boujee-text">{activePlayer}'s</span> card:</strong
-						>
+						<strong>If nobody finds <span class="boujee-text">{activePlayer}'s</span> card:</strong>
 					</svelte:fragment>
 					<svelte:fragment slot="content">
 						<ul class="ml-8">

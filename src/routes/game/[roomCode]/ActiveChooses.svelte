@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type GameServer from '$lib/gameServer';
-	import type { PlayerInfo } from '$lib/types';
+	import type { PlayerInfo, WinCondition } from '$lib/types';
 	import Images from './Images.svelte';
 	import StageShell from './StageShell.svelte';
 	import { getToastStore } from '@skeletonlabs/skeleton';
@@ -13,6 +13,12 @@
 	export let stage = '';
 	export let pointChange: { [key: string]: number } = {};
 	export let roundNum = 0;
+	export let cardsRemaining = 0;
+	export let deckRefillFlashToken = 0;
+	export let winCondition: WinCondition = {
+		mode: 'points',
+		target_points: 10
+	};
 
 	let toastStore = getToastStore();
 	let descriptionBox = '';
@@ -33,7 +39,17 @@
 	}
 </script>
 
-<StageShell {players} {stage} {pointChange} {activePlayer} {roundNum} showMobileActions={isActivePlayer}>
+<StageShell
+	{players}
+	{stage}
+	{pointChange}
+	{activePlayer}
+	{roundNum}
+	{cardsRemaining}
+	{deckRefillFlashToken}
+	{winCondition}
+	showMobileActions={isActivePlayer}
+>
 	<svelte:fragment slot="leftRail">
 		{#if isActivePlayer}
 			<div class="card light space-y-2 p-4">

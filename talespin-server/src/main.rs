@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Context, Result};
 use axum::{
+    body::Bytes,
     extract::{
         ws::{Message as WsMessage, WebSocket},
         Json, Path as AxumPath, State, WebSocketUpgrade,
@@ -11,6 +12,7 @@ use axum::{
 };
 use dashmap::DashMap;
 use image::{codecs::jpeg::JpegEncoder, imageops::FilterType, DynamicImage, GenericImageView};
+use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
@@ -28,7 +30,7 @@ use tower_http::{
 mod room;
 
 use rand::distributions::{Distribution, Uniform};
-use room::{get_time_s, Room, ServerMsg};
+use room::{get_time_s, Room, ServerMsg, WinCondition};
 
 const GARBAGE_COLLECT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60 * 20); // 20 minutes
 const GC_ROOM_TIMEOUT_S: u64 = 60 * 60; // 1 hour
@@ -41,9 +43,11 @@ const DISABLE_BUILTIN_IMAGES_ENV: &str = "TALESPIN_DISABLE_BUILTIN_IMAGES_P";
 const CACHE_DIR_ENV: &str = "TALESPIN_CACHE_DIR";
 const CARD_ASPECT_RATIO_ENV: &str = "TALESPIN_CARD_ASPECT_RATIO";
 const CARD_LONG_SIDE_ENV: &str = "TALESPIN_CARD_LONG_SIDE";
+const DEFAULT_WIN_POINTS_ENV: &str = "TALESPIN_DEFAULT_WIN_POINTS";
 
 const DEFAULT_CARD_ASPECT_RATIO: &str = "2:3";
 const DEFAULT_CARD_LONG_SIDE: u32 = 1536;
+const DEFAULT_WIN_POINTS: u16 = 10;
 const DEFAULT_CACHE_DIR: &str = "~/.cache/talespin";
 const CACHE_SUBDIR_CARDS: &str = "cards";
 
@@ -174,6 +178,23 @@ fn parse_long_side_from_env() -> u32 {
     }
 
     DEFAULT_CARD_LONG_SIDE
+}
+
+fn parse_default_win_points_from_env() -> u16 {
+    if let Ok(raw) = env::var(DEFAULT_WIN_POINTS_ENV) {
+        if let Ok(value) = raw.trim().parse::<u16>() {
+            if value > 0 {
+                return value;
+            }
+        }
+
+        println!(
+            "Warning: invalid {}='{}'; using default {}",
+            DEFAULT_WIN_POINTS_ENV, raw, DEFAULT_WIN_POINTS
+        );
+    }
+
+    DEFAULT_WIN_POINTS
 }
 
 fn env_is_y(key: &str) -> bool {
@@ -498,12 +519,54 @@ fn load_cards(
     })
 }
 
+#[derive(Debug, Deserialize)]
+struct CreateRoomRequest {
+    win_condition: Option<WinCondition>,
+}
+
+fn validate_win_condition(win_condition: WinCondition) -> Result<WinCondition> {
+    match win_condition {
+        WinCondition::Points { target_points } => {
+            if target_points == 0 {
+                return Err(anyhow!("target_points must be >= 1"));
+            }
+            Ok(WinCondition::Points { target_points })
+        }
+        WinCondition::Cycles { target_cycles } => {
+            if target_cycles == 0 {
+                return Err(anyhow!("target_cycles must be >= 1"));
+            }
+            Ok(WinCondition::Cycles { target_cycles })
+        }
+        WinCondition::CardsFinish => Ok(WinCondition::CardsFinish),
+    }
+}
+
+fn parse_create_room_win_condition(
+    body: &[u8],
+    default_points_target: u16,
+) -> Result<WinCondition> {
+    if body.is_empty() || body.iter().all(|b| b.is_ascii_whitespace()) {
+        return Ok(WinCondition::Points {
+            target_points: default_points_target,
+        });
+    }
+
+    let request: CreateRoomRequest =
+        serde_json::from_slice(body).context("Failed to parse create-room request payload")?;
+    let requested = request.win_condition.unwrap_or(WinCondition::Points {
+        target_points: default_points_target,
+    });
+    validate_win_condition(requested)
+}
+
 // main object for server
 #[derive(Debug, Clone)]
 struct ServerState {
     rooms: DashMap<String, Arc<Room>>,
     base_deck: Arc<Vec<String>>,
     cards: Arc<HashMap<String, PathBuf>>,
+    default_win_points_target: u16,
 }
 
 impl ServerState {
@@ -511,13 +574,14 @@ impl ServerState {
         cleanup_legacy_generated_cards()?;
 
         let config = NormalizationConfig::from_env()?;
+        let default_win_points_target = parse_default_win_points_from_env();
         let extra_image_dirs = get_extra_image_dirs();
         let disable_builtin_images = env_is_y(DISABLE_BUILTIN_IMAGES_ENV);
 
         let loaded_cards = load_cards(&config, &extra_image_dirs, disable_builtin_images)?;
 
         println!(
-            "Loaded {} cards ({} built-in, {} extra, {} failed; builtins {}; ratio {}:{}, long side {}; cache {})",
+            "Loaded {} cards ({} built-in, {} extra, {} failed; builtins {}; ratio {}:{}, long side {}; cache {}; default points target {})",
             loaded_cards.deck.len(),
             loaded_cards.loaded_builtin,
             loaded_cards.loaded_extra,
@@ -526,24 +590,26 @@ impl ServerState {
             config.ratio_width,
             config.ratio_height,
             config.long_side,
-            config.cards_cache_dir.display()
+            config.cards_cache_dir.display(),
+            default_win_points_target
         );
 
         Ok(ServerState {
             rooms: DashMap::new(),
             base_deck: Arc::new(loaded_cards.deck),
             cards: Arc::new(loaded_cards.cards),
+            default_win_points_target,
         })
     }
 
-    async fn create_room(&self) -> Result<ServerMsg> {
+    async fn create_room(&self, win_condition: WinCondition) -> Result<ServerMsg> {
         let mut room_id = generate_room_id(4);
 
         while (self.get_room(&room_id)).is_some() {
             room_id = generate_room_id(4);
         }
 
-        let room = Room::new(&room_id, self.base_deck.clone());
+        let room = Room::new(&room_id, self.base_deck.clone(), win_condition);
         let msg = room.get_room_state().await;
         self.rooms.insert(room_id.clone(), Arc::new(room));
         Ok(msg)
@@ -668,16 +734,30 @@ async fn card_handler(
     }
 }
 
-async fn create_room_handler(State(state): State<Arc<ServerState>>) -> String {
-    let room = state.create_room().await;
+async fn create_room_handler(State(state): State<Arc<ServerState>>, body: Bytes) -> String {
+    let win_condition =
+        match parse_create_room_win_condition(&body, state.default_win_points_target) {
+            Ok(win_condition) => win_condition,
+            Err(err) => {
+                println!("Failed to parse create-room payload: {}", err);
+                return serde_json::to_string(&room::ServerMsg::ErrorMsg(
+                    "Failed to create room".to_string(),
+                ))
+                .unwrap();
+            }
+        };
 
-    if let Ok(room_state) = room {
-        serde_json::to_string(&room_state).unwrap()
-    } else {
-        serde_json::to_string(&room::ServerMsg::ErrorMsg(
-            "Failed to create room".to_string(),
-        ))
-        .unwrap()
+    let room = state.create_room(win_condition).await;
+
+    match room {
+        Ok(room_state) => serde_json::to_string(&room_state).unwrap(),
+        Err(err) => {
+            println!("Failed to create room: {}", err);
+            serde_json::to_string(&room::ServerMsg::ErrorMsg(
+                "Failed to create room".to_string(),
+            ))
+            .unwrap()
+        }
     }
 }
 
