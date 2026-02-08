@@ -8,7 +8,8 @@ tmuxnew () {
 export ALL_PROXY=http://127.0.0.1:1087 all_proxy=http://127.0.0.1:1087 http_proxy=http://127.0.0.1:1087 https_proxy=http://127.0.0.1:1087 HTTP_PROXY=http://127.0.0.1:1087 HTTPS_PROXY=http://127.0.0.1:1087
 
 typeset -a talespin_custom_image_dirs=(
-	~/Pictures/SurrealPictures
+	# ~/Pictures/SurrealPictures
+	~/Pictures/SurrealPictures/chosen_1
 )
 export TALESPIN_EXTRA_IMAGE_DIRS="${(@F)talespin_custom_image_dirs}"
 tmux set-environment -g TALESPIN_EXTRA_IMAGE_DIRS "$TALESPIN_EXTRA_IMAGE_DIRS"
