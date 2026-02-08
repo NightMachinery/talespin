@@ -4,23 +4,32 @@
 	export let displayImages: string[];
 	export let selectable = false;
 	export let selectedImage = '';
+	export let mode: 'hand' | 'board' = 'board';
+
+	$: isHandMode = mode === 'hand';
+	$: sectionClass = isHandMode
+		? 'grid h-full w-full grid-cols-2 gap-3 lg:grid-cols-3 lg:grid-rows-2'
+		: 'grid w-full grid-cols-2 gap-3 lg:grid-cols-3';
+	$: imageClassBase = isHandMode
+		? 'h-full w-full rounded-lg object-cover object-center aspect-[2/3]'
+		: 'w-full rounded-lg object-cover object-center aspect-[2/3]';
 </script>
 
-<section class="grid grid-cols-2 md:grid-cols-3 gap-4 mt-5 max-w-2xl">
+<section class={sectionClass}>
 	{#if selectable}
 		{#each displayImages as image}
-			<div class="group" on:click={() => (selectedImage = image)}>
+			<button type="button" class="group block h-full w-full" on:click={() => (selectedImage = image)}>
 				<img
-					class={`${selectedImage === image ? 'border-4 border-white shadow-xlg' : ''} transition-all duration-150 ease-in-out group-hover:scale-110 group-hover:shadow-2xl group-focus:shadow-2xl rounded-lg cursor-pointer`}
+					class={`${selectedImage === image ? 'ring-4 ring-white shadow-xlg' : ''} ${imageClassBase} cursor-pointer transition-all duration-150 ease-in-out group-hover:scale-105 group-hover:shadow-2xl group-focus:shadow-2xl`}
 					src={`${http_host}/cards/${image}`}
 					alt="You can't play this game without the images!"
 				/>
-			</div>
+			</button>
 		{/each}
 	{:else}
 		{#each displayImages as image}
 			<img
-				class={`transition-all duration-150 ease-in-out group-hover:scale-110 group-hover:shadow-2xl group-focus:shadow-2xl rounded-lg`}
+				class={`${imageClassBase} transition-all duration-150 ease-in-out`}
 				src={`${http_host}/cards/${image}`}
 				alt="You can't play this game without the images!"
 			/>
