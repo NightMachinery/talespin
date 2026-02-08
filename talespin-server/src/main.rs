@@ -41,6 +41,7 @@ const LEGACY_EXTRA_CARD_PREFIX: &str = "extra_dir__";
 
 const EXTRA_IMAGE_DIRS_ENV: &str = "TALESPIN_EXTRA_IMAGE_DIRS";
 const DISABLE_BUILTIN_IMAGES_ENV: &str = "TALESPIN_DISABLE_BUILTIN_IMAGES_P";
+const SNIFF_EXTENSIONLESS_IMAGES_ENV: &str = "TALESPIN_SNIFF_EXTENSIONLESS_IMAGES_P";
 const CACHE_DIR_ENV: &str = "TALESPIN_CACHE_DIR";
 const CARD_ASPECT_RATIO_ENV: &str = "TALESPIN_CARD_ASPECT_RATIO";
 const CARD_LONG_SIDE_ENV: &str = "TALESPIN_CARD_LONG_SIDE";
@@ -216,7 +217,7 @@ fn get_extra_image_dirs() -> Vec<PathBuf> {
         .unwrap_or_else(|_| Vec::new())
 }
 
-fn is_supported_image(path: &Path) -> bool {
+fn has_supported_extension(path: &Path) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
         .map(|ext| {
@@ -226,6 +227,36 @@ fn is_supported_image(path: &Path) -> bool {
             )
         })
         .unwrap_or(false)
+}
+
+fn sniff_supported_extensionless_image(path: &Path) -> bool {
+    let bytes = match fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            println!(
+                "Warning: failed to read extensionless image candidate {}: {}",
+                path.display(),
+                err
+            );
+            return false;
+        }
+    };
+
+    match infer::get(&bytes) {
+        Some(kind) => matches!(
+            kind.mime_type(),
+            "image/jpeg" | "image/png" | "image/webp"
+        ),
+        None => false,
+    }
+}
+
+fn is_supported_image(path: &Path, sniff_extensionless_images: bool) -> bool {
+    if has_supported_extension(path) {
+        return true;
+    }
+
+    sniff_extensionless_images && path.extension().is_none() && sniff_supported_extensionless_image(path)
 }
 
 fn cleanup_legacy_generated_cards() -> Result<()> {
@@ -254,7 +285,11 @@ fn cleanup_legacy_generated_cards() -> Result<()> {
     Ok(())
 }
 
-fn collect_image_files_recursive(root: &Path, strict_root: bool) -> Result<Vec<PathBuf>> {
+fn collect_image_files_recursive(
+    root: &Path,
+    strict_root: bool,
+    sniff_extensionless_images: bool,
+) -> Result<Vec<PathBuf>> {
     let mut found = Vec::new();
     let mut dirs_to_scan = VecDeque::from([root.to_path_buf()]);
     let mut visited_dirs = HashSet::new();
@@ -347,7 +382,7 @@ fn collect_image_files_recursive(root: &Path, strict_root: bool) -> Result<Vec<P
             }
 
             if (file_type.is_file() || resolved_entry.is_file())
-                && is_supported_image(&resolved_entry)
+                && is_supported_image(&resolved_entry, sniff_extensionless_images)
             {
                 found.push(resolved_entry);
             }
@@ -451,16 +486,21 @@ fn load_cards(
     config: &NormalizationConfig,
     extra_image_dirs: &[PathBuf],
     disable_builtin_images: bool,
+    sniff_extensionless_images: bool,
 ) -> Result<LoadedCards> {
     let builtin_sources = if disable_builtin_images {
         Vec::new()
     } else {
-        collect_image_files_recursive(Path::new(BUILTIN_IMAGE_DIR), true)?
+        collect_image_files_recursive(Path::new(BUILTIN_IMAGE_DIR), true, sniff_extensionless_images)?
     };
 
     let mut extra_sources = Vec::new();
     for dir in extra_image_dirs {
-        extra_sources.extend(collect_image_files_recursive(dir, false)?);
+        extra_sources.extend(collect_image_files_recursive(
+            dir,
+            false,
+            sniff_extensionless_images,
+        )?);
     }
 
     if !extra_image_dirs.is_empty() && extra_sources.is_empty() {
@@ -627,16 +667,27 @@ impl ServerState {
         let default_win_points_target = parse_default_win_points_from_env();
         let extra_image_dirs = get_extra_image_dirs();
         let disable_builtin_images = env_is_y(DISABLE_BUILTIN_IMAGES_ENV);
+        let sniff_extensionless_images = env_is_y(SNIFF_EXTENSIONLESS_IMAGES_ENV);
 
-        let loaded_cards = load_cards(&config, &extra_image_dirs, disable_builtin_images)?;
+        let loaded_cards = load_cards(
+            &config,
+            &extra_image_dirs,
+            disable_builtin_images,
+            sniff_extensionless_images,
+        )?;
 
         println!(
-            "Loaded {} cards ({} built-in, {} extra, {} failed; builtins {}; ratio {}:{}, long side {}; cache {}; default points target {})",
+            "Loaded {} cards ({} built-in, {} extra, {} failed; builtins {}; extensionless sniff {}; ratio {}:{}, long side {}; cache {}; default points target {})",
             loaded_cards.deck.len(),
             loaded_cards.loaded_builtin,
             loaded_cards.loaded_extra,
             loaded_cards.failed_sources,
             if disable_builtin_images { "disabled" } else { "enabled" },
+            if sniff_extensionless_images {
+                "enabled"
+            } else {
+                "disabled"
+            },
             config.ratio_width,
             config.ratio_height,
             config.long_side,

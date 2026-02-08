@@ -16,6 +16,9 @@ Cards are loaded at backend startup from:
 - `.png`
 - `.webp`
 
+Extensionless files are ignored by default.  
+Set `TALESPIN_SNIFF_EXTENSIONLESS_IMAGES_P=y` to sniff extensionless files and accept only JPEG/PNG/WebP payloads.
+
 ## Runtime Flow
 
 The backend normalizes all source images into cached JPEG cards and serves them through:
@@ -52,5 +55,6 @@ For default `2:3`, output size is `1024x1536`.
 ## Built-in Toggle and Errors
 
 - `TALESPIN_DISABLE_BUILTIN_IMAGES_P=y` disables built-in cards.
+- `TALESPIN_SNIFF_EXTENSIONLESS_IMAGES_P=y` enables content-sniffing for extensionless files.
 - If extra dirs are set but no supported images are found, startup fails with an error.
 - If built-ins are disabled and extra dirs yield zero images, startup fails with an error.
