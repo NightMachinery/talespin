@@ -144,7 +144,14 @@
 <div class="w-full">
 	{#if stage === 'Joining'}
 		<div class="pt-10">
-			<Joining {name} {gameServer} {players} {roomCode} />
+			<Joining
+				{name}
+				{gameServer}
+				{players}
+				{roomCode}
+				{winCondition}
+				roomStateLoaded={hasReceivedRoomState}
+			/>
 		</div>
 	{:else if stage === 'ActiveChooses'}
 		<ActiveChooses

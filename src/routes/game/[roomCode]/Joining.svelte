@@ -1,13 +1,18 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import type GameServer from '$lib/gameServer';
-	import type { PlayerInfo } from '$lib/types';
+	import type { PlayerInfo, WinCondition } from '$lib/types';
 	import { Avatar, getToastStore } from '@skeletonlabs/skeleton';
 
 	export let players: { [key: string]: PlayerInfo } = {};
 	export let roomCode: string = '';
 	export let gameServer: GameServer;
 	export let name = '';
+	export let roomStateLoaded = false;
+	export let winCondition: WinCondition = {
+		mode: 'points',
+		target_points: 10
+	};
 	const toastStore = getToastStore();
 
 	function getInitialsFromString(name: string) {
@@ -19,7 +24,17 @@
 
 	function getInviteLink() {
 		if (!browser) return '';
-		return `${window.location.origin}/?room=${encodeURIComponent(roomCode)}`;
+		const inviteUrl = new URL('/', window.location.origin);
+		inviteUrl.searchParams.set('room', roomCode);
+		inviteUrl.searchParams.set('win_mode', winCondition.mode);
+
+		if (winCondition.mode === 'points') {
+			inviteUrl.searchParams.set('target_points', String(winCondition.target_points));
+		} else if (winCondition.mode === 'cycles') {
+			inviteUrl.searchParams.set('target_cycles', String(winCondition.target_cycles));
+		}
+
+		return inviteUrl.toString();
 	}
 
 	async function copyInviteLink() {
@@ -56,7 +71,11 @@
 			<code class="code text-lg">{roomCode}</code>
 		</h2>
 		<div class="flex justify-center mt-4">
-			<button class="btn variant-filled" on:click={() => copyInviteLink()}>
+			<button
+				class="btn variant-filled"
+				disabled={!roomStateLoaded}
+				on:click={() => copyInviteLink()}
+			>
 				Copy Invite Link
 			</button>
 		</div>

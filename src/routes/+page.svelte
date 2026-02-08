@@ -29,6 +29,23 @@
 			roomCode = linkedRoomCode;
 			joinGameClicked = true;
 			lockedRoomCode = true;
+
+			const linkedWinMode = (url.searchParams.get('win_mode') || '').trim().toLowerCase();
+			if (linkedWinMode === 'cycles') {
+				winMode = 'cycles';
+				targetCycles = normalizedPositiveInt(
+					Number(url.searchParams.get('target_cycles') || ''),
+					targetCycles
+				);
+			} else if (linkedWinMode === 'cards_finish') {
+				winMode = 'cards_finish';
+			} else if (linkedWinMode === 'points') {
+				winMode = 'points';
+				targetPoints = normalizedPositiveInt(
+					Number(url.searchParams.get('target_points') || ''),
+					targetPoints
+				);
+			}
 		}
 	});
 
