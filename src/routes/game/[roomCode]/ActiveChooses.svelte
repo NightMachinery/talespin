@@ -8,6 +8,8 @@
 	export let displayImages: string[] = [];
 	export let activePlayer = '';
 	export let name = '';
+	export let creator = '';
+	export let moderators: string[] = [];
 	export let gameServer: GameServer;
 	export let players: { [key: string]: PlayerInfo } = {};
 	export let stage = '';
@@ -41,6 +43,10 @@
 
 <StageShell
 	{players}
+	{name}
+	{creator}
+	{moderators}
+	{gameServer}
 	{stage}
 	{pointChange}
 	{activePlayer}

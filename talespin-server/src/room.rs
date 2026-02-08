@@ -733,10 +733,6 @@ impl Room {
                 }
             }
             ClientMsg::KickPlayer { player } => {
-                if !matches!(state.stage, RoomStage::Joining) {
-                    return Ok(());
-                }
-
                 if !self.is_moderator(&state, name) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
@@ -775,15 +771,14 @@ impl Room {
                 }
             }
             ClientMsg::SetModerator { player, enabled } => {
-                if !matches!(state.stage, RoomStage::Joining) {
-                    return Ok(());
-                }
+                let is_creator = self.is_creator(&state, name);
+                let is_moderator = self.is_moderator(&state, name);
 
-                if !self.is_creator(&state, name) {
+                if !is_creator && !is_moderator {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
-                                "Only the creator can manage moderators".to_string(),
+                                "Only moderators can promote moderators".to_string(),
                             )
                             .into(),
                         )
@@ -794,6 +789,19 @@ impl Room {
 
                 let target = player.trim();
                 if target.is_empty() || !state.players.contains_key(target) {
+                    return Ok(());
+                }
+
+                if !enabled && !is_creator {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only the creator can demote moderators".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
                     return Ok(());
                 }
 

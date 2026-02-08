@@ -200,6 +200,8 @@
 			{displayImages}
 			{activePlayer}
 			{name}
+			{creator}
+			{moderators}
 			{gameServer}
 			{players}
 			{stage}
@@ -213,6 +215,8 @@
 		<PlayersChoose
 			{displayImages}
 			{name}
+			{creator}
+			{moderators}
 			{activePlayer}
 			{gameServer}
 			{description}
@@ -229,6 +233,8 @@
 			{displayImages}
 			{activePlayer}
 			{name}
+			{creator}
+			{moderators}
 			{gameServer}
 			{description}
 			{players}
@@ -243,6 +249,9 @@
 	{:else if stage === 'Results'}
 		<Results
 			{displayImages}
+			{name}
+			{creator}
+			{moderators}
 			{gameServer}
 			{playerToCurrentCard}
 			{playerToVote}

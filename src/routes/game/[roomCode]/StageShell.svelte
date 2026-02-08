@@ -1,10 +1,15 @@
 <script lang="ts">
 	import { cardsFitToHeight } from '$lib/viewOptions';
+	import type GameServer from '$lib/gameServer';
 	import Leaderboard from './Leaderboard.svelte';
 	import SidebarOptions from './SidebarOptions.svelte';
 	import type { PlayerInfo, WinCondition } from '$lib/types';
 
 	export let players: { [key: string]: PlayerInfo } = {};
+	export let name = '';
+	export let creator = '';
+	export let moderators: string[] = [];
+	export let gameServer: GameServer;
 	export let stage = '';
 	export let activePlayer = '';
 	export let pointChange: { [key: string]: number } = {};
@@ -74,7 +79,7 @@
 					{/if}
 
 					<div class="hidden lg:block">
-						<SidebarOptions />
+						<SidebarOptions {players} {name} {creator} {moderators} {gameServer} {stage} />
 					</div>
 				</div>
 			</aside>

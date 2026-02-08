@@ -124,20 +124,20 @@
 								{/if}
 							</div>
 						</div>
-						<div class="flex items-center gap-2">
-							{#if isCreator && playerName !== creator}
-								{#if isPlayerModerator(playerName)}
-									<button
-										class="btn variant-filled px-3 py-1 text-sm"
-										on:click={() => setModerator(playerName, false)}
-									>
-										Demote
-									</button>
-								{:else}
-									<button
-										class="btn variant-filled px-3 py-1 text-sm"
-										on:click={() => setModerator(playerName, true)}
-									>
+							<div class="flex items-center gap-2">
+								{#if playerName !== creator}
+									{#if isCreator && isPlayerModerator(playerName)}
+										<button
+											class="btn variant-filled px-3 py-1 text-sm"
+											on:click={() => setModerator(playerName, false)}
+										>
+											Demote
+										</button>
+									{:else if (isCreator || isModerator) && !isPlayerModerator(playerName)}
+										<button
+											class="btn variant-filled px-3 py-1 text-sm"
+											on:click={() => setModerator(playerName, true)}
+										>
 										Make Mod
 									</button>
 								{/if}

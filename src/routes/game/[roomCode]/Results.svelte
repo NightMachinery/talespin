@@ -6,6 +6,9 @@
 	import StageShell from './StageShell.svelte';
 
 	export let displayImages: string[] = [];
+	export let name = '';
+	export let creator = '';
+	export let moderators: string[] = [];
 	export let activeCard = '';
 	export let activePlayer = '';
 	export let gameServer: GameServer;
@@ -50,6 +53,10 @@
 
 <StageShell
 	{players}
+	{name}
+	{creator}
+	{moderators}
+	{gameServer}
 	{stage}
 	{pointChange}
 	{activePlayer}
