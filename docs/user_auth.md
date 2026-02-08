@@ -1,32 +1,52 @@
-# User Identity and Persistence
+# User Identity and Roles
 
-## How the game knows who a player is after refresh
+## Identity after refresh
 
-- It does **not** use cookies.
-- The frontend stores the player's name in browser `localStorage` and reuses it after refresh.
-- On page load (and on websocket reconnect), the client sends `JoinRoom { room_id, name }`.
-- The backend matches by player name within the room:
-  - if that name exists and is currently disconnected, it reattaches the player
-  - if that name is already connected elsewhere, it rejects with `Name already taken`
+- The game does **not** use cookies.
+- The frontend stores only the player name in browser `localStorage`.
+- On load/reconnect, client sends `JoinRoom { room_id, name }`.
+- Backend maps identity by `name` inside the room:
+  - if same name exists and is disconnected, it reconnects that player
+  - if same name is already connected, server rejects with `Name already taken`
 
-## What is stored in localStorage
+## localStorage contents
 
 - Key: `name`
-- Value: the player name string entered on the home page
+- Value: player name string
 
-What is **not** stored there:
+Not stored:
 
 - room code
-- auth tokens
-- card/game state
+- auth/session tokens
+- game state or cards
+
+## Creator and moderator model
+
+- `creator` is fixed as the room creator identity.
+- `moderators` is a separate privilege group.
+- Creator is always a moderator while present in the room.
+- Only creator can grant/revoke moderator status.
+- Moderators can:
+  - start the game from lobby
+  - kick non-creator players from lobby
+- If no moderator is connected for 5 minutes, server auto-promotes one random connected player to moderator.
+
+## Leave/kick behavior
+
+- Voluntary leave sends `LeaveRoom`:
+  - player is removed from room membership
+  - their in-hand/selected cards are moved to discard
+- Kick sends `Kicked` to target and removes them similarly.
 
 ## Longevity
 
-- Since this uses `localStorage`, it persists until the user clears site data (or private/incognito session ends).
-- There is no cookie expiration involved because cookies are not used for this.
+- `localStorage` persists until browser data is cleared (or private session ends).
+- No cookie expiry exists, because cookies are not used.
 
-## Code References
+## References
 
 - `src/lib/store.ts`
 - `src/routes/game/[roomCode]/+page.svelte`
+- `src/routes/game/[roomCode]/Joining.svelte`
+- `src/lib/gameServer.ts`
 - `talespin-server/src/room.rs`
