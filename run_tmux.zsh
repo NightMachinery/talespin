@@ -10,11 +10,40 @@ export ALL_PROXY=http://127.0.0.1:1087 all_proxy=http://127.0.0.1:1087 http_prox
 export TALESPIN_PRODUCTION_P="${TALESPIN_PRODUCTION_P:-n}"
 ##
 export TALESPIN_DISABLE_BUILTIN_IMAGES_P="${TALESPIN_DISABLE_BUILTIN_IMAGES_P:-y}"
+export TALESPIN_AUTO_DOWNLOAD_EXTRA_IMAGES_P="${TALESPIN_AUTO_DOWNLOAD_EXTRA_IMAGES_P:-y}"
 typeset -a talespin_custom_image_dirs=(
 	# ~/Pictures/SurrealPictures
 	~/Pictures/SurrealPictures/chosen_1
 	~/base/virtualtabletop/library/games/Dreamcatcher/assets
 )
+typeset -A talespin_image_repo_map=(
+	"$HOME/Pictures/SurrealPictures" "https://github.com/NightMachinery/SurrealPictures.git"
+	"$HOME/base/virtualtabletop" "https://github.com/ArnoldSmith86/virtualtabletop.git"
+)
+
+for image_dir in "${talespin_custom_image_dirs[@]}"; do
+	resolved_image_dir="${~image_dir}"
+	if [[ -d "$resolved_image_dir" || ! "$TALESPIN_AUTO_DOWNLOAD_EXTRA_IMAGES_P" == [yY] ]]; then
+		continue
+	fi
+
+	for repo_root repo_url in ${(kv)talespin_image_repo_map}; do
+		if [[ "$resolved_image_dir" == "$repo_root" || "$resolved_image_dir" == "$repo_root/"* ]]; then
+			if [[ -d "$repo_root" ]]; then
+				break
+			fi
+			echo "Cloning missing image source repo: $repo_url -> $repo_root"
+			mkdir -p "${repo_root:h}"
+			if git clone --depth 1 "$repo_url" "$repo_root"; then
+				echo "Clone complete: $repo_root"
+			else
+				echo "Failed to clone $repo_url"
+			fi
+			break
+		fi
+	done
+done
+
 typeset -a talespin_existing_image_dirs=()
 for image_dir in "${talespin_custom_image_dirs[@]}"; do
 	resolved_image_dir="${~image_dir}"
