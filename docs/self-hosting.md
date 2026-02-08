@@ -48,6 +48,7 @@ It also exports:
 - `TALESPIN_CACHE_DIR` (default `~/.cache/talespin`)
 - `TALESPIN_CARD_ASPECT_RATIO` (default `2:3`)
 - `TALESPIN_CARD_LONG_SIDE` (default `1536`)
+- `TALESPIN_DEFAULT_WIN_POINTS` (default `10`, used when lobby creates `points` mode without explicit target)
 
 ## Dependencies
 

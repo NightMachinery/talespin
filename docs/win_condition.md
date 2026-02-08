@@ -2,50 +2,69 @@
 
 ## Supported Win Conditions
 
-Currently, the game supports one win/end condition:
+The lobby host can now choose one win mode at game creation:
 
-- the game ends when at least one player reaches **10 or more points** (`>= 10`).
+- `points`: game ends when at least one player reaches configured `target_points`
+- `cycles`: game ends after configured number of **full storyteller cycles**
+  - total rounds threshold = `target_cycles * player_count`
+- `cards_finish`: game ends when the server cannot fully deal a new round from the current deck
 
-There are no alternate victory modes or configurable point thresholds implemented.
+Only one mode is active per room (single-mode selection).
 
-## When the Win Condition Is Checked
+## Default Points Threshold
 
-The server checks for game end when processing a `Ready` message in `Joining`/`Results` flow (round transition time).
+The default for `points` mode is controlled by env var:
 
-This means:
+- `TALESPIN_DEFAULT_WIN_POINTS`
 
-- the game does not end immediately in the middle of vote/score calculation UI updates
-- it ends at the next round-transition check once `max_points >= 10`
+If unset or invalid, fallback is `10`.
+
+## When Win Conditions Are Checked
+
+- `points` and `cycles` are checked during `Ready` handling in round transition flow (`Joining`/`Results`)
+- `cards_finish` is checked when starting a new round; if dealing fails due to deck depletion, stage transitions to `End`
 
 ## End-State Behavior
 
-When the condition is met:
+When any active condition is met:
 
 - server sets room stage to `End`
 - server sends `EndGame` to clients
 - clients render the end screen with final ranking
 
-## Ties and Multiple Players at Threshold
+## Cards Remaining / Refill UX
 
-If multiple players are at or above 10 points, the game still ends (same threshold check).
+`RoomState` now includes:
 
-There is no explicit tie-breaker rule in code; end ranking is sorted by points descending, and equal-score ordering is not defined by a dedicated tie-break policy.
+- `cards_remaining`: current draw-pile size
+- `deck_refill_count`: monotonic counter incremented when server refills the deck
+
+Leaderboard shows cards left and flashes when `deck_refill_count` increases (refill event).
 
 ## Q: What Happens When Cards Run Out?
 
-When the draw deck gets low, the server refills it from the base deck while excluding cards currently in players' hands.
+- In `points` / `cycles` modes:
+  - server may refill the draw deck from base cards (excluding cards in hands)
+  - clients see card count jump and flash indicator
+- In `cards_finish` mode:
+  - server does **not** refill
+  - if next round cannot be fully dealt, game ends
 
-There is no dedicated "deck exhausted" end condition. The normal end condition is still points (`>= 10`).
+## Ties and Multiple Players at Threshold
 
-If a refill still cannot provide enough cards, the server returns a `Not enough cards in the deck` error.
+For points mode, if multiple players are at/above the threshold, game still ends.
+
+There is no dedicated tie-break policy in code; end ranking is sorted by points descending.
 
 ## Not Supported (Current Implementation)
 
-- custom win threshold (for example first to 15)
-- alternate win conditions (round count, elimination, sudden death, etc.)
+- elimination mode
+- sudden death mode
+- hybrid multi-condition logic (AND/OR of multiple enabled win modes)
 
 ## Code References
 
-- `talespin-server/src/room.rs` (win check and transition to `End`)
-- `src/routes/game/[roomCode]/Leaderboard.svelte` (`First to 10 points!` UI hint)
-- `src/routes/game/[roomCode]/End.svelte` (game-over ranking presentation)
+- `talespin-server/src/main.rs` (`/create` payload parse + default points env fallback)
+- `talespin-server/src/room.rs` (win-condition checks, cards-finish behavior, room-state deck metadata)
+- `src/routes/+page.svelte` (lobby win-mode controls)
+- `src/routes/game/[roomCode]/Leaderboard.svelte` (win label, cards-left display, refill flash)
