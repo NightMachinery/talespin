@@ -31,6 +31,7 @@ pub enum ServerMsg {
     BeginVoting {
         center_cards: Vec<String>,
         description: String,
+        disabled_card: Option<String>,
     },
     Results {
         player_to_vote: HashMap<String, String>,
@@ -180,6 +181,13 @@ impl Room {
             RoomStage::Voting => Ok(ServerMsg::BeginVoting {
                 center_cards: self.get_center_cards(state),
                 description: state.current_description.clone(),
+                disabled_card: name.and_then(|player_name| {
+                    if player_name == state.player_order[state.active_player].as_str() {
+                        None
+                    } else {
+                        state.player_to_current_card.get(player_name).cloned()
+                    }
+                }),
             }),
             RoomStage::Results => Ok(ServerMsg::Results {
                 player_to_vote: state.player_to_vote.clone(),
@@ -218,7 +226,7 @@ impl Room {
             .to_string())
     }
 
-    fn init_voting(&self, state: &mut RwLockWriteGuard<RoomState>) -> Result<()> {
+    async fn init_voting(&self, state: &mut RwLockWriteGuard<'_, RoomState>) -> Result<()> {
         state.stage = RoomStage::Voting;
 
         // choose random card for those who didn't choose by the deadline
@@ -243,7 +251,12 @@ impl Room {
             }
         }
 
-        self.broadcast_msg(self.get_msg(None, &state)?)?;
+        for player in state.player_order.iter() {
+            let player_name = player.as_str();
+            let _ = self
+                .send_msg(state, player_name, self.get_msg(Some(player_name), state)?)
+                .await;
+        }
         self.broadcast_msg(self.room_state(&state))?;
 
         Ok(())
@@ -481,7 +494,7 @@ impl Room {
                         if state.players.values().filter(|p| p.ready).count()
                             == state.players.len() - 1
                         {
-                            self.init_voting(&mut state)?;
+                            self.init_voting(&mut state).await?;
                         }
                     }
                 }

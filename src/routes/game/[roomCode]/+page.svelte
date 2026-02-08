@@ -31,6 +31,7 @@
 
 	// UI state
 	let displayImages: string[] = [];
+	let votingDisabledCard = '';
 
 	// results
 	let playerToCurrentCard: { [key: string]: string } = {};
@@ -91,6 +92,7 @@
 				stage = 'Voting';
 				displayImages = data.BeginVoting.center_cards;
 				description = data.BeginVoting.description;
+				votingDisabledCard = data.BeginVoting.disabled_card || '';
 			} else if (data.Results) {
 				stage = 'Results';
 				displayImages = Object.values(data.Results.player_to_current_card);
@@ -98,6 +100,7 @@
 				playerToVote = data.Results.player_to_vote;
 				activeCard = data.Results.active_card;
 				pointChange = data.Results.point_change;
+				votingDisabledCard = '';
 			} else if (data.ErrorMsg) {
 				toastStore.trigger({
 					message: '😭 ' + data.ErrorMsg,
@@ -130,7 +133,7 @@
 	{:else if stage === 'PlayersChoose'}
 		<PlayersChoose {displayImages} {name} {activePlayer} {gameServer} {description} {players} {stage} {pointChange} {roundNum} />
 	{:else if stage === 'Voting'}
-		<Voting {displayImages} {activePlayer} {name} {gameServer} {description} {players} {stage} {pointChange} {roundNum} />
+		<Voting {displayImages} {activePlayer} {name} {gameServer} {description} {players} {stage} {pointChange} {roundNum} disabledCard={votingDisabledCard} />
 	{:else if stage === 'Results'}
 		<Results {displayImages} {gameServer} {playerToCurrentCard} {playerToVote} {activeCard} {activePlayer} {players} {stage} {pointChange} {roundNum} />
 	{:else if stage === 'End'}

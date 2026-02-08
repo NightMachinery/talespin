@@ -16,6 +16,7 @@
 	export let stage = '';
 	export let pointChange: { [key: string]: number } = {};
 	export let roundNum = 0;
+	export let disabledCard = '';
 
 	let selectedImage = '';
 	let toastStore = getToastStore();
@@ -34,6 +35,25 @@
 
 <StageShell {players} {stage} {pointChange} {activePlayer} {roundNum} showMobileActions={isVoter}>
 	<svelte:fragment slot="leftRail">
+		{#if isVoter}
+			<div class="card light space-y-2 p-4">
+				<h1 class="text-xl font-semibold">
+					Which card did <span class="font-bold">{activePlayer}</span> choose for "{description}"?
+				</h1>
+				<p>Don't fall for the fakes!</p>
+			</div>
+			<div class="card light p-4">
+				<button class="btn variant-filled w-full" disabled={selectedImage === ''} on:click={vote}
+					>Vote</button
+				>
+			</div>
+		{:else}
+			<div class="card light space-y-2 p-4">
+				<h1 class="text-xl font-semibold">Tallying the votes!</h1>
+				<p>Everyone is voting on the clue "{description}".</p>
+			</div>
+		{/if}
+
 		<div class="card light p-4">
 			<h2 class="mb-2 text-lg font-semibold">How points work</h2>
 			<Accordion>
@@ -78,25 +98,6 @@
 				</AccordionItem>
 			</Accordion>
 		</div>
-
-		{#if isVoter}
-			<div class="card light space-y-2 p-4">
-				<h1 class="text-xl font-semibold">
-					Which card did <span class="font-bold">{activePlayer}</span> choose for "{description}"?
-				</h1>
-				<p>Don't fall for the fakes!</p>
-			</div>
-			<div class="card light p-4">
-				<button class="btn variant-filled w-full" disabled={selectedImage === ''} on:click={vote}
-					>Vote</button
-				>
-			</div>
-		{:else}
-			<div class="card light space-y-2 p-4">
-				<h1 class="text-xl font-semibold">Tallying the votes!</h1>
-				<p>Everyone is voting on the clue "{description}".</p>
-			</div>
-		{/if}
 	</svelte:fragment>
 
 	<svelte:fragment slot="mobileTop">
@@ -173,7 +174,13 @@
 	<div class="flex h-full flex-col">
 		<h2 class="mb-2 hidden text-lg font-semibold lg:block">Cards on table</h2>
 		<div class="min-h-0 flex-1 overflow-y-auto">
-			<Images {displayImages} bind:selectedImage selectable={isVoter} mode="board" />
+			<Images
+				{displayImages}
+				bind:selectedImage
+				selectable={isVoter}
+				mode="board"
+				disabledImages={disabledCard === '' ? [] : [disabledCard]}
+			/>
 		</div>
 	</div>
 </StageShell>
