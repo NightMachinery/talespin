@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { http_host } from '$lib/gameServer';
+
 	export let displayImages: string[];
 	export let selectable = false;
 	export let selectedImage = '';
@@ -10,7 +12,7 @@
 			<div class="group" on:click={() => (selectedImage = image)}>
 				<img
 					class={`${selectedImage === image ? 'border-4 border-white shadow-xlg' : ''} transition-all duration-150 ease-in-out group-hover:scale-110 group-hover:shadow-2xl group-focus:shadow-2xl rounded-lg cursor-pointer`}
-					src="../../assets/cards/{image}"
+					src={`${http_host}/cards/${image}`}
 					alt="You can't play this game without the images!"
 				/>
 			</div>
@@ -19,7 +21,7 @@
 		{#each displayImages as image}
 			<img
 				class={`transition-all duration-150 ease-in-out group-hover:scale-110 group-hover:shadow-2xl group-focus:shadow-2xl rounded-lg`}
-				src="../../assets/cards/{image}"
+				src={`${http_host}/cards/${image}`}
 				alt="You can't play this game without the images!"
 			/>
 		{/each}

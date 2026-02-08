@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { http_host } from '$lib/gameServer';
 	import type GameServer from '$lib/gameServer';
 	import { Avatar } from '@skeletonlabs/skeleton';
 
@@ -37,7 +38,7 @@
 					class={`${activeCard == image ? 'boujee-border' : ''} rounded-lg overflow-hidden relative`}
 				>
 					<img
-						src="../../assets/cards/{image}"
+						src={`${http_host}/cards/${image}`}
 						alt="You can't play this game without the images!"
 						class="relative"
 					/>
