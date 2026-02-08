@@ -16,7 +16,7 @@
 	let joinGameClicked = false;
 	let lockedRoomCode = false;
 	let toastStore = getToastStore();
-	let winMode: LobbyWinMode = 'points';
+	let winMode: LobbyWinMode = 'cards_finish';
 	let targetPoints = 10;
 	let targetCycles = 1;
 

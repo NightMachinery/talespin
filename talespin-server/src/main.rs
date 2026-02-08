@@ -591,22 +591,18 @@ fn validate_win_condition(win_condition: WinCondition) -> Result<WinCondition> {
 
 fn parse_create_room_win_condition(
     body: &[u8],
-    default_points_target: u16,
+    _default_points_target: u16,
 ) -> Result<CreateRoomConfig> {
     if body.is_empty() || body.iter().all(|b| b.is_ascii_whitespace()) {
         return Ok(CreateRoomConfig {
-            win_condition: WinCondition::Points {
-                target_points: default_points_target,
-            },
+            win_condition: WinCondition::CardsFinish,
             creator_name: None,
         });
     }
 
     let request: CreateRoomRequest =
         serde_json::from_slice(body).context("Failed to parse create-room request payload")?;
-    let requested = request.win_condition.unwrap_or(WinCondition::Points {
-        target_points: default_points_target,
-    });
+    let requested = request.win_condition.unwrap_or(WinCondition::CardsFinish);
     let creator_name = request.creator_name.map(|name| name.trim().to_string());
     Ok(CreateRoomConfig {
         win_condition: validate_win_condition(requested)?,
