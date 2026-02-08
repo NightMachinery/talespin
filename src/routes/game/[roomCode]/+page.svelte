@@ -10,7 +10,6 @@
 	import GameServer from '$lib/gameServer';
 
 	import Joining from './Joining.svelte';
-	import Leaderboard from './Leaderboard.svelte';
 	import ActiveChooses from './ActiveChooses.svelte';
 	import PlayersChoose from './PlayersChoose.svelte';
 	import Voting from './Voting.svelte';
@@ -32,7 +31,6 @@
 
 	// UI state
 	let displayImages: string[] = [];
-	let selectedImage = '';
 
 	// results
 	let playerToCurrentCard: { [key: string]: string } = {};
@@ -93,7 +91,6 @@
 				stage = 'Voting';
 				displayImages = data.BeginVoting.center_cards;
 				description = data.BeginVoting.description;
-				selectedImage = '';
 			} else if (data.Results) {
 				stage = 'Results';
 				displayImages = Object.values(data.Results.player_to_current_card);
@@ -123,36 +120,22 @@
 	});
 </script>
 
-<div class="pt-10 w-full">
-	<div class="flex flex-row justify-center">
-		<div>
-			{#if stage !== 'Joining' && stage !== 'End'}
-				<div class="p-5">
-					<Leaderboard {players} {stage} {pointChange} {activePlayer} {roundNum} />
-				</div>
-			{/if}
+<div class="w-full">
+	{#if stage === 'Joining'}
+		<div class="pt-10">
+			<Joining {name} {gameServer} {players} {roomCode} />
 		</div>
-		<div>
-			{#if stage === 'Joining'}
-				<Joining {name} {gameServer} {players} {roomCode} />
-			{:else if stage === 'ActiveChooses'}
-				<ActiveChooses {displayImages} {activePlayer} {name} {gameServer} />
-			{:else if stage === 'PlayersChoose'}
-				<PlayersChoose {displayImages} {name} {activePlayer} {gameServer} {description} />
-			{:else if stage === 'Voting'}
-				<Voting {displayImages} {activePlayer} {name} {gameServer} {description} />
-			{:else if stage === 'Results'}
-				<Results {displayImages} {gameServer} {playerToCurrentCard} {playerToVote} {activeCard} />
-			{:else if stage === 'End'}
-				<End {players} />
-			{/if}
+	{:else if stage === 'ActiveChooses'}
+		<ActiveChooses {displayImages} {activePlayer} {name} {gameServer} {players} {stage} {pointChange} {roundNum} />
+	{:else if stage === 'PlayersChoose'}
+		<PlayersChoose {displayImages} {name} {activePlayer} {gameServer} {description} {players} {stage} {pointChange} {roundNum} />
+	{:else if stage === 'Voting'}
+		<Voting {displayImages} {activePlayer} {name} {gameServer} {description} {players} {stage} {pointChange} {roundNum} />
+	{:else if stage === 'Results'}
+		<Results {displayImages} {gameServer} {playerToCurrentCard} {playerToVote} {activeCard} {activePlayer} {players} {stage} {pointChange} {roundNum} />
+	{:else if stage === 'End'}
+		<div class="pt-10">
+			<End {players} />
 		</div>
-		<!-- {#if stage !== 'Joining'}
-		<div class="mt-28"></div>
-		<Leaderboard {players} {name} {stage} {activePlayer} />
-		{/if} -->
-	</div>
+	{/if}
 </div>
-
-<style>
-</style>

@@ -16,12 +16,12 @@
 	}
 </script>
 
-<div class="flex w-80/10 justify-center">
+<div class="w-full">
 	<div class="card light p-4">
 		<h2 class="text-xl">Round {roundNum}</h2>
 		<div>
 			{#each sortedPlayersList as player, i}
-				<div class="flex space-between w-44">
+				<div class="flex items-center justify-between gap-2">
 					<div class="flex-auto">
 						{i + 1}.
 						<span class={`${player === activePlayer ? 'boujee-text' : ''} `}>{player}</span>
@@ -37,7 +37,7 @@
 							{/if}
 						{/if}
 					</div>
-					<div class="font-right">
+					<div class="shrink-0">
 						{#if stage === 'Results' && typeof pointChange[player] === 'number' && pointChange[player] !== 0}
 							<span class="opacity-50">(+{pointChange[player]})</span>
 						{/if}
