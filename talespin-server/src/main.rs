@@ -10,7 +10,15 @@ use axum::{
     Router,
 };
 use dashmap::DashMap;
-use std::{collections::HashMap, fs, net::SocketAddr, sync::Arc};
+use std::{
+    collections::{hash_map::DefaultHasher, HashMap, HashSet},
+    env, fs,
+    hash::{Hash, Hasher},
+    io::ErrorKind,
+    net::SocketAddr,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 use tower_http::{
     cors::{Any, CorsLayer},
     trace::TraceLayer,
@@ -23,6 +31,197 @@ use room::{get_time_s, Room, ServerMsg};
 
 const GARBAGE_COLLECT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60 * 20); // 20 minutes
 const GC_ROOM_TIMEOUT_S: u64 = 60 * 60; // 1 hour
+const BASE_DECK_DIR: &str = "../static/assets/cards/";
+const EXTRA_IMAGE_DIRS_ENV: &str = "TALESPIN_EXTRA_IMAGE_DIRS";
+const DISABLE_BUILTIN_IMAGES_ENV: &str = "TALESPIN_DISABLE_BUILTIN_IMAGES_P";
+const EXTRA_CARD_PREFIX: &str = "extra_dir__";
+
+fn expand_home(path: &str) -> PathBuf {
+    if path == "~" {
+        if let Ok(home) = env::var("HOME") {
+            return PathBuf::from(home);
+        }
+    }
+    if let Some(rest) = path.strip_prefix("~/") {
+        if let Ok(home) = env::var("HOME") {
+            return PathBuf::from(home).join(rest);
+        }
+    }
+
+    PathBuf::from(path)
+}
+
+fn is_supported_image(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| matches!(ext.to_ascii_lowercase().as_str(), "jpg" | "jpeg" | "png"))
+        .unwrap_or(false)
+}
+
+fn env_is_y(key: &str) -> bool {
+    env::var(key)
+        .map(|v| v.trim().eq_ignore_ascii_case("y"))
+        .unwrap_or(false)
+}
+
+fn get_extra_image_dirs() -> Vec<PathBuf> {
+    env::var(EXTRA_IMAGE_DIRS_ENV)
+        .map(|raw| {
+            raw.split('\n')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(expand_home)
+                .collect()
+        })
+        .unwrap_or_else(|_| Vec::new())
+}
+
+fn clear_old_extra_links(base_deck_dir: &Path) -> Result<()> {
+    for entry in fs::read_dir(base_deck_dir)? {
+        let entry = entry?;
+        let file_name = entry.file_name();
+        if file_name.to_string_lossy().starts_with(EXTRA_CARD_PREFIX) {
+            if let Err(err) = fs::remove_file(entry.path()) {
+                if err.kind() != ErrorKind::NotFound {
+                    println!(
+                        "Warning: failed to remove stale extra card link {}: {}",
+                        entry.path().display(),
+                        err
+                    );
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn link_or_copy_image(source: &Path, target: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::symlink;
+
+        if let Err(link_err) = symlink(source, target) {
+            fs::copy(source, target).map_err(|copy_err| {
+                anyhow!(
+                    "failed to link {} -> {} ({}) and copy fallback also failed ({})",
+                    source.display(),
+                    target.display(),
+                    link_err,
+                    copy_err
+                )
+            })?;
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        fs::copy(source, target).map_err(|copy_err| {
+            anyhow!(
+                "failed to copy {} -> {} ({})",
+                source.display(),
+                target.display(),
+                copy_err
+            )
+        })?;
+    }
+
+    Ok(())
+}
+
+fn load_extra_cards(base_deck_dir: &Path, extra_image_dirs: &[PathBuf]) -> Result<usize> {
+    clear_old_extra_links(base_deck_dir)?;
+
+    let mut loaded = 0usize;
+    let mut seen_sources = HashSet::new();
+
+    for dir_path in extra_image_dirs {
+        let entries = match fs::read_dir(&dir_path) {
+            Ok(entries) => entries,
+            Err(err) => {
+                println!(
+                    "Warning: unable to read extra image dir {}: {}",
+                    dir_path.display(),
+                    err
+                );
+                continue;
+            }
+        };
+
+        for entry in entries {
+            let entry = match entry {
+                Ok(e) => e,
+                Err(err) => {
+                    println!(
+                        "Warning: failed reading entry in {}: {}",
+                        dir_path.display(),
+                        err
+                    );
+                    continue;
+                }
+            };
+
+            let source = entry.path();
+            if !source.is_file() || !is_supported_image(&source) {
+                continue;
+            }
+            if !seen_sources.insert(source.clone()) {
+                continue;
+            }
+
+            let mut hasher = DefaultHasher::new();
+            source.to_string_lossy().hash(&mut hasher);
+            let hash = hasher.finish();
+            let ext = source
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("jpg")
+                .to_ascii_lowercase();
+            let target_name = format!("{EXTRA_CARD_PREFIX}{hash:016x}.{ext}");
+            let target = base_deck_dir.join(target_name);
+
+            if target.exists() {
+                let _ = fs::remove_file(&target);
+            }
+
+            match link_or_copy_image(&source, &target) {
+                Ok(_) => loaded += 1,
+                Err(err) => println!(
+                    "Warning: failed to register extra image {}: {}",
+                    source.display(),
+                    err
+                ),
+            }
+        }
+    }
+
+    Ok(loaded)
+}
+
+fn load_base_deck(base_deck_dir: &Path) -> Result<Vec<String>> {
+    let mut base_deck: Vec<String> = fs::read_dir(base_deck_dir)?
+        .filter_map(|res| match res {
+            Ok(entry) => Some(entry),
+            Err(err) => {
+                println!(
+                    "Warning: failed reading deck entry in {}: {}",
+                    base_deck_dir.display(),
+                    err
+                );
+                None
+            }
+        })
+        .filter_map(|entry| {
+            if !is_supported_image(&entry.path()) {
+                return None;
+            }
+
+            entry.file_name().into_string().ok()
+        })
+        .collect();
+
+    base_deck.sort();
+    Ok(base_deck)
+}
 
 // main object for server
 #[derive(Debug, Clone)]
@@ -33,14 +232,54 @@ struct ServerState {
 
 impl ServerState {
     fn new() -> Result<Self> {
-        // read cards and form array of file names, any file is ok
-        let base_deck: Vec<String> = fs::read_dir("../static/assets/cards/")?
-            .map(|res| res.map(|e| e.file_name().into_string().unwrap()))
-            .map(|res| res.unwrap())
-            .filter(|s| s.ends_with(".jpg") || s.ends_with(".jpeg") || s.ends_with(".png"))
-            .collect();
+        let base_deck_dir = Path::new(BASE_DECK_DIR);
+        let extra_image_dirs = get_extra_image_dirs();
+        let loaded_extra_cards = load_extra_cards(base_deck_dir, &extra_image_dirs)?;
+        let disable_builtin_images = env_is_y(DISABLE_BUILTIN_IMAGES_ENV);
 
-        println!("Loaded {} cards", base_deck.len());
+        if !extra_image_dirs.is_empty() && loaded_extra_cards == 0 {
+            return Err(anyhow!(
+                "No supported images (.jpg/.jpeg/.png) were found in {}. Checked {} director{}.",
+                EXTRA_IMAGE_DIRS_ENV,
+                extra_image_dirs.len(),
+                if extra_image_dirs.len() == 1 {
+                    "y"
+                } else {
+                    "ies"
+                }
+            ));
+        }
+
+        if disable_builtin_images && loaded_extra_cards == 0 {
+            return Err(anyhow!(
+                "{}=y requires at least one image from {}, but none were loaded.",
+                DISABLE_BUILTIN_IMAGES_ENV,
+                EXTRA_IMAGE_DIRS_ENV
+            ));
+        }
+
+        let mut base_deck = load_base_deck(base_deck_dir)?;
+        if disable_builtin_images {
+            base_deck.retain(|f| f.starts_with(EXTRA_CARD_PREFIX));
+        }
+
+        if base_deck.is_empty() {
+            return Err(anyhow!(
+                "No cards available after loading images. Check built-in cards and {}.",
+                EXTRA_IMAGE_DIRS_ENV
+            ));
+        }
+
+        println!(
+            "Loaded {} cards ({} extra cards from custom dirs; builtins {})",
+            base_deck.len(),
+            loaded_extra_cards,
+            if disable_builtin_images {
+                "disabled"
+            } else {
+                "enabled"
+            }
+        );
 
         Ok(ServerState {
             rooms: DashMap::new(),
