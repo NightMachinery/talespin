@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 
+	import { browser } from '$app/environment';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { getToastStore } from '@skeletonlabs/skeleton';
@@ -61,6 +62,10 @@
 	});
 
 	function leaveGame() {
+		if (browser && !window.confirm('Leave this game?')) {
+			return;
+		}
+
 		if (!gameServer) {
 			goto('/');
 			return;
