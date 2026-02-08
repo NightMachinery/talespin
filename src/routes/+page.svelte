@@ -18,7 +18,7 @@
 	let toastStore = getToastStore();
 	let winMode: LobbyWinMode = 'cards_finish';
 	let targetPoints = 10;
-	let targetCycles = 1;
+	let targetCycles = 3;
 
 	$: nameStore.set(name);
 
@@ -61,7 +61,7 @@
 		if (winMode === 'cycles') {
 			return {
 				mode: 'cycles',
-				target_cycles: normalizedPositiveInt(targetCycles, 1)
+				target_cycles: normalizedPositiveInt(targetCycles, 3)
 			};
 		}
 
