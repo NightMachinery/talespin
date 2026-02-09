@@ -49,6 +49,8 @@ It also exports:
 - `TALESPIN_CARD_ASPECT_RATIO` (default `2:3`)
 - `TALESPIN_CARD_LONG_SIDE` (default `1536`)
 - `TALESPIN_CARD_CACHE_FORMAT` (default `avif`; `avif` or `jpeg`)
+- `TALESPIN_CARD_AVIF_ENCODER` (default `native`; `native` or `ravif`)
+- `TALESPIN_CARD_AVIF_THREADS` (default `auto`; `auto` uses encoder default, or set a positive integer)
 - `TALESPIN_VALIDATE_CACHE_HITS_P` (default `y`; when `y`, corrupted cache files are detected and rebuilt)
 - `TALESPIN_SNIFF_EXTENSIONLESS_IMAGES_P` (default `n`; when `y`, extensionless files are sniffed and JPEG/PNG/WebP are accepted)
 - `TALESPIN_DEFAULT_WIN_POINTS` (default `10`, used when lobby creates `points` mode without explicit target)
@@ -57,13 +59,15 @@ It also exports:
 
 - Node: use `nvm-load` then `nvm use 20`
 - Rust: stable toolchain via `rustup`
-- Ubuntu packages for AVIF decode support (required by backend build with `avif-native`):
+- Ubuntu packages for AVIF encode/decode support (required by backend build with `avif-native` and native encoder path):
   - `pkg-config`
   - `libdav1d-dev`
+  - `libavif-dev`
+  - `libaom-dev`
   - install command:
     ```bash
     sudo apt-get update
-    sudo apt-get install -y pkg-config libdav1d-dev
+    sudo apt-get install -y pkg-config libdav1d-dev libavif-dev libaom-dev
     ```
 - No Docker required for Talespin itself
 

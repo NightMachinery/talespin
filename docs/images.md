@@ -51,6 +51,8 @@ Cache hit integrity checks:
 - env var: `TALESPIN_CARD_ASPECT_RATIO` (default `2:3`)
 - env var: `TALESPIN_CARD_LONG_SIDE` (default `1536`)
 - env var: `TALESPIN_CARD_CACHE_FORMAT` (default `avif`; supported: `avif`, `jpeg`)
+- env var: `TALESPIN_CARD_AVIF_ENCODER` (default `native`; supported: `native`, `ravif`)
+- env var: `TALESPIN_CARD_AVIF_THREADS` (default `auto`; `auto` uses encoder default, or set a positive integer)
 
 Behavior:
 
@@ -60,7 +62,7 @@ Behavior:
 
 Defaults:
 
-- AVIF (`quality=80`, `speed=10`, backend `ravif`, threads `default` (library-managed), channels `rgb` / no alpha)
+- AVIF (`quality=90`, `speed=10`, backend `native` via `libavif+codec-aom`, threads `auto` / encoder default)
 
 For default `2:3`, output size is `1024x1536`.
 
