@@ -62,7 +62,7 @@ Behavior:
 
 Defaults:
 
-- AVIF (`quality=90`, `speed=10`, backend `native` via `libavif+codec-aom`, threads `auto` / encoder default)
+- AVIF (`quality=80`, `speed=6`, backend `native` via `libavif+codec-aom`, threads `auto` / encoder default)
 
 For default `2:3`, output size is `1024x1536`.
 
