@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { http_host } from '$lib/gameServer';
+	import { CARD_IMAGE_ALT_TEXT } from '$lib/cardImageText';
 	import { cardsFitToHeight } from '$lib/viewOptions';
 
 	// Toggle dimming of cards that are not currently selected.
@@ -58,7 +59,7 @@
 								: 'cursor-pointer group-hover:ring-2 group-hover:ring-white/85 group-hover:brightness-105 group-hover:shadow-[0_0_0_2px_rgba(255,255,255,0.22),0_16px_30px_rgba(0,0,0,0.38)] group-focus-visible:ring-2 group-focus-visible:ring-white/85 group-focus-visible:shadow-[0_0_0_2px_rgba(255,255,255,0.22),0_16px_30px_rgba(0,0,0,0.38)]'
 					}`}
 					src={`${http_host}/cards/${image}`}
-					alt="You can't play this game without the images!"
+					alt={CARD_IMAGE_ALT_TEXT}
 				/>
 			</button>
 		{/each}
@@ -67,7 +68,7 @@
 			<img
 				class={`${imageClassBase} transition-all duration-150 ease-in-out`}
 				src={`${http_host}/cards/${image}`}
-				alt="You can't play this game without the images!"
+				alt={CARD_IMAGE_ALT_TEXT}
 			/>
 		{/each}
 	{/if}

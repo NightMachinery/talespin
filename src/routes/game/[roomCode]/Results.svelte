@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { CARD_IMAGE_ALT_TEXT } from '$lib/cardImageText';
 	import { http_host } from '$lib/gameServer';
 	import { cardsFitToHeight } from '$lib/viewOptions';
 	import type GameServer from '$lib/gameServer';
@@ -96,7 +97,7 @@
 				<div class={resultsCardClass(activeCard == image)}>
 					<img
 						src={`${http_host}/cards/${image}`}
-						alt="You can't play this game without the images!"
+						alt={CARD_IMAGE_ALT_TEXT}
 						class={resultsImageClass}
 					/>
 					{#if cardToVoters[image]}
