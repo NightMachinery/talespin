@@ -55,6 +55,12 @@ It also exports:
 - `TALESPIN_SNIFF_EXTENSIONLESS_IMAGES_P` (default `n`; when `y`, extensionless files are sniffed and JPEG/PNG/WebP are accepted)
 - `TALESPIN_DEFAULT_WIN_POINTS` (default `10`, used when lobby creates `points` mode without explicit target)
 
+Run in production mode with:
+
+```bash
+TALESPIN_PRODUCTION_P=y zsh run_tmux.zsh
+```
+
 ## Dependencies
 
 - Node: use `nvm-load` then `nvm use 20`
