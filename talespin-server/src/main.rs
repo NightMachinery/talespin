@@ -11,20 +11,14 @@ use axum::{
     Router,
 };
 use dashmap::DashMap;
-use image::{
-    codecs::jpeg::JpegEncoder,
-    imageops::FilterType,
-    GenericImageView,
-};
+use image::{codecs::jpeg::JpegEncoder, imageops::FilterType, GenericImageView};
 use indicatif::{ProgressBar, ProgressStyle};
-use ravif::{Encoder as RavifEncoder, Img as RavifImg};
-use rgb::FromSlice;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     env, fs,
-    io::{BufWriter, Write},
+    io::BufWriter,
     net::SocketAddr,
     path::{Path, PathBuf},
     sync::Arc,
@@ -34,6 +28,7 @@ use tower_http::{
     trace::TraceLayer,
 };
 
+mod avif;
 mod room;
 
 use rand::distributions::{Distribution, Uniform};
@@ -53,6 +48,8 @@ const CACHE_DIR_ENV: &str = "TALESPIN_CACHE_DIR";
 const CARD_ASPECT_RATIO_ENV: &str = "TALESPIN_CARD_ASPECT_RATIO";
 const CARD_LONG_SIDE_ENV: &str = "TALESPIN_CARD_LONG_SIDE";
 const CARD_CACHE_FORMAT_ENV: &str = "TALESPIN_CARD_CACHE_FORMAT";
+const CARD_AVIF_ENCODER_ENV: &str = "TALESPIN_CARD_AVIF_ENCODER";
+const CARD_AVIF_THREADS_ENV: &str = "TALESPIN_CARD_AVIF_THREADS";
 const VALIDATE_CACHE_HITS_ENV: &str = "TALESPIN_VALIDATE_CACHE_HITS_P";
 const DEFAULT_WIN_POINTS_ENV: &str = "TALESPIN_DEFAULT_WIN_POINTS";
 
@@ -62,12 +59,11 @@ const DEFAULT_WIN_POINTS: u16 = 10;
 const DEFAULT_CACHE_DIR: &str = "~/.cache/talespin";
 const CACHE_SUBDIR_CARDS: &str = "cards";
 
-const CARD_AVIF_QUALITY: u8 = 80;
-const CARD_AVIF_SPEED: u8 = 10;
-const CARD_AVIF_THREADS: Option<usize> = None;
 const CARD_JPEG_QUALITY: u8 = 90;
 const NORMALIZATION_PIPELINE_VERSION: &str = "v1";
 const DEFAULT_VALIDATE_CACHE_HITS: bool = true;
+const DEFAULT_CARD_AVIF_ENCODER: avif::EncoderBackend = avif::EncoderBackend::Native;
+const DEFAULT_CARD_AVIF_THREADS: avif::ThreadSetting = avif::ThreadSetting::Auto;
 
 #[derive(Debug, Clone, Copy)]
 enum CacheImageFormat {
@@ -114,6 +110,8 @@ struct NormalizationConfig {
     ratio_height: u32,
     long_side: u32,
     cache_format: CacheImageFormat,
+    avif_encoder_backend: avif::EncoderBackend,
+    avif_threads: avif::ThreadSetting,
     validate_cache_hits: bool,
     cards_cache_dir: PathBuf,
 }
@@ -123,6 +121,8 @@ impl NormalizationConfig {
         let (ratio_width, ratio_height) = parse_ratio_from_env();
         let long_side = parse_long_side_from_env();
         let cache_format = parse_cache_image_format_from_env();
+        let avif_encoder_backend = parse_avif_encoder_backend_from_env();
+        let avif_threads = parse_avif_threads_from_env();
         let validate_cache_hits = parse_validate_cache_hits_from_env();
 
         let cache_root = env::var(CACHE_DIR_ENV)
@@ -141,6 +141,8 @@ impl NormalizationConfig {
             ratio_height,
             long_side,
             cache_format,
+            avif_encoder_backend,
+            avif_threads,
             validate_cache_hits,
             cards_cache_dir,
         })
@@ -295,6 +297,40 @@ fn parse_cache_image_format_from_env() -> CacheImageFormat {
     }
 
     DEFAULT_CARD_CACHE_FORMAT
+}
+
+fn parse_avif_encoder_backend_from_env() -> avif::EncoderBackend {
+    if let Ok(raw) = env::var(CARD_AVIF_ENCODER_ENV) {
+        if let Some(backend) = avif::EncoderBackend::from_env_value(&raw) {
+            return backend;
+        }
+
+        println!(
+            "Warning: invalid {}='{}'; using default {}",
+            CARD_AVIF_ENCODER_ENV,
+            raw,
+            DEFAULT_CARD_AVIF_ENCODER.env_value()
+        );
+    }
+
+    DEFAULT_CARD_AVIF_ENCODER
+}
+
+fn parse_avif_threads_from_env() -> avif::ThreadSetting {
+    if let Ok(raw) = env::var(CARD_AVIF_THREADS_ENV) {
+        if let Some(threads) = avif::ThreadSetting::from_env_value(&raw) {
+            return threads;
+        }
+
+        println!(
+            "Warning: invalid {}='{}'; using default {}",
+            CARD_AVIF_THREADS_ENV,
+            raw,
+            DEFAULT_CARD_AVIF_THREADS.env_value()
+        );
+    }
+
+    DEFAULT_CARD_AVIF_THREADS
 }
 
 fn parse_validate_cache_hits_from_env() -> bool {
@@ -589,13 +625,7 @@ fn normalize_source_to_cache(
 
     let encoding_descriptor = match config.cache_format {
         CacheImageFormat::Avif => {
-            let avif_threads = CARD_AVIF_THREADS
-                .map(|threads| threads.to_string())
-                .unwrap_or_else(|| "default".to_string());
-            format!(
-                "fmt=avif|backend=ravif|quality={}|speed={}|threads={}|channels=rgb",
-                CARD_AVIF_QUALITY, CARD_AVIF_SPEED, avif_threads
-            )
+            avif::encoding_descriptor(config.avif_encoder_backend, config.avif_threads)
         }
         CacheImageFormat::Jpeg => format!("fmt=jpeg|quality={}", CARD_JPEG_QUALITY),
     };
@@ -664,26 +694,13 @@ fn normalize_source_to_cache(
         let mut writer = BufWriter::new(file);
         match config.cache_format {
             CacheImageFormat::Avif => {
-                let ravif_encoder = RavifEncoder::new()
-                    .with_quality(CARD_AVIF_QUALITY as f32)
-                    .with_speed(CARD_AVIF_SPEED)
-                    .with_num_threads(CARD_AVIF_THREADS);
-
-                let rgb = resized.to_rgb8();
-                let (width, height) = rgb.dimensions();
-                let width = usize::try_from(width).context("AVIF width does not fit usize")?;
-                let height = usize::try_from(height).context("AVIF height does not fit usize")?;
-                let pixels = rgb.as_raw().as_slice().as_rgb();
-                let avif_file = ravif_encoder
-                    .encode_rgb(RavifImg::new(pixels, width, height))
-                    .with_context(|| {
-                        format!("Failed to encode cached image {}", cache_path.display())
-                    })?
-                    .avif_file;
-
-                writer.write_all(&avif_file).with_context(|| {
-                    format!("Failed to write cached image {}", cache_path.display())
-                })?;
+                avif::encode_dynamic_image(
+                    &resized,
+                    &mut writer,
+                    &cache_path,
+                    config.avif_encoder_backend,
+                    config.avif_threads,
+                )?;
             }
             CacheImageFormat::Jpeg => {
                 let mut encoder = JpegEncoder::new_with_quality(&mut writer, CARD_JPEG_QUALITY);
@@ -915,7 +932,7 @@ impl ServerState {
         )?;
 
         println!(
-            "Loaded {} cards ({} built-in, {} extra, {} failed; builtins {}; extensionless sniff {}; ratio {}:{}, long side {}; cache format {}; cache validation {}; cache {}; default points target {})",
+            "Loaded {} cards ({} built-in, {} extra, {} failed; builtins {}; extensionless sniff {}; ratio {}:{}, long side {}; cache format {}; avif encoder {}; avif threads {}; cache validation {}; cache {}; default points target {})",
             loaded_cards.deck.len(),
             loaded_cards.loaded_builtin,
             loaded_cards.loaded_extra,
@@ -930,6 +947,8 @@ impl ServerState {
             config.ratio_height,
             config.long_side,
             config.cache_format.env_value(),
+            config.avif_encoder_backend.env_value(),
+            config.avif_threads.env_value(),
             if config.validate_cache_hits {
                 "enabled"
             } else {
