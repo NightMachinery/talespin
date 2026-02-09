@@ -5,8 +5,8 @@ use ravif::{Encoder as RavifEncoder, Img as RavifImg};
 use rgb::FromSlice;
 use std::{io::Write, path::Path};
 
-pub const QUALITY: u8 = 90;
-pub const SPEED: u8 = 10;
+pub const QUALITY: u8 = 80;
+pub const SPEED: u8 = 6;
 
 #[derive(Debug, Clone, Copy)]
 pub enum EncoderBackend {
