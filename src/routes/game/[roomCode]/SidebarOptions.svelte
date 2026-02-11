@@ -28,12 +28,10 @@
 	$: isModerator = moderatorSet.has(name);
 	$: showModeration = stage !== 'End' && (isCreator || isModerator);
 	$: isSelfObserver = !!observers[name];
-	$: selfObserveBlocked =
-		(stage === 'ActiveChooses' || stage === 'PlayersChoose' || stage === 'Voting') &&
-		activePlayer === name;
+	$: selfObserveBlocked = (stage === 'PlayersChoose' || stage === 'Voting') && activePlayer === name;
 	$: canBecomeObserver =
 		!isSelfObserver && stage !== 'Joining' && stage !== 'End' && !selfObserveBlocked;
-	$: joinBackLabel = stage === 'Paused' ? 'Join game now' : 'Join back next round';
+	$: joinBackLabel = stage === 'Voting' ? 'Join next round' : 'Join now';
 
 	function isPlayerModerator(playerName: string) {
 		return moderatorSet.has(playerName);
@@ -127,7 +125,9 @@
 				Become observer
 			</button>
 			{#if !canBecomeObserver && selfObserveBlocked}
-				<p class="text-xs opacity-70">Storyteller cannot become observer this round.</p>
+				<p class="text-xs opacity-70">
+					Storyteller can only become observer before choosing card and clue.
+				</p>
 			{/if}
 		{/if}
 	{/if}
@@ -257,8 +257,8 @@
 										class="btn variant-filled px-2 py-0.5 text-xs"
 										on:click={() => setObserver(observerName, false)}
 									>
-										Join next
-									</button>
+											{joinBackLabel}
+										</button>
 								{/if}
 								{#if isModerator}
 									<button

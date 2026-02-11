@@ -588,6 +588,68 @@ impl Room {
         promoted
     }
 
+    async fn promote_observer_immediately(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+        observer_name: &str,
+    ) -> Result<bool> {
+        if matches!(state.stage, RoomStage::Voting | RoomStage::End) {
+            return Ok(false);
+        }
+
+        let floor = self.observer_floor_score(state);
+        let Some(observer) = state.observers.remove(observer_name) else {
+            return Ok(false);
+        };
+
+        let ready = matches!(state.stage, RoomStage::Joining);
+        state.players.insert(
+            observer_name.to_string(),
+            PlayerInfo {
+                connected: observer.connected,
+                points: observer.points.max(floor),
+                ready,
+            },
+        );
+
+        if !matches!(state.stage, RoomStage::Joining) {
+            state
+                .player_hand
+                .entry(observer_name.to_string())
+                .or_insert_with(Vec::new);
+            while state
+                .player_hand
+                .get(observer_name)
+                .map(|hand| hand.len())
+                .unwrap_or_default()
+                < 6
+            {
+                if state.deck.is_empty() {
+                    self.check_deck(state);
+                }
+
+                let Some(next_card) = state.deck.pop() else {
+                    break;
+                };
+                if let Some(hand) = state.player_hand.get_mut(observer_name) {
+                    hand.push(next_card);
+                }
+            }
+        }
+
+        self.clamp_storyteller_loss_threshold(state);
+        self.clamp_votes_per_guesser(state);
+        self.clamp_vote_submission_lengths(state);
+        self.clean_moderators(state);
+        self.sync_player_order_with_players(state);
+
+        if let Ok(msg) = self.get_msg(Some(observer_name), state) {
+            let _ = self.send_msg(state, observer_name, msg).await;
+        }
+
+        Ok(true)
+    }
+
     async fn convert_player_to_observer(
         &self,
         state: &mut RwLockWriteGuard<'_, RoomState>,
@@ -1583,15 +1645,23 @@ impl Room {
                         return Ok(());
                     }
 
-                    let target_is_active = matches!(
-                        state.stage,
-                        RoomStage::ActiveChooses | RoomStage::PlayersChoose | RoomStage::Voting
-                    ) && self.active_player_name(&state) == Some(target);
-                    if target_is_active {
+                    let target_is_storyteller = self.active_player_name(&state) == Some(target);
+                    let storyteller_can_switch_before_clue =
+                        matches!(state.stage, RoomStage::ActiveChooses)
+                            && state.current_description.trim().is_empty()
+                            && !state.player_to_current_card.contains_key(target);
+                    let storyteller_switch_blocked = target_is_storyteller
+                        && !storyteller_can_switch_before_clue
+                        && matches!(
+                            state.stage,
+                            RoomStage::ActiveChooses | RoomStage::PlayersChoose | RoomStage::Voting
+                        );
+                    if storyteller_switch_blocked {
                         if let Some(tx) = state.player_to_socket.get(name) {
                             tx.send(
                                 ServerMsg::ErrorMsg(
-                                    "Storyteller cannot become observer this round".to_string(),
+                                    "Storyteller can only become observer before choosing card and clue"
+                                        .to_string(),
                                 )
                                 .into(),
                             )
@@ -1606,21 +1676,29 @@ impl Room {
                     if converted {
                         self.after_member_removed_or_observered(&mut state).await?;
                     }
-                } else if let Some(observer) = state.observers.get_mut(target) {
-                    observer.join_requested = true;
-                    observer.auto_join_on_next_round = false;
-                    if matches!(state.stage, RoomStage::Paused) {
-                        self.promote_requested_observers(&mut state);
+                } else if state.observers.contains_key(target) {
+                    if matches!(state.stage, RoomStage::Voting) {
+                        if let Some(observer) = state.observers.get_mut(target) {
+                            observer.join_requested = true;
+                            observer.auto_join_on_next_round = false;
+                        }
+                    } else {
+                        let _ = self
+                            .promote_observer_immediately(&mut state, target)
+                            .await?;
                     }
                     self.broadcast_msg(self.room_state(&state))?;
                 }
             }
             ClientMsg::RequestJoinFromObserver {} => {
-                if let Some(observer) = state.observers.get_mut(name) {
-                    observer.join_requested = true;
-                    observer.auto_join_on_next_round = false;
-                    if matches!(state.stage, RoomStage::Paused) {
-                        self.promote_requested_observers(&mut state);
+                if state.observers.contains_key(name) {
+                    if matches!(state.stage, RoomStage::Voting) {
+                        if let Some(observer) = state.observers.get_mut(name) {
+                            observer.join_requested = true;
+                            observer.auto_join_on_next_round = false;
+                        }
+                    } else {
+                        let _ = self.promote_observer_immediately(&mut state, name).await?;
                     }
                     self.broadcast_msg(self.room_state(&state))?;
                 }
@@ -2530,6 +2608,296 @@ mod tests {
             state.players.get("obs").map(|p| p.points),
             Some(6),
             "promoted observer should be floored to minimum active player score"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn observer_request_join_promotes_immediately_in_players_choose() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "a", 3);
+            add_player(&mut state, "b", 6);
+            add_player(&mut state, "c", 9);
+            state.player_order = vec!["a".into(), "b".into(), "c".into()];
+            state.active_player = 0;
+            state.round = 4;
+            state.stage = RoomStage::PlayersChoose;
+            state.current_description = "clue".to_string();
+            state.player_to_current_card.insert("a".into(), "ca".into());
+            state.observers.insert(
+                "obs".to_string(),
+                ObserverInfo {
+                    connected: true,
+                    points: 1,
+                    join_requested: false,
+                    auto_join_on_next_round: false,
+                },
+            );
+            setup_connected_member(&mut state, "obs", "t-obs", 16);
+        }
+
+        room.handle_client_msg("obs", 16, to_ws(ClientMsg::RequestJoinFromObserver {}))
+            .await?;
+
+        let state = room.state.read().await;
+        assert!(
+            !state.observers.contains_key("obs"),
+            "observer should be promoted immediately outside voting"
+        );
+        assert!(
+            state.players.contains_key("obs"),
+            "observer should become active player immediately"
+        );
+        assert_eq!(
+            state.players.get("obs").map(|p| p.points),
+            Some(3),
+            "promoted observer should be floored to minimum active player score"
+        );
+        assert!(
+            state
+                .player_hand
+                .get("obs")
+                .map(|hand| !hand.is_empty())
+                .unwrap_or(false),
+            "immediate promotion should provision a hand for current round"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn observer_request_join_during_voting_waits_for_next_round() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "a", 3);
+            add_player(&mut state, "b", 6);
+            add_player(&mut state, "c", 9);
+            state.player_order = vec!["a".into(), "b".into(), "c".into()];
+            state.active_player = 0;
+            state.round = 5;
+            state.stage = RoomStage::Voting;
+            state.current_description = "clue".to_string();
+            state.player_to_current_card.insert("a".into(), "ca".into());
+            state.player_to_current_card.insert("b".into(), "cb".into());
+            state.player_to_current_card.insert("c".into(), "cc".into());
+            state.observers.insert(
+                "obs".to_string(),
+                ObserverInfo {
+                    connected: true,
+                    points: 1,
+                    join_requested: false,
+                    auto_join_on_next_round: false,
+                },
+            );
+            setup_connected_member(&mut state, "obs", "t-obs", 17);
+        }
+
+        room.handle_client_msg("obs", 17, to_ws(ClientMsg::RequestJoinFromObserver {}))
+            .await?;
+
+        let state = room.state.read().await;
+        assert!(
+            state.observers.contains_key("obs"),
+            "observer should stay observer during voting"
+        );
+        assert!(
+            !state.players.contains_key("obs"),
+            "observer should not be promoted during voting"
+        );
+        assert_eq!(
+            state.observers.get("obs").map(|o| o.join_requested),
+            Some(true),
+            "observer should be marked to join next round"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn moderator_join_observer_now_outside_voting_promotes_immediately() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 5);
+            add_player(&mut state, "p2", 7);
+            add_player(&mut state, "p3", 9);
+            state.player_order = vec!["host".into(), "p2".into(), "p3".into()];
+            state.active_player = 0;
+            state.round = 3;
+            state.stage = RoomStage::PlayersChoose;
+            state.current_description = "clue".to_string();
+            state.player_to_current_card.insert("host".into(), "ch".into());
+            state.moderators.insert("host".to_string());
+            state.observers.insert(
+                "obs".to_string(),
+                ObserverInfo {
+                    connected: true,
+                    points: 1,
+                    join_requested: false,
+                    auto_join_on_next_round: false,
+                },
+            );
+            setup_connected_member(&mut state, "host", "t-host", 18);
+        }
+
+        room.handle_client_msg(
+            "host",
+            18,
+            to_ws(ClientMsg::SetObserver {
+                player: "obs".to_string(),
+                enabled: false,
+            }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert!(
+            !state.observers.contains_key("obs"),
+            "moderator join action should promote observer immediately outside voting"
+        );
+        assert!(state.players.contains_key("obs"));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn storyteller_can_self_observe_before_choosing_card_and_clue() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "a", 5);
+            add_player(&mut state, "b", 4);
+            add_player(&mut state, "c", 3);
+            add_player(&mut state, "d", 2);
+            state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into()];
+            state.active_player = 0;
+            state.round = 6;
+            state.stage = RoomStage::ActiveChooses;
+            state.current_description.clear();
+            state.player_to_current_card.clear();
+            setup_connected_member(&mut state, "a", "t-a", 21);
+        }
+
+        room.handle_client_msg(
+            "a",
+            21,
+            to_ws(ClientMsg::SetObserver {
+                player: "a".to_string(),
+                enabled: true,
+            }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert!(
+            !state.players.contains_key("a"),
+            "storyteller should be moved out of active players"
+        );
+        assert!(
+            state.observers.contains_key("a"),
+            "storyteller should be moved to observers"
+        );
+        assert!(
+            matches!(state.stage, RoomStage::ActiveChooses),
+            "round should continue in ActiveChooses when enough players remain"
+        );
+        assert_eq!(
+            state.player_order[state.active_player], "b",
+            "storyteller turn should pass to next player"
+        );
+        assert_eq!(state.round, 6, "round number must not advance");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn moderator_can_observe_storyteller_before_choosing_card_and_clue() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "a", 0);
+            add_player(&mut state, "b", 0);
+            add_player(&mut state, "c", 0);
+            add_player(&mut state, "d", 0);
+            state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into()];
+            state.active_player = 0;
+            state.stage = RoomStage::ActiveChooses;
+            state.current_description.clear();
+            state.player_to_current_card.clear();
+            state.moderators.insert("b".to_string());
+            setup_connected_member(&mut state, "b", "t-b", 22);
+        }
+
+        room.handle_client_msg(
+            "b",
+            22,
+            to_ws(ClientMsg::SetObserver {
+                player: "a".to_string(),
+                enabled: true,
+            }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert!(
+            !state.players.contains_key("a"),
+            "moderator should be able to observer storyteller pre-clue"
+        );
+        assert!(
+            state.observers.contains_key("a"),
+            "target storyteller should become observer"
+        );
+        assert_eq!(
+            state.player_order[state.active_player], "b",
+            "storyteller turn should pass to next player"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn storyteller_cannot_observe_after_clue_locked() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "a", 0);
+            add_player(&mut state, "b", 0);
+            add_player(&mut state, "c", 0);
+            add_player(&mut state, "d", 0);
+            state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into()];
+            state.active_player = 0;
+            state.stage = RoomStage::PlayersChoose;
+            state.current_description = "hint".to_string();
+            state.player_to_current_card.insert("a".into(), "ca".into());
+            setup_connected_member(&mut state, "a", "t-a", 23);
+        }
+
+        room.handle_client_msg(
+            "a",
+            23,
+            to_ws(ClientMsg::SetObserver {
+                player: "a".to_string(),
+                enabled: true,
+            }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert!(
+            state.players.contains_key("a"),
+            "storyteller should remain active after clue is locked"
+        );
+        assert!(
+            !state.observers.contains_key("a"),
+            "storyteller should not be moved to observer after clue is locked"
+        );
+        assert!(
+            matches!(state.stage, RoomStage::PlayersChoose),
+            "stage should not change when storyteller observer action is rejected"
         );
 
         Ok(())
