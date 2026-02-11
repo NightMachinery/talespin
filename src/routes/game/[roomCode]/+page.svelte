@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 
-	import { browser } from '$app/environment';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { getToastStore } from '@skeletonlabs/skeleton';
@@ -72,22 +71,6 @@
 			gameServer.close();
 		}
 	});
-
-	function leaveGame() {
-		if (browser && !window.confirm('Leave this game?')) {
-			return;
-		}
-
-		if (!gameServer) {
-			goto('/');
-			return;
-		}
-
-		rejoin = false;
-		gameServer.leaveRoom();
-		gameServer.close();
-		goto('/');
-	}
 
 	onMount(() => {
 		roomCode = $page.params.roomCode;
@@ -203,12 +186,6 @@
 </script>
 
 <div class="w-full">
-	{#if stage !== 'End'}
-		<div class="fixed right-3 top-3 z-40">
-			<button class="btn variant-filled px-3 py-1 text-sm" on:click={leaveGame}>Leave</button>
-		</div>
-	{/if}
-
 	{#if stage === 'Joining'}
 		<div class="pt-10">
 			<Joining
@@ -339,6 +316,10 @@
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}
+			{roundNum}
+			{cardsRemaining}
+			{deckRefillFlashToken}
+			{winCondition}
 			reason={pausedReason}
 		/>
 	{:else if stage === 'End'}

@@ -2,6 +2,7 @@
 	import { browser } from '$app/environment';
 	import type GameServer from '$lib/gameServer';
 	import type { ObserverInfo, PlayerInfo } from '$lib/types';
+	import { OFFLINE_STATUS_LABEL } from '$lib/presence';
 	import { cardsFitToHeight } from '$lib/viewOptions';
 
 	export let players: { [key: string]: PlayerInfo } = {};
@@ -32,6 +33,7 @@
 		activePlayer === name;
 	$: canBecomeObserver =
 		!isSelfObserver && stage !== 'Joining' && stage !== 'End' && !selfObserveBlocked;
+	$: joinBackLabel = stage === 'Paused' ? 'Join game now' : 'Join back next round';
 
 	function isPlayerModerator(playerName: string) {
 		return moderatorSet.has(playerName);
@@ -77,20 +79,29 @@
 	function updateStorytellerLossThreshold(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
 		const parsed = Number(input.value);
-		if (!Number.isFinite(parsed)) return;
-		const next = Math.max(
-			storytellerLossThresholdMin,
-			Math.min(storytellerLossThresholdMax, Math.round(parsed))
-		);
-		gameServer.setStorytellerLossThreshold(next);
+		if (
+			!Number.isInteger(parsed) ||
+			parsed < storytellerLossThresholdMin ||
+			parsed > storytellerLossThresholdMax
+		) {
+			input.value = `${storytellerLossThreshold}`;
+			return;
+		}
+		if (parsed !== storytellerLossThreshold) {
+			gameServer.setStorytellerLossThreshold(parsed);
+		}
 	}
 
 	function updateVotesPerGuesser(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
 		const parsed = Number(input.value);
-		if (!Number.isFinite(parsed)) return;
-		const next = Math.max(votesPerGuesserMin, Math.min(votesPerGuesserMax, Math.round(parsed)));
-		gameServer.setVotesPerGuesser(next);
+		if (!Number.isInteger(parsed) || parsed < votesPerGuesserMin || parsed > votesPerGuesserMax) {
+			input.value = `${votesPerGuesser}`;
+			return;
+		}
+		if (parsed !== votesPerGuesser) {
+			gameServer.setVotesPerGuesser(parsed);
+		}
 	}
 </script>
 
@@ -106,7 +117,7 @@
 	</label>
 	{#if stage !== 'Joining' && stage !== 'End'}
 		{#if isSelfObserver}
-			<button class="btn variant-filled w-full" on:click={joinBack}>Join back next round</button>
+			<button class="btn variant-filled w-full" on:click={joinBack}>{joinBackLabel}</button>
 		{:else}
 			<button
 				class="btn variant-filled w-full"
@@ -235,7 +246,9 @@
 								{observerName}
 								<span class="ml-1 text-xs font-normal opacity-70">(observer)</span>
 								{#if !info.connected}
-									<span class="ml-1 text-xs font-normal opacity-70">(offline)</span>
+									<span class="ml-1 text-xs font-normal opacity-70"
+										>({OFFLINE_STATUS_LABEL})</span
+									>
 								{/if}
 							</div>
 							<div class="flex items-center gap-1.5">

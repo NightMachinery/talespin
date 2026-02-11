@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type GameServer from '$lib/gameServer';
-	import type { ObserverInfo, PlayerInfo } from '$lib/types';
+	import type { ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
 	import StageShell from './StageShell.svelte';
 
 	export let name = '';
@@ -17,9 +17,18 @@
 	export let votesPerGuesser = 1;
 	export let votesPerGuesserMin = 1;
 	export let votesPerGuesserMax = 1;
+	export let roundNum = 0;
+	export let cardsRemaining = 0;
+	export let deckRefillFlashToken = 0;
+	export let winCondition: WinCondition = {
+		mode: 'points',
+		target_points: 10
+	};
 
 	$: moderatorSet = new Set(moderators);
 	$: isModerator = moderatorSet.has(name);
+	$: nonObserverPlayerCount = Object.keys(players).length;
+	$: canResume = nonObserverPlayerCount >= 3;
 </script>
 
 <StageShell
@@ -39,9 +48,10 @@
 	{votesPerGuesserMax}
 	activePlayer=""
 	pointChange={{}}
-	roundNum={0}
-	cardsRemaining={0}
-	deckRefillFlashToken={0}
+	{roundNum}
+	{cardsRemaining}
+	{deckRefillFlashToken}
+	{winCondition}
 	showMobileActions={isModerator}
 >
 	<svelte:fragment slot="leftRail">
@@ -51,9 +61,16 @@
 		</div>
 		{#if isModerator}
 			<div class="card light p-4">
-				<button class="btn variant-filled w-full" on:click={() => gameServer.resumeGame()}>
+				<button
+					class="btn variant-filled w-full"
+					disabled={!canResume}
+					on:click={() => gameServer.resumeGame()}
+				>
 					Resume Game
 				</button>
+				{#if !canResume}
+					<p class="mt-2 text-xs opacity-70">Need at least 3 non-observer players to resume.</p>
+				{/if}
 			</div>
 		{/if}
 	</svelte:fragment>
@@ -67,7 +84,11 @@
 
 	<svelte:fragment slot="mobileActions">
 		{#if isModerator}
-			<button class="btn variant-filled w-full" on:click={() => gameServer.resumeGame()}>
+			<button
+				class="btn variant-filled w-full"
+				disabled={!canResume}
+				on:click={() => gameServer.resumeGame()}
+			>
 				Resume Game
 			</button>
 		{/if}

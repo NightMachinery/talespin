@@ -768,6 +768,34 @@ impl Room {
         self.reset_round_keep_hands(state);
         state.stage = RoomStage::ActiveChooses;
         state.paused_reason = None;
+
+        // Ensure all active players have a hand entry and top up to 6 cards when possible.
+        let active_players = state.players.keys().cloned().collect::<HashSet<String>>();
+        state
+            .player_hand
+            .retain(|player, _| active_players.contains(player));
+        for player in state.players.keys().cloned().collect::<Vec<_>>() {
+            state.player_hand.entry(player.clone()).or_default();
+            while state
+                .player_hand
+                .get(&player)
+                .map(|hand| hand.len())
+                .unwrap_or_default()
+                < 6
+            {
+                if state.deck.is_empty() {
+                    self.check_deck(state);
+                }
+
+                let Some(next_card) = state.deck.pop() else {
+                    break;
+                };
+                if let Some(hand) = state.player_hand.get_mut(&player) {
+                    hand.push(next_card);
+                }
+            }
+        }
+
         for player in state.player_order.clone().iter() {
             let player_name = player.as_str();
             let _ = self
@@ -1581,6 +1609,9 @@ impl Room {
                 } else if let Some(observer) = state.observers.get_mut(target) {
                     observer.join_requested = true;
                     observer.auto_join_on_next_round = false;
+                    if matches!(state.stage, RoomStage::Paused) {
+                        self.promote_requested_observers(&mut state);
+                    }
                     self.broadcast_msg(self.room_state(&state))?;
                 }
             }
@@ -1588,6 +1619,9 @@ impl Room {
                 if let Some(observer) = state.observers.get_mut(name) {
                     observer.join_requested = true;
                     observer.auto_join_on_next_round = false;
+                    if matches!(state.stage, RoomStage::Paused) {
+                        self.promote_requested_observers(&mut state);
+                    }
                     self.broadcast_msg(self.room_state(&state))?;
                 }
             }
@@ -1682,7 +1716,11 @@ impl Room {
                     return Ok(());
                 }
 
-                self.init_round(&mut state).await?;
+                if state.round == 0 {
+                    self.init_round(&mut state).await?;
+                } else {
+                    self.restart_round_keep_hands(&mut state).await?;
+                }
             }
             ClientMsg::ActivePlayerChooseCard { card, description } => {
                 if !state.players.contains_key(name) {
@@ -2412,6 +2450,87 @@ mod tests {
                 "resume should start a round once at least 3 non-observer players exist"
             );
         }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn resume_from_paused_midgame_keeps_round_and_storyteller() -> Result<()> {
+        let room = test_room();
+
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 2);
+            add_player(&mut state, "p2", 3);
+            add_player(&mut state, "p3", 4);
+            state.player_order = vec!["host".into(), "p2".into(), "p3".into()];
+            state.active_player = 1;
+            state.round = 7;
+            state.stage = RoomStage::Paused;
+            state.paused_reason = Some("Need at least 3 non-observer players".to_string());
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 13);
+        }
+
+        room.handle_client_msg("host", 13, to_ws(ClientMsg::ResumeGame {}))
+            .await?;
+
+        let state = room.state.read().await;
+        assert!(
+            matches!(state.stage, RoomStage::ActiveChooses),
+            "resume should restart the current round"
+        );
+        assert_eq!(
+            state.round, 7,
+            "resuming from midgame pause must not advance round number"
+        );
+        assert_eq!(
+            state.active_player, 1,
+            "resuming from midgame pause must not pass storyteller"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn observer_request_join_promotes_immediately_while_paused() -> Result<()> {
+        let room = test_room();
+
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 6);
+            add_player(&mut state, "p2", 8);
+            state.stage = RoomStage::Paused;
+            state.paused_reason = Some("Need at least 3 non-observer players".to_string());
+            state.observers.insert(
+                "obs".to_string(),
+                ObserverInfo {
+                    connected: true,
+                    points: 1,
+                    join_requested: false,
+                    auto_join_on_next_round: false,
+                },
+            );
+            setup_connected_member(&mut state, "obs", "t-obs", 15);
+        }
+
+        room.handle_client_msg("obs", 15, to_ws(ClientMsg::RequestJoinFromObserver {}))
+            .await?;
+
+        let state = room.state.read().await;
+        assert!(
+            !state.observers.contains_key("obs"),
+            "observer should be promoted immediately in paused stage"
+        );
+        assert!(
+            state.players.contains_key("obs"),
+            "observer should become active player in paused stage"
+        );
+        assert_eq!(
+            state.players.get("obs").map(|p| p.points),
+            Some(6),
+            "promoted observer should be floored to minimum active player score"
+        );
 
         Ok(())
     }

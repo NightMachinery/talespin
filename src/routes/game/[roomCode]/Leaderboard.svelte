@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
 	import type { ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
+	import { OFFLINE_STATUS_LABEL } from '$lib/presence';
 
 	export let players: { [key: string]: PlayerInfo } = {};
 	export let observers: { [key: string]: ObserverInfo } = {};
@@ -70,7 +71,7 @@
 							{player}
 						</span>
 						{#if !players[player].connected}
-							<span class="text-error-500">(afk)</span>
+							<span class="text-error-500">({OFFLINE_STATUS_LABEL})</span>
 						{/if}
 
 						{#if stage === 'Joining' || ((stage === 'PlayersChoose' || stage === 'Voting') && player !== activePlayer) || stage === 'Results'}
@@ -108,7 +109,7 @@
 								<span class="opacity-70"> (joining next round)</span>
 							{/if}
 							{#if !info.connected}
-								<span class="opacity-70"> (offline)</span>
+								<span class="opacity-70"> ({OFFLINE_STATUS_LABEL})</span>
 							{/if}
 						</li>
 					{/each}
