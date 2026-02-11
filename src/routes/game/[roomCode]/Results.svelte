@@ -3,19 +3,21 @@
 	import { http_host } from '$lib/gameServer';
 	import { cardsFitToHeight } from '$lib/viewOptions';
 	import type GameServer from '$lib/gameServer';
-	import type { PlayerInfo, WinCondition } from '$lib/types';
+	import type { ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
 	import StageShell from './StageShell.svelte';
 
 	export let displayImages: string[] = [];
 	export let name = '';
 	export let creator = '';
 	export let moderators: string[] = [];
+	export let observers: { [key: string]: ObserverInfo } = {};
 	export let activeCard = '';
 	export let activePlayer = '';
 	export let gameServer: GameServer;
 	export let playerToCurrentCard: { [key: string]: string } = {};
 	export let playerToVote: { [key: string]: string } = {};
 	export let players: { [key: string]: PlayerInfo } = {};
+	export let allowNewPlayersMidgame = true;
 	export let stage = '';
 	export let pointChange: { [key: string]: number } = {};
 	export let roundNum = 0;
@@ -28,6 +30,8 @@
 
 	let cardToPlayer: { [key: string]: string } = {};
 	let cardToVoters: { [key: string]: string[] } = {};
+	let isObserver = false;
+	$: isObserver = !!observers[name];
 	$: resultsDesktopFitClass = $cardsFitToHeight ? 'lg:h-full' : '';
 	$: resultsSectionClass = $cardsFitToHeight
 		? 'grid w-full grid-cols-2 gap-3 overflow-y-auto lg:h-full lg:grid-cols-3 lg:grid-rows-2 lg:content-stretch'
@@ -57,8 +61,10 @@
 	{name}
 	{creator}
 	{moderators}
+	{observers}
 	{gameServer}
 	{stage}
+	{allowNewPlayersMidgame}
 	{pointChange}
 	{activePlayer}
 	{roundNum}
@@ -72,9 +78,14 @@
 			<p>Review votes and scores, then continue to the next round.</p>
 		</div>
 		<div class="card light p-4">
-			<button class="btn variant-filled w-full" on:click={() => gameServer.ready()}
-				>Next Round</button
+			<button
+				class="btn variant-filled w-full"
+				disabled={isObserver}
+				on:click={() => gameServer.ready()}>Next Round</button
 			>
+			{#if isObserver}
+				<p class="mt-2 text-xs opacity-70">Observers cannot ready up.</p>
+			{/if}
 		</div>
 	</svelte:fragment>
 
@@ -86,7 +97,10 @@
 	</svelte:fragment>
 
 	<svelte:fragment slot="mobileActions">
-		<button class="btn variant-filled w-full" on:click={() => gameServer.ready()}>Next Round</button
+		<button
+			class="btn variant-filled w-full"
+			disabled={isObserver}
+			on:click={() => gameServer.ready()}>Next Round</button
 		>
 	</svelte:fragment>
 

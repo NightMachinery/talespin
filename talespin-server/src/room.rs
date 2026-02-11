@@ -26,6 +26,7 @@ pub enum ServerMsg {
     RoomState {
         room_id: String,
         players: HashMap<String, PlayerInfo>,
+        observers: HashMap<String, ObserverInfo>,
         creator: Option<String>,
         moderators: Vec<String>,
         stage: RoomStage,
@@ -35,6 +36,8 @@ pub enum ServerMsg {
         cards_remaining: u32,
         deck_refill_count: u32,
         win_condition: WinCondition,
+        allow_new_players_midgame: bool,
+        paused_reason: Option<String>,
     },
     StartRound {
         hand: Vec<String>,
@@ -73,18 +76,45 @@ impl From<ServerMsg> for WsMessage {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum ClientMsg {
     Ready {},
     StartGame {},
     LeaveRoom {},
-    KickPlayer { player: String },
-    SetModerator { player: String, enabled: bool },
-    JoinRoom { room_id: String, name: String },
-    CreateRoom { name: String },
-    ActivePlayerChooseCard { card: String, description: String },
-    PlayerChooseCard { card: String },
-    Vote { card: String },
+    KickPlayer {
+        player: String,
+    },
+    SetModerator {
+        player: String,
+        enabled: bool,
+    },
+    SetObserver {
+        player: String,
+        enabled: bool,
+    },
+    SetAllowMidgameJoin {
+        enabled: bool,
+    },
+    ResumeGame {},
+    RequestJoinFromObserver {},
+    JoinRoom {
+        room_id: String,
+        name: String,
+        token: String,
+    },
+    CreateRoom {
+        name: String,
+    },
+    ActivePlayerChooseCard {
+        card: String,
+        description: String,
+    },
+    PlayerChooseCard {
+        card: String,
+    },
+    Vote {
+        card: String,
+    },
     Ping {},
 }
 
@@ -100,6 +130,8 @@ pub enum RoomStage {
     Voting,
     // results are computed; circle back to ActiveChooses while deck is not empty
     Results,
+    // game is paused due to low amount of players
+    Paused,
     // game is over
     End,
 }
@@ -114,6 +146,14 @@ pub struct PlayerInfo {
     ready: bool, // this is round dependent
 }
 
+#[derive(Debug, Serialize, Clone)]
+pub struct ObserverInfo {
+    connected: bool,
+    points: u16,
+    join_requested: bool,
+    auto_join_on_next_round: bool,
+}
+
 #[derive(Debug)]
 struct RoomState {
     room_id: String,
@@ -123,8 +163,19 @@ struct RoomState {
     moderators: HashSet<String>,
     // when no moderators are connected, this starts the host-migration timer
     no_connected_moderator_since_s: Option<u64>,
-    // players removed from this room explicitly (leave/kick)
+    // members removed from this room explicitly (leave/kick)
     removed_players: HashSet<String>,
+    // observers are room members but not active players in a round
+    observers: HashMap<String, ObserverInfo>,
+    // stable per-name token for reconnect/auth
+    name_tokens: HashMap<String, String>,
+    // active connection generation for each member
+    connection_generation: HashMap<String, u64>,
+    next_generation: u64,
+    // moderators can toggle this after the game starts
+    allow_new_players_midgame: bool,
+    // user-facing pause reason for RoomStage::Paused
+    paused_reason: Option<String>,
     // store general stats about each player
     players: HashMap<String, PlayerInfo>,
     // store 6 cards in hand per player
@@ -166,6 +217,8 @@ pub struct Room {
     broadcast: broadcast::Sender<ServerMsg>,
     // keep pointer to the base deck for refills
     base_deck: Arc<Vec<String>>,
+    // cap for players + observers in a room
+    max_members: usize,
     // last access in seconds
     last_access: AtomicU64,
 }
@@ -183,6 +236,7 @@ impl Room {
         base_deck: Arc<Vec<String>>,
         win_condition: WinCondition,
         creator: Option<String>,
+        max_members: usize,
     ) -> Self {
         let state = RoomState {
             room_id: room_id.to_string(),
@@ -190,6 +244,12 @@ impl Room {
             moderators: HashSet::new(),
             no_connected_moderator_since_s: None,
             removed_players: HashSet::new(),
+            observers: HashMap::new(),
+            name_tokens: HashMap::new(),
+            connection_generation: HashMap::new(),
+            next_generation: 0,
+            allow_new_players_midgame: true,
+            paused_reason: None,
             players: HashMap::new(),
             deck: base_deck.to_vec(),
             stage: RoomStage::Joining,
@@ -212,6 +272,7 @@ impl Room {
             state: RwLock::new(state),
             broadcast: tx,
             base_deck,
+            max_members,
             last_access: AtomicU64::new(get_time_s()),
         }
     }
@@ -220,18 +281,27 @@ impl Room {
         state.creator.as_deref() == Some(name)
     }
 
+    fn member_exists(&self, state: &RwLockWriteGuard<RoomState>, name: &str) -> bool {
+        state.players.contains_key(name) || state.observers.contains_key(name)
+    }
+
     fn is_moderator(&self, state: &RwLockWriteGuard<RoomState>, name: &str) -> bool {
-        state.players.contains_key(name) && state.moderators.contains(name)
+        self.member_exists(state, name) && state.moderators.contains(name)
     }
 
     fn clean_moderators(&self, state: &mut RwLockWriteGuard<RoomState>) {
-        let active_players = state.players.keys().cloned().collect::<HashSet<String>>();
+        let active_members = state
+            .players
+            .keys()
+            .chain(state.observers.keys())
+            .cloned()
+            .collect::<HashSet<String>>();
         state
             .moderators
-            .retain(|name| active_players.contains(name));
+            .retain(|name| active_members.contains(name));
 
         if let Some(creator) = state.creator.clone() {
-            if active_players.contains(&creator) {
+            if active_members.contains(&creator) {
                 state.moderators.insert(creator);
             }
         }
@@ -243,6 +313,7 @@ impl Room {
                 .players
                 .get(name)
                 .map(|player| player.connected)
+                .or_else(|| state.observers.get(name).map(|observer| observer.connected))
                 .unwrap_or(false)
         })
     }
@@ -266,6 +337,13 @@ impl Room {
             .iter()
             .filter(|(_, player)| player.connected)
             .map(|(name, _)| name.clone())
+            .chain(
+                state
+                    .observers
+                    .iter()
+                    .filter(|(_, observer)| observer.connected)
+                    .map(|(name, _)| name.clone()),
+            )
             .filter(|name| !state.moderators.contains(name))
             .collect();
 
@@ -278,6 +356,247 @@ impl Room {
         state.moderators.insert(promoted);
         state.no_connected_moderator_since_s = None;
         true
+    }
+
+    fn next_connection_generation(&self, state: &mut RwLockWriteGuard<'_, RoomState>) -> u64 {
+        state.next_generation = state.next_generation.saturating_add(1);
+        state.next_generation
+    }
+
+    fn total_members(&self, state: &RwLockWriteGuard<RoomState>) -> usize {
+        state.players.len() + state.observers.len()
+    }
+
+    fn non_observer_player_count(&self, state: &RwLockWriteGuard<RoomState>) -> usize {
+        state.players.len()
+    }
+
+    fn disconnect_previous_session(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+        name: &str,
+    ) -> Result<()> {
+        if let Some(tx) = state.player_to_socket.get(name) {
+            let _ = tx.send(
+                ServerMsg::LeftRoom {
+                    reason: "You signed in from another session".to_string(),
+                }
+                .into(),
+            );
+        }
+        state.player_to_socket.remove(name);
+        Ok(())
+    }
+
+    fn can_join_midgame(&self, state: &RwLockWriteGuard<RoomState>) -> bool {
+        state.allow_new_players_midgame
+    }
+
+    fn has_valid_token_for_name(
+        &self,
+        state: &RwLockWriteGuard<RoomState>,
+        name: &str,
+        token: &str,
+    ) -> bool {
+        match state.name_tokens.get(name) {
+            Some(existing_token) => existing_token == token,
+            None => true,
+        }
+    }
+
+    fn pause_reason(&self) -> String {
+        "Need at least 3 non-observer players. Ask a player to join.".to_string()
+    }
+
+    fn reset_round_keep_hands(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
+        state.current_description.clear();
+        state.player_to_current_card.clear();
+        state.player_to_vote.clear();
+        self.clear_ready(state);
+    }
+
+    fn maybe_pause_for_low_player_count(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+    ) -> Result<bool> {
+        if matches!(state.stage, RoomStage::Joining | RoomStage::End) {
+            return Ok(false);
+        }
+
+        if self.non_observer_player_count(state) >= 3 {
+            return Ok(false);
+        }
+
+        self.reset_round_keep_hands(state);
+        state.stage = RoomStage::Paused;
+        state.paused_reason = Some(self.pause_reason());
+        self.broadcast_msg(self.room_state(state))?;
+        Ok(true)
+    }
+
+    fn observer_floor_score(&self, state: &RwLockWriteGuard<'_, RoomState>) -> u16 {
+        if let Some(min_active) = state.players.values().map(|p| p.points).min() {
+            return min_active;
+        }
+
+        let all_points = state
+            .players
+            .values()
+            .map(|p| p.points)
+            .chain(state.observers.values().map(|o| o.points))
+            .collect::<Vec<u16>>();
+        all_points.into_iter().min().unwrap_or(0)
+    }
+
+    fn sync_player_order_with_players(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
+        let existing = state.players.keys().cloned().collect::<HashSet<_>>();
+        state.player_order.retain(|name| existing.contains(name));
+
+        let missing: Vec<String> = state
+            .players
+            .keys()
+            .filter(|name| !state.player_order.contains(name))
+            .cloned()
+            .collect();
+        for name in missing {
+            state.player_order.push(name);
+        }
+
+        if state.player_order.is_empty() {
+            state.active_player = 0;
+        } else if state.active_player >= state.player_order.len() {
+            state.active_player = 0;
+        }
+    }
+
+    fn should_promote_observer(&self, observer: &ObserverInfo) -> bool {
+        observer.auto_join_on_next_round || observer.join_requested
+    }
+
+    fn promote_requested_observers(&self, state: &mut RwLockWriteGuard<'_, RoomState>) -> usize {
+        let to_promote: Vec<String> = state
+            .observers
+            .iter()
+            .filter(|(_, info)| self.should_promote_observer(info))
+            .map(|(name, _)| name.clone())
+            .collect();
+        if to_promote.is_empty() {
+            return 0;
+        }
+
+        let floor = self.observer_floor_score(state);
+        let mut promoted = 0usize;
+        for name in to_promote {
+            if let Some(observer) = state.observers.remove(&name) {
+                state.players.insert(
+                    name.clone(),
+                    PlayerInfo {
+                        connected: observer.connected,
+                        points: observer.points.max(floor),
+                        ready: false,
+                    },
+                );
+                promoted += 1;
+            }
+        }
+
+        self.clean_moderators(state);
+        self.sync_player_order_with_players(state);
+        promoted
+    }
+
+    async fn convert_player_to_observer(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+        player_name: &str,
+        auto_join_on_next_round: bool,
+    ) -> Result<bool> {
+        if !state.players.contains_key(player_name) {
+            return Ok(false);
+        }
+
+        let points = state
+            .players
+            .get(player_name)
+            .map(|p| p.points)
+            .unwrap_or(0);
+        let connected = state
+            .players
+            .get(player_name)
+            .map(|p| p.connected)
+            .unwrap_or(false);
+
+        let mut moved_cards = HashSet::new();
+        if let Some(hand) = state.player_hand.remove(player_name) {
+            for card in hand {
+                if moved_cards.insert(card.clone()) {
+                    state.discard_pile.push(card);
+                }
+            }
+        }
+
+        if let Some(card) = state.player_to_current_card.remove(player_name) {
+            if moved_cards.insert(card.clone()) {
+                state.discard_pile.push(card);
+            }
+        }
+        state.player_to_vote.remove(player_name);
+
+        if let Some(pos) = state
+            .player_order
+            .iter()
+            .position(|player| player == player_name)
+        {
+            state.player_order.remove(pos);
+            if pos < state.active_player && state.active_player > 0 {
+                state.active_player -= 1;
+            }
+            if state.active_player >= state.player_order.len() {
+                state.active_player = 0;
+            }
+        }
+
+        state.players.remove(player_name);
+        state.observers.insert(
+            player_name.to_string(),
+            ObserverInfo {
+                connected,
+                points,
+                join_requested: false,
+                auto_join_on_next_round,
+            },
+        );
+        self.clean_moderators(state);
+        Ok(true)
+    }
+
+    async fn remove_observer(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+        name: &str,
+        personal_msg: Option<ServerMsg>,
+    ) -> Result<bool> {
+        if !state.observers.contains_key(name) {
+            return Ok(false);
+        }
+
+        state.observers.remove(name);
+        state.moderators.remove(name);
+        if state.creator.as_deref() == Some(name) {
+            state.creator = None;
+        }
+        state.name_tokens.remove(name);
+        state.connection_generation.remove(name);
+        state.removed_players.insert(name.to_string());
+
+        if let Some(tx) = state.player_to_socket.remove(name) {
+            if let Some(msg) = personal_msg {
+                let _ = tx.send(msg.into()).await;
+            }
+        }
+
+        self.clean_moderators(state);
+        Ok(true)
     }
 
     async fn remove_player(
@@ -326,6 +645,8 @@ impl Room {
         if state.creator.as_deref() == Some(player_name) {
             state.creator = None;
         }
+        state.name_tokens.remove(player_name);
+        state.connection_generation.remove(player_name);
         state.removed_players.insert(player_name.to_string());
 
         if let Some(tx) = state.player_to_socket.remove(player_name) {
@@ -338,18 +659,45 @@ impl Room {
         Ok(true)
     }
 
-    async fn after_player_removed(
+    async fn restart_round_keep_hands(
         &self,
         state: &mut RwLockWriteGuard<'_, RoomState>,
     ) -> Result<()> {
-        if matches!(state.stage, RoomStage::Joining) {
+        if state.player_order.is_empty() {
+            self.sync_player_order_with_players(state);
+        }
+        if state.player_order.is_empty() {
+            state.stage = RoomStage::Paused;
+            state.paused_reason = Some(self.pause_reason());
             self.broadcast_msg(self.room_state(state))?;
             return Ok(());
         }
 
-        if state.players.len() < 3 {
-            state.stage = RoomStage::End;
-            self.broadcast_msg(ServerMsg::EndGame {})?;
+        self.reset_round_keep_hands(state);
+        state.stage = RoomStage::ActiveChooses;
+        state.paused_reason = None;
+        for player in state.player_order.clone().iter() {
+            let player_name = player.as_str();
+            let _ = self
+                .send_msg(state, player_name, self.get_msg(Some(player_name), state)?)
+                .await;
+        }
+        self.broadcast_msg(self.room_state(state))?;
+        Ok(())
+    }
+
+    fn active_player_name<'a>(&self, state: &'a RwLockWriteGuard<RoomState>) -> Option<&'a str> {
+        state
+            .player_order
+            .get(state.active_player)
+            .map(|name| name.as_str())
+    }
+
+    async fn after_member_removed_or_observered(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+    ) -> Result<()> {
+        if matches!(state.stage, RoomStage::Joining) {
             self.broadcast_msg(self.room_state(state))?;
             return Ok(());
         }
@@ -359,24 +707,92 @@ impl Room {
             return Ok(());
         }
 
-        if matches!(state.stage, RoomStage::Results) {
-            if self.should_end_game(state) {
-                state.stage = RoomStage::End;
-                self.broadcast_msg(ServerMsg::EndGame {})?;
-                self.broadcast_msg(self.room_state(state))?;
-                return Ok(());
-            }
-
-            if state.players.values().all(|player| player.ready) {
-                self.init_round(state).await?;
-                return Ok(());
-            }
-
-            self.broadcast_msg(self.room_state(state))?;
+        if self.maybe_pause_for_low_player_count(state)? {
             return Ok(());
         }
 
-        self.init_round(state).await?;
+        match state.stage {
+            RoomStage::Paused => {
+                self.broadcast_msg(self.room_state(state))?;
+                return Ok(());
+            }
+            RoomStage::ActiveChooses => {
+                // if active player left, restart this round with current hands
+                let active_exists = self
+                    .active_player_name(state)
+                    .map(|name| state.players.contains_key(name))
+                    .unwrap_or(false);
+                if !active_exists {
+                    self.sync_player_order_with_players(state);
+                    state.active_player = 0;
+                    self.restart_round_keep_hands(state).await?;
+                } else {
+                    self.broadcast_msg(self.room_state(state))?;
+                }
+                return Ok(());
+            }
+            RoomStage::PlayersChoose => {
+                let active_exists = self
+                    .active_player_name(state)
+                    .map(|name| state.players.contains_key(name))
+                    .unwrap_or(false);
+                if !active_exists {
+                    self.sync_player_order_with_players(state);
+                    state.active_player = 0;
+                    self.restart_round_keep_hands(state).await?;
+                    return Ok(());
+                }
+
+                let ready_count = state.players.values().filter(|player| player.ready).count();
+                if ready_count >= state.players.len().saturating_sub(1) {
+                    self.init_voting(state).await?;
+                } else {
+                    self.broadcast_msg(self.room_state(state))?;
+                }
+                return Ok(());
+            }
+            RoomStage::Voting => {
+                let active_exists = self
+                    .active_player_name(state)
+                    .map(|name| {
+                        state.players.contains_key(name)
+                            && state.player_to_current_card.contains_key(name)
+                    })
+                    .unwrap_or(false);
+                if !active_exists {
+                    self.sync_player_order_with_players(state);
+                    state.active_player = 0;
+                    self.restart_round_keep_hands(state).await?;
+                    return Ok(());
+                }
+
+                if state.player_to_vote.len() >= state.players.len().saturating_sub(1) {
+                    self.init_results(state)?;
+                } else {
+                    self.broadcast_msg(self.room_state(state))?;
+                }
+                return Ok(());
+            }
+            RoomStage::Results => {
+                if self.should_end_game(state) {
+                    state.stage = RoomStage::End;
+                    state.paused_reason = None;
+                    self.broadcast_msg(ServerMsg::EndGame {})?;
+                    self.broadcast_msg(self.room_state(state))?;
+                    return Ok(());
+                }
+
+                if state.players.values().all(|player| player.ready) {
+                    self.init_round(state).await?;
+                } else {
+                    self.broadcast_msg(self.room_state(state))?;
+                }
+                return Ok(());
+            }
+            _ => {}
+        }
+
+        self.broadcast_msg(self.room_state(state))?;
         Ok(())
     }
 
@@ -414,6 +830,7 @@ impl Room {
                     .to_string(),
                 point_change: self.compute_results(state),
             }),
+            RoomStage::Paused => Err(anyhow!("No stage-specific paused message")),
             RoomStage::End => Ok(ServerMsg::EndGame {}),
             _ => Err(anyhow!("No msg to send")),
         }
@@ -558,8 +975,18 @@ impl Room {
     }
 
     async fn init_round(&self, state: &mut RwLockWriteGuard<'_, RoomState>) -> Result<()> {
-        if state.players.len() < 3 {
-            return Err(anyhow!("Not enough players"));
+        let _promoted = self.promote_requested_observers(state);
+
+        if self.non_observer_player_count(state) < 3 {
+            state.stage = RoomStage::Paused;
+            state.paused_reason = Some(self.pause_reason());
+            self.broadcast_msg(self.room_state(state))?;
+            return Ok(());
+        }
+
+        self.sync_player_order_with_players(state);
+        if state.player_order.is_empty() {
+            return Err(anyhow!("No players available to start round"));
         }
 
         let is_first_round = state.round == 0;
@@ -569,26 +996,21 @@ impl Room {
             (state.active_player + 1) % state.player_order.len()
         };
 
-        // finalize players
         if is_first_round {
-            // first round
             state.active_player = 0;
-            state.player_order = state.players.keys().cloned().collect::<Vec<_>>();
             state.player_order.shuffle(&mut rand::thread_rng());
         } else {
-            // not enough cards, reload
             self.check_deck(state);
         }
 
-        // shuffle deck
         state.deck.shuffle(&mut rand::thread_rng());
-
-        // clear current chosen cards
         state.player_to_current_card.clear();
         state.player_to_vote.clear();
+        state.current_description.clear();
+        state.paused_reason = None;
 
-        // ensure all players have 6 cards
         let mut player_hand = state.player_hand.clone();
+        player_hand.retain(|name, _| state.players.contains_key(name));
 
         let mut deck = state.deck.clone();
         for player in state.players.keys() {
@@ -618,7 +1040,6 @@ impl Room {
         state.player_hand = player_hand;
         state.stage = RoomStage::ActiveChooses;
 
-        // notify players of the game start and their hands
         for player in state.player_order.iter() {
             let _ = self
                 .send_msg(&state, &player, self.get_msg(Some(&player), &state)?)
@@ -631,8 +1052,17 @@ impl Room {
         Ok(())
     }
 
-    pub async fn handle_client_msg(&self, name: &str, msg: WsMessage) -> Result<()> {
+    pub async fn handle_client_msg(
+        &self,
+        name: &str,
+        connection_generation: u64,
+        msg: WsMessage,
+    ) -> Result<()> {
         let mut state = self.state.write().await;
+
+        if state.connection_generation.get(name).copied() != Some(connection_generation) {
+            return Ok(());
+        }
 
         let msg: ClientMsg = match msg {
             WsMessage::Text(text) => serde_json::from_str(&text)
@@ -649,8 +1079,10 @@ impl Room {
                         return Ok(());
                     }
                 };
-                serde_json::from_str(text)
-                    .context(format!("Failed to deserialize client msg (binary): {}", text))?
+                serde_json::from_str(text).context(format!(
+                    "Failed to deserialize client msg (binary): {}",
+                    text
+                ))?
             }
             WsMessage::Ping(_) | WsMessage::Pong(_) | WsMessage::Close(_) => {
                 return Ok(());
@@ -663,12 +1095,16 @@ impl Room {
             self.broadcast_msg(self.room_state(&state))?;
         }
 
-        if !matches!(msg, ClientMsg::Ping {}) && !state.players.contains_key(name) {
+        if !matches!(msg, ClientMsg::Ping {}) && !self.member_exists(&state, name) {
             return Ok(());
         }
 
         match msg {
             ClientMsg::Ready {} => {
+                if !state.players.contains_key(name) {
+                    return Ok(());
+                }
+
                 if matches!(state.stage, RoomStage::Joining) {
                     let can_start = self.is_moderator(&state, name);
                     if !can_start {
@@ -705,7 +1141,7 @@ impl Room {
                     }
 
                     // check if everyone is ready for next round
-                    if state.players.values().filter(|p| p.ready).count() == state.players.len() {
+                    if state.players.values().filter(|p| p.ready).count() >= state.players.len() {
                         if state.players.len() >= 3 {
                             self.init_round(&mut state).await?;
                         } else {
@@ -717,6 +1153,10 @@ impl Room {
                 }
             }
             ClientMsg::StartGame {} => {
+                if !state.players.contains_key(name) {
+                    return Ok(());
+                }
+
                 if !matches!(state.stage, RoomStage::Joining) {
                     return Ok(());
                 }
@@ -742,7 +1182,7 @@ impl Room {
                 self.init_round(&mut state).await?;
             }
             ClientMsg::LeaveRoom {} => {
-                let removed = self
+                let removed_player = self
                     .remove_player(
                         &mut state,
                         name,
@@ -751,8 +1191,22 @@ impl Room {
                         }),
                     )
                     .await?;
-                if removed {
-                    self.after_player_removed(&mut state).await?;
+                if removed_player {
+                    self.after_member_removed_or_observered(&mut state).await?;
+                    return Ok(());
+                }
+
+                let removed_observer = self
+                    .remove_observer(
+                        &mut state,
+                        name,
+                        Some(ServerMsg::LeftRoom {
+                            reason: "You left the game".to_string(),
+                        }),
+                    )
+                    .await?;
+                if removed_observer {
+                    self.broadcast_msg(self.room_state(&state))?;
                 }
             }
             ClientMsg::KickPlayer { player } => {
@@ -772,7 +1226,7 @@ impl Room {
                     return Ok(());
                 }
 
-                let removed = self
+                let removed_player = self
                     .remove_player(
                         &mut state,
                         target,
@@ -781,8 +1235,22 @@ impl Room {
                         }),
                     )
                     .await?;
-                if removed {
-                    self.after_player_removed(&mut state).await?;
+                if removed_player {
+                    self.after_member_removed_or_observered(&mut state).await?;
+                    return Ok(());
+                }
+
+                let removed_observer = self
+                    .remove_observer(
+                        &mut state,
+                        target,
+                        Some(ServerMsg::Kicked {
+                            reason: "You were kicked from the game".to_string(),
+                        }),
+                    )
+                    .await?;
+                if removed_observer {
+                    self.broadcast_msg(self.room_state(&state))?;
                 }
             }
             ClientMsg::SetModerator { player, enabled } => {
@@ -803,7 +1271,7 @@ impl Room {
                 }
 
                 let target = player.trim();
-                if target.is_empty() || !state.players.contains_key(target) {
+                if target.is_empty() || !self.member_exists(&state, target) {
                     return Ok(());
                 }
 
@@ -839,7 +1307,128 @@ impl Room {
                 self.clean_moderators(&mut state);
                 self.broadcast_msg(self.room_state(&state))?;
             }
+            ClientMsg::SetObserver { player, enabled } => {
+                if matches!(state.stage, RoomStage::Joining | RoomStage::End) {
+                    return Ok(());
+                }
+
+                let target = player.trim();
+                if target.is_empty() || !self.member_exists(&state, target) {
+                    return Ok(());
+                }
+
+                let self_target = target == name;
+                if !self_target && !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change other players".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if enabled {
+                    if !state.players.contains_key(target) {
+                        return Ok(());
+                    }
+
+                    let target_is_active = matches!(
+                        state.stage,
+                        RoomStage::ActiveChooses | RoomStage::PlayersChoose | RoomStage::Voting
+                    ) && self.active_player_name(&state) == Some(target);
+                    if target_is_active {
+                        if let Some(tx) = state.player_to_socket.get(name) {
+                            tx.send(
+                                ServerMsg::ErrorMsg(
+                                    "Storyteller cannot become observer this round".to_string(),
+                                )
+                                .into(),
+                            )
+                            .await?;
+                        }
+                        return Ok(());
+                    }
+
+                    let converted = self
+                        .convert_player_to_observer(&mut state, target, false)
+                        .await?;
+                    if converted {
+                        self.after_member_removed_or_observered(&mut state).await?;
+                    }
+                } else if let Some(observer) = state.observers.get_mut(target) {
+                    observer.join_requested = true;
+                    observer.auto_join_on_next_round = false;
+                    self.broadcast_msg(self.room_state(&state))?;
+                }
+            }
+            ClientMsg::RequestJoinFromObserver {} => {
+                if let Some(observer) = state.observers.get_mut(name) {
+                    observer.join_requested = true;
+                    observer.auto_join_on_next_round = false;
+                    self.broadcast_msg(self.room_state(&state))?;
+                }
+            }
+            ClientMsg::SetAllowMidgameJoin { enabled } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change midgame join settings".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if matches!(state.stage, RoomStage::Joining | RoomStage::End) {
+                    return Ok(());
+                }
+
+                state.allow_new_players_midgame = enabled;
+                self.broadcast_msg(self.room_state(&state))?;
+            }
+            ClientMsg::ResumeGame {} => {
+                if !matches!(state.stage, RoomStage::Paused) {
+                    return Ok(());
+                }
+
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg("Only moderators can resume the game".to_string())
+                                .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if self.non_observer_player_count(&state) < 3 {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Need at least 3 non-observer players to resume".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                self.init_round(&mut state).await?;
+            }
             ClientMsg::ActivePlayerChooseCard { card, description } => {
+                if !state.players.contains_key(name) {
+                    return Ok(());
+                }
+
                 if matches!(state.stage, RoomStage::ActiveChooses)
                     && !state.player_order.is_empty()
                     && state.player_order[state.active_player] == name
@@ -886,6 +1475,10 @@ impl Room {
                 }
             }
             ClientMsg::PlayerChooseCard { card } => {
+                if !state.players.contains_key(name) {
+                    return Ok(());
+                }
+
                 if matches!(state.stage, RoomStage::PlayersChoose) {
                     if state.player_order.is_empty() {
                         return Ok(());
@@ -912,7 +1505,7 @@ impl Room {
 
                         // check if everyone except for the active player is ready
                         if state.players.values().filter(|p| p.ready).count()
-                            == state.players.len() - 1
+                            >= state.players.len().saturating_sub(1)
                         {
                             self.init_voting(&mut state).await?;
                         }
@@ -920,6 +1513,10 @@ impl Room {
                 }
             }
             ClientMsg::Vote { card } => {
+                if !state.players.contains_key(name) {
+                    return Ok(());
+                }
+
                 if matches!(state.stage, RoomStage::Voting) {
                     if state.player_order.is_empty() {
                         return Ok(());
@@ -964,7 +1561,8 @@ impl Room {
                     self.broadcast_msg(self.room_state(&state))?;
 
                     // check if everyone except for the active player is ready
-                    if state.players.values().filter(|p| p.ready).count() == state.players.len() - 1
+                    if state.players.values().filter(|p| p.ready).count()
+                        >= state.players.len().saturating_sub(1)
                     {
                         self.init_results(&mut state)?;
                     }
@@ -1070,27 +1668,43 @@ impl Room {
         }
     }
 
-    pub async fn on_connection(&self, socket: &mut WebSocket, name: &str) {
+    pub async fn on_connection(&self, socket: &mut WebSocket, name: &str, token: &str) {
         // public funciton
-        if let Err(e) = self.attempt_join(socket, name).await {
-            println!("Error in attempt_join: {:?}", e);
-            return;
-        }
+        let connection_generation = match self.attempt_join(socket, name, token).await {
+            Ok(generation) => generation,
+            Err(e) => {
+                println!("Error in attempt_join: {:?}", e);
+                return;
+            }
+        };
 
-        let res = self.run_ws_loop(socket, name).await;
+        let res = self.run_ws_loop(socket, name, connection_generation).await;
         println!("Player {} has left", name);
 
         self.last_access.store(get_time_s(), Ordering::Relaxed);
         let mut state = self.state.write().await;
 
+        if state.connection_generation.get(name).copied() != Some(connection_generation) {
+            if let Err(e) = res {
+                println!("Error in run_ws_loop (stale session): {:?}", e);
+            }
+            return;
+        }
+
         if state.removed_players.remove(name) {
             // already removed explicitly (leave/kick)
         } else if matches!(state.stage, RoomStage::Joining) {
             state.players.remove(name);
+            state.observers.remove(name);
             state.moderators.remove(name);
+            state.name_tokens.remove(name);
+            state.connection_generation.remove(name);
         } else {
             if let Some(player) = state.players.get_mut(name) {
                 player.connected = false;
+            }
+            if let Some(observer) = state.observers.get_mut(name) {
+                observer.connected = false;
             }
         }
 
@@ -1107,58 +1721,128 @@ impl Room {
         }
     }
 
-    async fn attempt_join(&self, socket: &mut WebSocket, name: &str) -> Result<()> {
+    async fn attempt_join(&self, socket: &mut WebSocket, name: &str, token: &str) -> Result<u64> {
         if name.is_empty() {
             socket
                 .send(ServerMsg::ErrorMsg("Name cannot be empty".to_string()).into())
                 .await?;
             return Err(anyhow!("Name cannot be empty"));
         }
+        if token.trim().is_empty() {
+            socket
+                .send(ServerMsg::ErrorMsg("Token cannot be empty".to_string()).into())
+                .await?;
+            return Err(anyhow!("Token cannot be empty"));
+        }
 
         println!("Handling join for {}", name);
 
         let mut state = self.state.write().await;
 
-        if let Some(player) = state.players.get_mut(name) {
-            // player already exists in the game
-            // and not in joining anymore
-            // if in joining then player.active will be true
-
-            if !player.connected {
-                player.connected = true;
-            } else {
-                socket
-                    .send(ServerMsg::ErrorMsg("Name already taken".to_string()).into())
-                    .await?;
-                return Err(anyhow!("Name already taken"));
-            }
-        } else if matches!(state.stage, RoomStage::Joining) {
-            // still in joining and not yet joined
-            if state.players.len() < 8 {
-                if state.creator.is_none() {
-                    state.creator = Some(name.to_string());
-                }
-
-                state.players.insert(
-                    name.to_string(),
-                    PlayerInfo {
-                        connected: true,
-                        points: 0,
-                        ready: true,
-                    },
-                );
-            } else {
-                socket
-                    .send(ServerMsg::ErrorMsg("Too many players!".to_string()).into())
-                    .await?;
-                return Err(anyhow!("Too many players!"));
-            }
-        } else {
+        if !self.has_valid_token_for_name(&state, name, token) {
             socket
-                .send(ServerMsg::ErrorMsg("Game has already started".to_string()).into())
+                .send(ServerMsg::ErrorMsg("Name already taken".to_string()).into())
                 .await?;
-            return Err(anyhow!("Game has already started"));
+            return Err(anyhow!("Name already taken"));
         }
+
+        let is_known_member = self.member_exists(&state, name);
+
+        if let Some(player) = state.players.get_mut(name) {
+            player.connected = true;
+            self.disconnect_previous_session(&mut state, name)?;
+        } else if let Some(observer) = state.observers.get_mut(name) {
+            observer.connected = true;
+            self.disconnect_previous_session(&mut state, name)?;
+        } else {
+            if self.total_members(&state) >= self.max_members {
+                socket
+                    .send(ServerMsg::ErrorMsg("Room is full".to_string()).into())
+                    .await?;
+                return Err(anyhow!("Room is full"));
+            }
+
+            if !matches!(state.stage, RoomStage::Joining) && !self.can_join_midgame(&state) {
+                socket
+                    .send(
+                        ServerMsg::ErrorMsg("New players are disabled for this game".to_string())
+                            .into(),
+                    )
+                    .await?;
+                return Err(anyhow!("New players are disabled"));
+            }
+
+            match state.stage {
+                RoomStage::Joining => {
+                    if state.creator.is_none() {
+                        state.creator = Some(name.to_string());
+                    }
+
+                    state.players.insert(
+                        name.to_string(),
+                        PlayerInfo {
+                            connected: true,
+                            points: 0,
+                            ready: true,
+                        },
+                    );
+                }
+                RoomStage::ActiveChooses | RoomStage::PlayersChoose | RoomStage::Paused => {
+                    state.players.insert(
+                        name.to_string(),
+                        PlayerInfo {
+                            connected: true,
+                            points: 0,
+                            ready: false,
+                        },
+                    );
+                    state.player_hand.insert(name.to_string(), Vec::new());
+                    while state.player_hand.get(name).map(|h| h.len()).unwrap_or(0) < 6 {
+                        if state.deck.is_empty() {
+                            self.check_deck(&mut state);
+                        }
+
+                        let card = match state.deck.pop() {
+                            Some(card) => card,
+                            None => break,
+                        };
+
+                        if let Some(hand) = state.player_hand.get_mut(name) {
+                            hand.push(card);
+                        }
+                    }
+
+                    if !state.player_order.iter().any(|player| player == name) {
+                        state.player_order.push(name.to_string());
+                    }
+                }
+                RoomStage::Voting | RoomStage::Results => {
+                    state.observers.insert(
+                        name.to_string(),
+                        ObserverInfo {
+                            connected: true,
+                            points: 0,
+                            join_requested: false,
+                            auto_join_on_next_round: true,
+                        },
+                    );
+                }
+                RoomStage::End => {
+                    socket
+                        .send(ServerMsg::ErrorMsg("Game has already ended".to_string()).into())
+                        .await?;
+                    return Err(anyhow!("Game has already ended"));
+                }
+            }
+        }
+
+        state
+            .name_tokens
+            .insert(name.to_string(), token.to_string());
+        let generation = self.next_connection_generation(&mut state);
+        state
+            .connection_generation
+            .insert(name.to_string(), generation);
 
         if state.creator.as_deref() == Some(name) {
             state.moderators.insert(name.to_string());
@@ -1166,30 +1850,53 @@ impl Room {
         self.clean_moderators(&mut state);
         self.maybe_promote_moderator(&mut state);
 
-        self.broadcast_msg(self.room_state(&state).into())?; // will not receive this one yet
-        socket.send(self.room_state(&state).into()).await?;
-        if let Ok(msg) = self.get_msg(Some(name), &state) {
-            socket.send(msg.into()).await?;
+        if !is_known_member && matches!(state.stage, RoomStage::Paused) {
+            state.paused_reason = Some(self.pause_reason());
         }
 
-        Ok(())
+        self.broadcast_msg(self.room_state(&state))?; // will not receive this one yet
+        socket.send(self.room_state(&state).into()).await?;
+        if state.players.contains_key(name) {
+            if let Ok(msg) = self.get_msg(Some(name), &state) {
+                socket.send(msg.into()).await?;
+            }
+        } else if matches!(state.stage, RoomStage::Voting | RoomStage::Results) {
+            if let Ok(msg) = self.get_msg(Some(name), &state) {
+                socket.send(msg.into()).await?;
+            }
+        }
+
+        Ok(generation)
     }
 
-    async fn run_ws_loop(&self, socket: &mut WebSocket, name: &str) -> Result<()> {
+    async fn run_ws_loop(
+        &self,
+        socket: &mut WebSocket,
+        name: &str,
+        connection_generation: u64,
+    ) -> Result<()> {
         let (tx, mut rx) = mpsc::channel(10);
-        self.state
-            .write()
-            .await
-            .player_to_socket
-            .insert(name.to_string(), tx);
+        {
+            let mut state = self.state.write().await;
+            if state.connection_generation.get(name).copied() != Some(connection_generation) {
+                return Ok(());
+            }
+            state.player_to_socket.insert(name.to_string(), tx);
+        }
         let mut broadcast_updates = self.broadcast.subscribe();
 
         loop {
             tokio::select! {
                 msg = broadcast_updates.recv() => {
+                    if self.state.read().await.connection_generation.get(name).copied() != Some(connection_generation) {
+                        break;
+                    }
                     socket.send(msg?.into()).await?;
                 }
                 msg = socket.recv() => {
+                    if self.state.read().await.connection_generation.get(name).copied() != Some(connection_generation) {
+                        break;
+                    }
                     match msg {
                         Some(Ok(WsMessage::Close(_))) => break,
                         Some(Ok(WsMessage::Ping(payload))) => {
@@ -1197,12 +1904,15 @@ impl Room {
                         }
                         Some(Ok(WsMessage::Pong(_))) => {}
                         Some(Ok(msg)) => {
-                            self.handle_client_msg(name, msg).await?;
+                            self.handle_client_msg(name, connection_generation, msg).await?;
                         }
                         _ => break
                     }
                 },
                 msg = rx.recv() => {
+                    if self.state.read().await.connection_generation.get(name).copied() != Some(connection_generation) {
+                        break;
+                    }
                     match msg {
                         Some(msg) => {
                             socket.send(msg.into()).await?;
@@ -1271,6 +1981,7 @@ impl Room {
         ServerMsg::RoomState {
             room_id: state.room_id.clone(),
             players: state.players.clone(),
+            observers: state.observers.clone(),
             creator: state.creator.clone(),
             moderators,
             stage: state.stage,
@@ -1280,6 +1991,243 @@ impl Room {
             cards_remaining: state.deck.len() as u32,
             deck_refill_count: state.deck_refill_count,
             win_condition: state.win_condition,
+            allow_new_players_midgame: state.allow_new_players_midgame,
+            paused_reason: state.paused_reason.clone(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_room() -> Room {
+        let deck = (0..512).map(|i| format!("card-{}", i)).collect::<Vec<_>>();
+        Room::new(
+            "test",
+            Arc::new(deck),
+            WinCondition::Points { target_points: 10 },
+            Some("host".to_string()),
+            64,
+        )
+    }
+
+    fn add_player(state: &mut RwLockWriteGuard<'_, RoomState>, name: &str, points: u16) {
+        state.players.insert(
+            name.to_string(),
+            PlayerInfo {
+                connected: true,
+                points,
+                ready: false,
+            },
+        );
+        state.player_hand.insert(
+            name.to_string(),
+            vec![
+                format!("{}-1", name),
+                format!("{}-2", name),
+                format!("{}-3", name),
+                format!("{}-4", name),
+                format!("{}-5", name),
+                format!("{}-6", name),
+            ],
+        );
+        if !state.player_order.iter().any(|player| player == name) {
+            state.player_order.push(name.to_string());
+        }
+    }
+
+    fn setup_connected_member(
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+        name: &str,
+        token: &str,
+        generation: u64,
+    ) {
+        state
+            .name_tokens
+            .insert(name.to_string(), token.to_string());
+        state
+            .connection_generation
+            .insert(name.to_string(), generation);
+    }
+
+    fn to_ws(msg: ClientMsg) -> WsMessage {
+        WsMessage::Text(
+            serde_json::to_string(&msg).expect("Client message serialization must work"),
+        )
+    }
+
+    #[tokio::test]
+    async fn kicking_non_voter_during_voting_transitions_to_results() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        add_player(&mut state, "a", 0);
+        add_player(&mut state, "b", 0);
+        add_player(&mut state, "c", 0);
+        add_player(&mut state, "d", 0);
+        state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into()];
+        state.active_player = 0;
+        state.round = 2;
+        state.stage = RoomStage::Voting;
+        state.current_description = "clue".to_string();
+
+        state.player_to_current_card.insert("a".into(), "ca".into());
+        state.player_to_current_card.insert("b".into(), "cb".into());
+        state.player_to_current_card.insert("c".into(), "cc".into());
+        state.player_to_current_card.insert("d".into(), "cd".into());
+        state.player_to_vote.insert("b".into(), "ca".into());
+        state.player_to_vote.insert("c".into(), "ca".into());
+        // d intentionally has not voted yet
+
+        let removed = room.remove_player(&mut state, "d", None).await?;
+        assert!(removed, "expected player d to be removed");
+
+        room.after_member_removed_or_observered(&mut state).await?;
+        assert!(
+            matches!(state.stage, RoomStage::Results),
+            "expected to transition to Results after removing non-voter in Voting"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn dropping_below_three_players_enters_pause_instead_of_ending() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        add_player(&mut state, "a", 0);
+        add_player(&mut state, "b", 0);
+        add_player(&mut state, "c", 0);
+        state.player_order = vec!["a".into(), "b".into(), "c".into()];
+        state.active_player = 0;
+        state.round = 3;
+        state.stage = RoomStage::PlayersChoose;
+        state.current_description = "clue".to_string();
+
+        let removed = room.remove_player(&mut state, "c", None).await?;
+        assert!(removed, "expected player c to be removed");
+        room.after_member_removed_or_observered(&mut state).await?;
+
+        assert!(
+            matches!(state.stage, RoomStage::Paused),
+            "expected stage to be Paused when active players drop below 3"
+        );
+        assert!(
+            state.paused_reason.is_some(),
+            "expected a pause reason to be set"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn resume_game_requires_three_non_observer_players() -> Result<()> {
+        let room = test_room();
+
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 2);
+            add_player(&mut state, "p2", 3);
+            state.moderators.insert("host".to_string());
+            state.stage = RoomStage::Paused;
+            state.paused_reason = Some("Need at least 3 non-observer players".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 7);
+        }
+
+        room.handle_client_msg("host", 7, to_ws(ClientMsg::ResumeGame {}))
+            .await?;
+        {
+            let state = room.state.read().await;
+            assert!(
+                matches!(state.stage, RoomStage::Paused),
+                "resume should be rejected while fewer than 3 non-observer players exist"
+            );
+        }
+
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "p3", 4);
+        }
+
+        room.handle_client_msg("host", 7, to_ws(ClientMsg::ResumeGame {}))
+            .await?;
+        {
+            let state = room.state.read().await;
+            assert!(
+                matches!(state.stage, RoomStage::ActiveChooses),
+                "resume should start a round once at least 3 non-observer players exist"
+            );
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn observer_promotion_uses_floor_score_only() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        add_player(&mut state, "p1", 6);
+        add_player(&mut state, "p2", 10);
+
+        state.observers.insert(
+            "low".to_string(),
+            ObserverInfo {
+                connected: true,
+                points: 2,
+                join_requested: true,
+                auto_join_on_next_round: false,
+            },
+        );
+        state.observers.insert(
+            "high".to_string(),
+            ObserverInfo {
+                connected: true,
+                points: 14,
+                join_requested: true,
+                auto_join_on_next_round: false,
+            },
+        );
+
+        let promoted = room.promote_requested_observers(&mut state);
+        assert_eq!(promoted, 2, "expected both observers to be promoted");
+        assert_eq!(
+            state.players.get("low").map(|p| p.points),
+            Some(6),
+            "low observer should be floored to minimum player score"
+        );
+        assert_eq!(
+            state.players.get("high").map(|p| p.points),
+            Some(14),
+            "higher observer score should be preserved"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn token_validation_enforces_name_ownership() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+        state
+            .name_tokens
+            .insert("alice".to_string(), "token-a".to_string());
+
+        assert!(
+            room.has_valid_token_for_name(&state, "alice", "token-a"),
+            "same token must be accepted"
+        );
+        assert!(
+            !room.has_valid_token_for_name(&state, "alice", "token-b"),
+            "different token for same name must be rejected"
+        );
+        assert!(
+            room.has_valid_token_for_name(&state, "bob", "token-any"),
+            "new name should accept any token"
+        );
+
+        Ok(())
     }
 }

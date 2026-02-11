@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type GameServer from '$lib/gameServer';
-	import type { PlayerInfo, WinCondition } from '$lib/types';
+	import type { ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
 	import Images from './Images.svelte';
 	import StageShell from './StageShell.svelte';
 	import { getToastStore } from '@skeletonlabs/skeleton';
@@ -9,10 +9,12 @@
 	export let name = '';
 	export let creator = '';
 	export let moderators: string[] = [];
+	export let observers: { [key: string]: ObserverInfo } = {};
 	export let activePlayer = '';
 	export let gameServer: GameServer;
 	export let description = '';
 	export let players: { [key: string]: PlayerInfo } = {};
+	export let allowNewPlayersMidgame = true;
 	export let stage = '';
 	export let pointChange: { [key: string]: number } = {};
 	export let roundNum = 0;
@@ -25,10 +27,12 @@
 
 	let toastStore = getToastStore();
 	let selectedImage = '';
+	let isObserver = false;
 	let isChooser = false;
-	$: isChooser = activePlayer !== name;
+	$: isObserver = !!observers[name];
+	$: isChooser = activePlayer !== name && !isObserver;
 
-	if (name !== activePlayer) {
+	if (name !== activePlayer && !isObserver) {
 		toastStore.trigger({
 			message: '👉 Your turn!',
 			autohide: true,
@@ -51,8 +55,10 @@
 	{name}
 	{creator}
 	{moderators}
+	{observers}
 	{gameServer}
 	{stage}
+	{allowNewPlayersMidgame}
 	{pointChange}
 	{activePlayer}
 	{roundNum}
@@ -78,6 +84,9 @@
 			<div class="card light space-y-2 p-4">
 				<h1 class="text-2xl">Sit tight!</h1>
 				<p>Players are choosing cards that match "{description}"</p>
+				{#if isObserver}
+					<p class="opacity-70">You are observing this round.</p>
+				{/if}
 			</div>
 		{/if}
 	</svelte:fragment>
@@ -94,6 +103,9 @@
 			<div class="card light space-y-2 p-4">
 				<h1 class="text-2xl">Sit tight!</h1>
 				<p>Players are choosing cards that match "{description}"</p>
+				{#if isObserver}
+					<p class="opacity-70">You are observing this round.</p>
+				{/if}
 			</div>
 		{/if}
 	</svelte:fragment>

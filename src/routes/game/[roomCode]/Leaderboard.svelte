@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
-	import type { PlayerInfo, WinCondition } from '$lib/types';
+	import type { ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
 
 	export let players: { [key: string]: PlayerInfo } = {};
+	export let observers: { [key: string]: ObserverInfo } = {};
 	// export let name = '';
 	export let stage = '';
 	export let activePlayer = '';
@@ -63,7 +64,11 @@
 				<div class="flex items-center justify-between gap-2">
 					<div class="flex-auto">
 						{i + 1}.
-						<span class={`${player === activePlayer ? 'boujee-text' : ''} `}>{player}</span>
+						<span
+							class={`${player === activePlayer ? 'boujee-text' : ''} ${!players[player].connected ? 'opacity-50 grayscale' : ''}`}
+						>
+							{player}
+						</span>
 						{#if !players[player].connected}
 							<span class="text-error-500">(afk)</span>
 						{/if}
@@ -92,6 +97,24 @@
 		>
 			Cards left: {cardsRemaining}
 		</p>
+		{#if Object.keys(observers).length > 0}
+			<div class="mt-3 text-sm opacity-80">
+				<p class="font-semibold">Observers</p>
+				<ul class="ml-4 list-disc">
+					{#each Object.entries(observers).sort( ([a], [b]) => a.localeCompare(b) ) as [observerName, info]}
+						<li class={!info.connected ? 'opacity-50' : ''}>
+							{observerName}
+							{#if info.join_requested || info.auto_join_on_next_round}
+								<span class="opacity-70"> (joining next round)</span>
+							{/if}
+							{#if !info.connected}
+								<span class="opacity-70"> (offline)</span>
+							{/if}
+						</li>
+					{/each}
+				</ul>
+			</div>
+		{/if}
 	</div>
 </div>
 

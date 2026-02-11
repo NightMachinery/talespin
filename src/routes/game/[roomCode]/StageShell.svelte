@@ -3,14 +3,16 @@
 	import type GameServer from '$lib/gameServer';
 	import Leaderboard from './Leaderboard.svelte';
 	import SidebarOptions from './SidebarOptions.svelte';
-	import type { PlayerInfo, WinCondition } from '$lib/types';
+	import type { ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
 
 	export let players: { [key: string]: PlayerInfo } = {};
+	export let observers: { [key: string]: ObserverInfo } = {};
 	export let name = '';
 	export let creator = '';
 	export let moderators: string[] = [];
 	export let gameServer: GameServer;
 	export let stage = '';
+	export let allowNewPlayersMidgame = true;
 	export let activePlayer = '';
 	export let pointChange: { [key: string]: number } = {};
 	export let roundNum = 0;
@@ -25,10 +27,7 @@
 	const hasMobileTop = !!$$slots.mobileTop;
 	const hasMobileActions = !!$$slots.mobileActions;
 	const hasMobileBottom = !!$$slots.mobileBottom;
-	$: moderatorSet = new Set(moderators);
-	$: isCreator = creator !== '' && creator === name;
-	$: isModerator = moderatorSet.has(name);
-	$: showMobileOptions = isCreator || isModerator;
+	$: showMobileOptions = true;
 	$: mainContentClass = `rounded-lg bg-black/10 p-2 sm:p-3 lg:p-4 ${
 		$cardsFitToHeight ? 'lg:h-full' : ''
 	}`;
@@ -63,6 +62,7 @@
 				>
 					<Leaderboard
 						{players}
+						{observers}
 						{stage}
 						{pointChange}
 						{activePlayer}
@@ -76,21 +76,41 @@
 						<slot name="leftRail" />
 					</div>
 
-						{#if hasMobileBottom}
-							<div class="lg:hidden">
-								<slot name="mobileBottom" />
-							</div>
-						{/if}
-
-						{#if showMobileOptions}
-							<div class="lg:hidden">
-								<SidebarOptions {players} {name} {creator} {moderators} {gameServer} {stage} />
-							</div>
-						{/if}
-
-						<div class="hidden lg:block">
-							<SidebarOptions {players} {name} {creator} {moderators} {gameServer} {stage} />
+					{#if hasMobileBottom}
+						<div class="lg:hidden">
+							<slot name="mobileBottom" />
 						</div>
+					{/if}
+
+					{#if showMobileOptions}
+						<div class="lg:hidden">
+							<SidebarOptions
+								{players}
+								{observers}
+								{name}
+								{creator}
+								{moderators}
+								{gameServer}
+								{stage}
+								{allowNewPlayersMidgame}
+								{activePlayer}
+							/>
+						</div>
+					{/if}
+
+					<div class="hidden lg:block">
+						<SidebarOptions
+							{players}
+							{observers}
+							{name}
+							{creator}
+							{moderators}
+							{gameServer}
+							{stage}
+							{allowNewPlayersMidgame}
+							{activePlayer}
+						/>
+					</div>
 				</div>
 			</aside>
 		</div>

@@ -6,8 +6,8 @@
 	import { goto } from '$app/navigation';
 	import { getToastStore } from '@skeletonlabs/skeleton';
 
-	import { nameStore } from '$lib/store';
-	import type { PlayerInfo, WinCondition } from '$lib/types';
+	import { nameStore, playerTokenStore } from '$lib/store';
+	import type { ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
 	import GameServer from '$lib/gameServer';
 
 	import Joining from './Joining.svelte';
@@ -15,19 +15,24 @@
 	import PlayersChoose from './PlayersChoose.svelte';
 	import Voting from './Voting.svelte';
 	import Results from './Results.svelte';
+	import Paused from './Paused.svelte';
 	import End from './End.svelte';
 
 	// connection information
 	let name = '';
+	let token = '';
 	let roomCode = '';
 	let gameServer: GameServer;
 	let rejoin = false;
 
 	// game state
 	let players: { [key: string]: PlayerInfo } = {};
+	let observers: { [key: string]: ObserverInfo } = {};
 	let stage: string = 'Joining';
 	let creator = '';
 	let moderators: string[] = [];
+	let allowNewPlayersMidgame = true;
+	let pausedReason = '';
 	let activePlayer = '';
 	let description = '';
 	let roundNum = 0;
@@ -53,6 +58,7 @@
 	// store
 	let toastStore = getToastStore();
 	nameStore.subscribe((value) => (name = value));
+	playerTokenStore.subscribe((value) => (token = value));
 
 	onDestroy(() => {
 		if (gameServer) {
@@ -86,10 +92,10 @@
 		}
 
 		gameServer = new GameServer();
-		gameServer.joinRoom(roomCode, name);
+		gameServer.joinRoom(roomCode, name, token);
 		gameServer.onclose(() => {
 			if (rejoin) {
-				gameServer.joinRoom(roomCode, name);
+				gameServer.joinRoom(roomCode, name, token);
 			}
 		});
 		gameServer.addMsgHandler((data: any) => {
@@ -98,9 +104,12 @@
 			if (data.RoomState) {
 				const previousDeckRefillCount = deckRefillCount;
 				players = data.RoomState.players;
+				observers = data.RoomState.observers || {};
 				creator = data.RoomState.creator || '';
 				moderators = data.RoomState.moderators || [];
 				stage = data.RoomState.stage;
+				allowNewPlayersMidgame = data.RoomState.allow_new_players_midgame ?? true;
+				pausedReason = data.RoomState.paused_reason || '';
 				activePlayer = data.RoomState.active_player || '';
 				roundNum = data.RoomState.round;
 				cardsRemaining = data.RoomState.cards_remaining || 0;
@@ -207,8 +216,10 @@
 			{name}
 			{creator}
 			{moderators}
+			{observers}
 			{gameServer}
 			{players}
+			{allowNewPlayersMidgame}
 			{stage}
 			{pointChange}
 			{roundNum}
@@ -222,10 +233,12 @@
 			{name}
 			{creator}
 			{moderators}
+			{observers}
 			{activePlayer}
 			{gameServer}
 			{description}
 			{players}
+			{allowNewPlayersMidgame}
 			{stage}
 			{pointChange}
 			{roundNum}
@@ -240,9 +253,11 @@
 			{name}
 			{creator}
 			{moderators}
+			{observers}
 			{gameServer}
 			{description}
 			{players}
+			{allowNewPlayersMidgame}
 			{stage}
 			{pointChange}
 			{roundNum}
@@ -257,18 +272,31 @@
 			{name}
 			{creator}
 			{moderators}
+			{observers}
 			{gameServer}
 			{playerToCurrentCard}
 			{playerToVote}
 			{activeCard}
 			{activePlayer}
 			{players}
+			{allowNewPlayersMidgame}
 			{stage}
 			{pointChange}
 			{roundNum}
 			{cardsRemaining}
 			{deckRefillFlashToken}
 			{winCondition}
+		/>
+	{:else if stage === 'Paused'}
+		<Paused
+			{name}
+			{creator}
+			{moderators}
+			{observers}
+			{players}
+			{gameServer}
+			{allowNewPlayersMidgame}
+			reason={pausedReason}
 		/>
 	{:else if stage === 'End'}
 		<div class="pt-10">

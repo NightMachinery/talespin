@@ -3,7 +3,7 @@
 	import { getToastStore } from '@skeletonlabs/skeleton';
 
 	import type GameServer from '$lib/gameServer';
-	import type { PlayerInfo, WinCondition } from '$lib/types';
+	import type { ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
 	import Images from './Images.svelte';
 	import StageShell from './StageShell.svelte';
 
@@ -11,10 +11,12 @@
 	export let name = '';
 	export let creator = '';
 	export let moderators: string[] = [];
+	export let observers: { [key: string]: ObserverInfo } = {};
 	export let activePlayer = '';
 	export let gameServer: GameServer;
 	export let description = '';
 	export let players: { [key: string]: PlayerInfo } = {};
+	export let allowNewPlayersMidgame = true;
 	export let stage = '';
 	export let pointChange: { [key: string]: number } = {};
 	export let roundNum = 0;
@@ -28,8 +30,10 @@
 
 	let selectedImage = '';
 	let toastStore = getToastStore();
+	let isObserver = false;
 	let isVoter = false;
-	$: isVoter = activePlayer !== name;
+	$: isObserver = !!observers[name];
+	$: isVoter = activePlayer !== name && !isObserver;
 
 	function vote() {
 		gameServer.vote(selectedImage);
@@ -46,8 +50,10 @@
 	{name}
 	{creator}
 	{moderators}
+	{observers}
 	{gameServer}
 	{stage}
+	{allowNewPlayersMidgame}
 	{pointChange}
 	{activePlayer}
 	{roundNum}
@@ -73,6 +79,9 @@
 			<div class="card light space-y-2 p-4">
 				<h1 class="text-xl font-semibold">Tallying the votes!</h1>
 				<p>Everyone is voting on the clue "{description}".</p>
+				{#if isObserver}
+					<p class="opacity-70">You are observing this round.</p>
+				{/if}
 			</div>
 		{/if}
 
@@ -132,6 +141,9 @@
 			<div class="card light space-y-2 p-4">
 				<h1 class="text-xl font-semibold">Tallying the votes!</h1>
 				<p>Everyone is voting on the clue "{description}".</p>
+				{#if isObserver}
+					<p class="opacity-70">You are observing this round.</p>
+				{/if}
 			</div>
 		{/if}
 	</svelte:fragment>

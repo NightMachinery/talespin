@@ -52,10 +52,12 @@ const CARD_AVIF_ENCODER_ENV: &str = "TALESPIN_CARD_AVIF_ENCODER";
 const CARD_AVIF_THREADS_ENV: &str = "TALESPIN_CARD_AVIF_THREADS";
 const VALIDATE_CACHE_HITS_ENV: &str = "TALESPIN_VALIDATE_CACHE_HITS_P";
 const DEFAULT_WIN_POINTS_ENV: &str = "TALESPIN_DEFAULT_WIN_POINTS";
+const MAX_MEMBERS_ENV: &str = "TALESPIN_MAX_MEMBERS";
 
 const DEFAULT_CARD_ASPECT_RATIO: &str = "2:3";
 const DEFAULT_CARD_LONG_SIDE: u32 = 1536;
 const DEFAULT_WIN_POINTS: u16 = 10;
+const DEFAULT_MAX_MEMBERS: usize = 64;
 const DEFAULT_CACHE_DIR: &str = "~/.cache/talespin";
 const CACHE_SUBDIR_CARDS: &str = "cards";
 
@@ -371,6 +373,23 @@ fn parse_default_win_points_from_env() -> u16 {
     }
 
     DEFAULT_WIN_POINTS
+}
+
+fn parse_max_members_from_env() -> usize {
+    if let Ok(raw) = env::var(MAX_MEMBERS_ENV) {
+        if let Ok(value) = raw.trim().parse::<usize>() {
+            if value >= 3 {
+                return value;
+            }
+        }
+
+        println!(
+            "Warning: invalid {}='{}'; using default {}",
+            MAX_MEMBERS_ENV, raw, DEFAULT_MAX_MEMBERS
+        );
+    }
+
+    DEFAULT_MAX_MEMBERS
 }
 
 fn env_is_y(key: &str) -> bool {
@@ -912,6 +931,7 @@ struct ServerState {
     cards: Arc<HashMap<String, PathBuf>>,
     card_content_type: &'static str,
     default_win_points_target: u16,
+    max_members: usize,
 }
 
 impl ServerState {
@@ -920,6 +940,7 @@ impl ServerState {
 
         let config = NormalizationConfig::from_env()?;
         let default_win_points_target = parse_default_win_points_from_env();
+        let max_members = parse_max_members_from_env();
         let extra_image_dirs = get_extra_image_dirs();
         let disable_builtin_images = env_is_y(DISABLE_BUILTIN_IMAGES_ENV);
         let sniff_extensionless_images = env_is_y(SNIFF_EXTENSIONLESS_IMAGES_ENV);
@@ -932,7 +953,7 @@ impl ServerState {
         )?;
 
         println!(
-            "Loaded {} cards ({} built-in, {} extra, {} failed; builtins {}; extensionless sniff {}; ratio {}:{}, long side {}; cache format {}; avif encoder {}; avif threads {}; cache validation {}; cache {}; default points target {})",
+            "Loaded {} cards ({} built-in, {} extra, {} failed; builtins {}; extensionless sniff {}; ratio {}:{}, long side {}; cache format {}; avif encoder {}; avif threads {}; cache validation {}; cache {}; default points target {}; max members {})",
             loaded_cards.deck.len(),
             loaded_cards.loaded_builtin,
             loaded_cards.loaded_extra,
@@ -955,7 +976,8 @@ impl ServerState {
                 "disabled"
             },
             config.cards_cache_dir.display(),
-            default_win_points_target
+            default_win_points_target,
+            max_members
         );
 
         Ok(ServerState {
@@ -964,6 +986,7 @@ impl ServerState {
             cards: Arc::new(loaded_cards.cards),
             card_content_type: config.cache_format.mime_type(),
             default_win_points_target,
+            max_members,
         })
     }
 
@@ -983,15 +1006,22 @@ impl ServerState {
             self.base_deck.clone(),
             win_condition,
             creator_name,
+            self.max_members,
         );
         let msg = room.get_room_state().await;
         self.rooms.insert(room_id.clone(), Arc::new(room));
         Ok(msg)
     }
 
-    async fn join_room(&self, room_id: &str, socket: &mut WebSocket, name: &str) -> Result<()> {
+    async fn join_room(
+        &self,
+        room_id: &str,
+        socket: &mut WebSocket,
+        name: &str,
+        token: &str,
+    ) -> Result<()> {
         if let Some(room) = self.get_room(room_id) {
-            room.on_connection(socket, name).await;
+            room.on_connection(socket, name, token).await;
         } else {
             socket.send(ServerMsg::InvalidRoomId {}.into()).await?;
             return Ok(());
@@ -1198,15 +1228,26 @@ async fn initialize_socket(socket: &mut WebSocket, state: Arc<ServerState>) -> R
 
     if let WsMessage::Text(s) = msg {
         if let Ok(msg) = serde_json::from_str(&s) {
-            if let room::ClientMsg::JoinRoom { room_id, name } = msg {
+            if let room::ClientMsg::JoinRoom {
+                room_id,
+                name,
+                token,
+            } = msg
+            {
                 if name.len() > 30 {
                     socket
                         .send(room::ServerMsg::ErrorMsg("Name too long".to_string()).into())
                         .await?;
                     return Err(anyhow!("Name too long"));
                 }
+                if token.len() > 200 {
+                    socket
+                        .send(room::ServerMsg::ErrorMsg("Token too long".to_string()).into())
+                        .await?;
+                    return Err(anyhow!("Token too long"));
+                }
                 state
-                    .join_room(&room_id.to_lowercase(), socket, &name)
+                    .join_room(&room_id.to_lowercase(), socket, &name, &token)
                     .await?
             }
         }

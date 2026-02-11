@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type GameServer from '$lib/gameServer';
-	import type { PlayerInfo, WinCondition } from '$lib/types';
+	import type { ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
 	import Images from './Images.svelte';
 	import StageShell from './StageShell.svelte';
 	import { getToastStore } from '@skeletonlabs/skeleton';
@@ -10,8 +10,10 @@
 	export let name = '';
 	export let creator = '';
 	export let moderators: string[] = [];
+	export let observers: { [key: string]: ObserverInfo } = {};
 	export let gameServer: GameServer;
 	export let players: { [key: string]: PlayerInfo } = {};
+	export let allowNewPlayersMidgame = true;
 	export let stage = '';
 	export let pointChange: { [key: string]: number } = {};
 	export let roundNum = 0;
@@ -25,14 +27,16 @@
 	let toastStore = getToastStore();
 	let descriptionBox = '';
 	let selectedImage = '';
+	let isObserver = false;
 	let isActivePlayer = false;
-	$: isActivePlayer = activePlayer === name;
+	$: isObserver = !!observers[name];
+	$: isActivePlayer = activePlayer === name && !isObserver;
 
 	function activePlayerChoose() {
 		gameServer.activePlayerChoose(selectedImage, descriptionBox);
 	}
 
-	if (activePlayer === name) {
+	if (activePlayer === name && !isObserver) {
 		toastStore.trigger({
 			message: '👉 Your turn!',
 			autohide: true,
@@ -46,8 +50,10 @@
 	{name}
 	{creator}
 	{moderators}
+	{observers}
 	{gameServer}
 	{stage}
+	{allowNewPlayersMidgame}
 	{pointChange}
 	{activePlayer}
 	{roundNum}
@@ -83,6 +89,9 @@
 				<p>
 					Waiting for <span class="boujee-text">{activePlayer}</span> to choose a card and description
 				</p>
+				{#if isObserver}
+					<p class="opacity-70">You are observing this round.</p>
+				{/if}
 			</div>
 		{/if}
 	</svelte:fragment>
@@ -99,6 +108,9 @@
 				<p>
 					Waiting for <span class="boujee-text">{activePlayer}</span> to choose a card and description
 				</p>
+				{#if isObserver}
+					<p class="opacity-70">You are observing this round.</p>
+				{/if}
 			</div>
 		{/if}
 	</svelte:fragment>
