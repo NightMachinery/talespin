@@ -14,6 +14,9 @@
 	export let gameServer: GameServer;
 	export let players: { [key: string]: PlayerInfo } = {};
 	export let allowNewPlayersMidgame = true;
+	export let storytellerLossThreshold = 1;
+	export let storytellerLossThresholdMin = 1;
+	export let storytellerLossThresholdMax = 1;
 	export let stage = '';
 	export let pointChange: { [key: string]: number } = {};
 	export let roundNum = 0;
@@ -54,6 +57,9 @@
 	{gameServer}
 	{stage}
 	{allowNewPlayersMidgame}
+	{storytellerLossThreshold}
+	{storytellerLossThresholdMin}
+	{storytellerLossThresholdMax}
 	{pointChange}
 	{activePlayer}
 	{roundNum}

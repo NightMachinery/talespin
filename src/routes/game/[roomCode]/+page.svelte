@@ -33,6 +33,9 @@
 	let moderators: string[] = [];
 	let allowNewPlayersMidgame = true;
 	let pausedReason = '';
+	let storytellerLossThreshold = 1;
+	let storytellerLossThresholdMin = 1;
+	let storytellerLossThresholdMax = 1;
 	let activePlayer = '';
 	let description = '';
 	let roundNum = 0;
@@ -110,6 +113,9 @@
 				stage = data.RoomState.stage;
 				allowNewPlayersMidgame = data.RoomState.allow_new_players_midgame ?? true;
 				pausedReason = data.RoomState.paused_reason || '';
+				storytellerLossThreshold = data.RoomState.storyteller_loss_threshold ?? 1;
+				storytellerLossThresholdMin = data.RoomState.storyteller_loss_threshold_min ?? 1;
+				storytellerLossThresholdMax = data.RoomState.storyteller_loss_threshold_max ?? 1;
 				activePlayer = data.RoomState.active_player || '';
 				roundNum = data.RoomState.round;
 				cardsRemaining = data.RoomState.cards_remaining || 0;
@@ -220,6 +226,9 @@
 			{gameServer}
 			{players}
 			{allowNewPlayersMidgame}
+			{storytellerLossThreshold}
+			{storytellerLossThresholdMin}
+			{storytellerLossThresholdMax}
 			{stage}
 			{pointChange}
 			{roundNum}
@@ -239,6 +248,9 @@
 			{description}
 			{players}
 			{allowNewPlayersMidgame}
+			{storytellerLossThreshold}
+			{storytellerLossThresholdMin}
+			{storytellerLossThresholdMax}
 			{stage}
 			{pointChange}
 			{roundNum}
@@ -258,6 +270,9 @@
 			{description}
 			{players}
 			{allowNewPlayersMidgame}
+			{storytellerLossThreshold}
+			{storytellerLossThresholdMin}
+			{storytellerLossThresholdMax}
 			{stage}
 			{pointChange}
 			{roundNum}
@@ -280,6 +295,9 @@
 			{activePlayer}
 			{players}
 			{allowNewPlayersMidgame}
+			{storytellerLossThreshold}
+			{storytellerLossThresholdMin}
+			{storytellerLossThresholdMax}
 			{stage}
 			{pointChange}
 			{roundNum}
@@ -296,6 +314,9 @@
 			{players}
 			{gameServer}
 			{allowNewPlayersMidgame}
+			{storytellerLossThreshold}
+			{storytellerLossThresholdMin}
+			{storytellerLossThresholdMax}
 			reason={pausedReason}
 		/>
 	{:else if stage === 'End'}

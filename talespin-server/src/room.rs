@@ -38,6 +38,9 @@ pub enum ServerMsg {
         win_condition: WinCondition,
         allow_new_players_midgame: bool,
         paused_reason: Option<String>,
+        storyteller_loss_threshold: u16,
+        storyteller_loss_threshold_min: u16,
+        storyteller_loss_threshold_max: u16,
     },
     StartRound {
         hand: Vec<String>,
@@ -94,6 +97,9 @@ pub enum ClientMsg {
     },
     SetAllowMidgameJoin {
         enabled: bool,
+    },
+    SetStorytellerLossThreshold {
+        threshold: u16,
     },
     ResumeGame {},
     RequestJoinFromObserver {},
@@ -176,6 +182,8 @@ struct RoomState {
     allow_new_players_midgame: bool,
     // user-facing pause reason for RoomStage::Paused
     paused_reason: Option<String>,
+    // storyteller-loss threshold used in score computation (server-clamped)
+    storyteller_loss_threshold: u16,
     // store general stats about each player
     players: HashMap<String, PlayerInfo>,
     // store 6 cards in hand per player
@@ -250,6 +258,7 @@ impl Room {
             next_generation: 0,
             allow_new_players_midgame: true,
             paused_reason: None,
+            storyteller_loss_threshold: 1,
             players: HashMap::new(),
             deck: base_deck.to_vec(),
             stage: RoomStage::Joining,
@@ -369,6 +378,38 @@ impl Room {
 
     fn non_observer_player_count(&self, state: &RwLockWriteGuard<RoomState>) -> usize {
         state.players.len()
+    }
+
+    fn guesser_count(&self, state: &RwLockWriteGuard<RoomState>) -> usize {
+        state.players.len().saturating_sub(1)
+    }
+
+    fn storyteller_loss_threshold_bounds(&self, state: &RwLockWriteGuard<RoomState>) -> (u16, u16) {
+        let max_guessers = self.guesser_count(state).max(1);
+        let max_u16 = max_guessers.min(usize::from(u16::MAX)) as u16;
+        (1, max_u16)
+    }
+
+    fn clamp_storyteller_loss_threshold(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
+        let (min_threshold, max_threshold) = self.storyteller_loss_threshold_bounds(state);
+        state.storyteller_loss_threshold = state
+            .storyteller_loss_threshold
+            .clamp(min_threshold, max_threshold);
+    }
+
+    fn default_storyteller_loss_threshold_on_game_start(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+    ) -> u16 {
+        let guessers = self.guesser_count(state).max(1);
+        let initial = if state.players.len() > 6 {
+            ((guessers as f64) * 0.8).round() as usize
+        } else {
+            guessers
+        };
+
+        let (min_threshold, max_threshold) = self.storyteller_loss_threshold_bounds(state);
+        (initial.min(usize::from(max_threshold)) as u16).clamp(min_threshold, max_threshold)
     }
 
     fn disconnect_previous_session(
@@ -500,6 +541,7 @@ impl Room {
             }
         }
 
+        self.clamp_storyteller_loss_threshold(state);
         self.clean_moderators(state);
         self.sync_player_order_with_players(state);
         promoted
@@ -566,6 +608,7 @@ impl Room {
                 auto_join_on_next_round,
             },
         );
+        self.clamp_storyteller_loss_threshold(state);
         self.clean_moderators(state);
         Ok(true)
     }
@@ -595,6 +638,7 @@ impl Room {
             }
         }
 
+        self.clamp_storyteller_loss_threshold(state);
         self.clean_moderators(state);
         Ok(true)
     }
@@ -655,6 +699,7 @@ impl Room {
             }
         }
 
+        self.clamp_storyteller_loss_threshold(state);
         self.clean_moderators(state);
         Ok(true)
     }
@@ -999,9 +1044,13 @@ impl Room {
         if is_first_round {
             state.active_player = 0;
             state.player_order.shuffle(&mut rand::thread_rng());
+            state.storyteller_loss_threshold =
+                self.default_storyteller_loss_threshold_on_game_start(state);
         } else {
             self.check_deck(state);
         }
+
+        self.clamp_storyteller_loss_threshold(state);
 
         state.deck.shuffle(&mut rand::thread_rng());
         state.player_to_current_card.clear();
@@ -1393,6 +1442,24 @@ impl Room {
                 state.allow_new_players_midgame = enabled;
                 self.broadcast_msg(self.room_state(&state))?;
             }
+            ClientMsg::SetStorytellerLossThreshold { threshold } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change storyteller threshold".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                state.storyteller_loss_threshold = threshold;
+                self.clamp_storyteller_loss_threshold(&mut state);
+                self.broadcast_msg(self.room_state(&state))?;
+            }
             ClientMsg::ResumeGame {} => {
                 if !matches!(state.stage, RoomStage::Paused) {
                     return Ok(());
@@ -1592,28 +1659,20 @@ impl Room {
         }
 
         let votes_for_active_card = *votes_for_card.get(&active_card).unwrap_or(&0);
-        if votes_for_active_card == 0 {
-            // nobody voted for active card
-            for (player, _) in state.player_to_vote.iter() {
-                point_change.insert(player.to_string(), 2);
-            }
+        let guesser_count = self.guesser_count(state) as u16;
+        let (min_threshold, max_threshold) = self.storyteller_loss_threshold_bounds(state);
+        let threshold = state
+            .storyteller_loss_threshold
+            .clamp(min_threshold, max_threshold);
+        let wrong_guesses = guesser_count.saturating_sub(votes_for_active_card);
+        let storyteller_loses = votes_for_active_card >= threshold || wrong_guesses >= threshold;
 
-            for (player, card) in state.player_to_current_card.iter() {
-                if player != &active_player {
-                    *point_change.get_mut(player).unwrap() +=
-                        votes_for_card.get(card).unwrap_or(&0);
-                }
-            }
-
-            point_change.insert(active_player.clone(), 0);
-        } else if votes_for_active_card == (state.player_order.len() - 1) as u16 {
-            // everyone voted for active card
+        if storyteller_loses {
             for (player, _) in state.player_to_vote.iter() {
                 point_change.insert(player.to_string(), 2);
             }
             point_change.insert(active_player.clone(), 0);
         } else {
-            // someone voted for the active card
             for (player, card) in state.player_to_vote.iter() {
                 if card == &active_card {
                     point_change.insert(player.to_string(), 3);
@@ -1621,15 +1680,17 @@ impl Room {
                     point_change.insert(player.to_string(), 0);
                 }
             }
-
-            for (player, card) in state.player_to_current_card.iter() {
-                if player != &active_player {
-                    *point_change.get_mut(player).unwrap() +=
-                        votes_for_card.get(card).unwrap_or(&0);
-                }
-            }
-
             point_change.insert(active_player.clone(), 3);
+        }
+
+        // decoy bonus is always applied for non-storyteller cards, capped at 3 per round
+        for (player, card) in state.player_to_current_card.iter() {
+            if player == &active_player {
+                continue;
+            }
+            let bonus = (*votes_for_card.get(card).unwrap_or(&0)).min(3);
+            let entry = point_change.entry(player.to_string()).or_insert(0);
+            *entry += bonus;
         }
 
         point_change
@@ -1847,6 +1908,7 @@ impl Room {
         if state.creator.as_deref() == Some(name) {
             state.moderators.insert(name.to_string());
         }
+        self.clamp_storyteller_loss_threshold(&mut state);
         self.clean_moderators(&mut state);
         self.maybe_promote_moderator(&mut state);
 
@@ -1977,6 +2039,10 @@ impl Room {
     fn room_state(&self, state: &RwLockWriteGuard<RoomState>) -> ServerMsg {
         let mut moderators = state.moderators.iter().cloned().collect::<Vec<_>>();
         moderators.sort();
+        let (threshold_min, threshold_max) = self.storyteller_loss_threshold_bounds(state);
+        let threshold = state
+            .storyteller_loss_threshold
+            .clamp(threshold_min, threshold_max);
 
         ServerMsg::RoomState {
             room_id: state.room_id.clone(),
@@ -1993,6 +2059,9 @@ impl Room {
             win_condition: state.win_condition,
             allow_new_players_midgame: state.allow_new_players_midgame,
             paused_reason: state.paused_reason.clone(),
+            storyteller_loss_threshold: threshold,
+            storyteller_loss_threshold_min: threshold_min,
+            storyteller_loss_threshold_max: threshold_max,
         }
     }
 }
@@ -2202,6 +2271,177 @@ mod tests {
             state.players.get("high").map(|p| p.points),
             Some(14),
             "higher observer score should be preserved"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn storyteller_threshold_default_uses_80_percent_for_large_games() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        for i in 0..10 {
+            add_player(&mut state, &format!("p{}", i), 0);
+        }
+        state.stage = RoomStage::Joining;
+
+        room.init_round(&mut state).await?;
+        assert_eq!(
+            state.storyteller_loss_threshold, 7,
+            "10 active players -> 9 guessers -> round(0.8*9)=7"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn storyteller_threshold_default_for_small_games_matches_all_guessers() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        for i in 0..6 {
+            add_player(&mut state, &format!("p{}", i), 0);
+        }
+        state.stage = RoomStage::Joining;
+
+        room.init_round(&mut state).await?;
+        assert_eq!(
+            state.storyteller_loss_threshold, 5,
+            "6 active players -> 5 guessers default threshold should be 5"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn decoy_bonus_is_capped_and_never_applies_to_storyteller() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        add_player(&mut state, "a", 0);
+        add_player(&mut state, "b", 0);
+        add_player(&mut state, "c", 0);
+        add_player(&mut state, "d", 0);
+        add_player(&mut state, "e", 0);
+        add_player(&mut state, "f", 0);
+        state.player_order = vec![
+            "a".into(),
+            "b".into(),
+            "c".into(),
+            "d".into(),
+            "e".into(),
+            "f".into(),
+        ];
+        state.active_player = 0;
+        state.storyteller_loss_threshold = 5;
+
+        state.player_to_current_card.insert("a".into(), "ca".into());
+        state.player_to_current_card.insert("b".into(), "cb".into());
+        state.player_to_current_card.insert("c".into(), "cc".into());
+        state.player_to_current_card.insert("d".into(), "cd".into());
+        state.player_to_current_card.insert("e".into(), "ce".into());
+        state.player_to_current_card.insert("f".into(), "cf".into());
+
+        // One correct vote, four decoy votes for b's card.
+        state.player_to_vote.insert("b".into(), "ca".into());
+        state.player_to_vote.insert("c".into(), "cb".into());
+        state.player_to_vote.insert("d".into(), "cb".into());
+        state.player_to_vote.insert("e".into(), "cb".into());
+        state.player_to_vote.insert("f".into(), "cb".into());
+
+        let point_change = room.compute_results(&state);
+        assert_eq!(
+            point_change.get("a").copied(),
+            Some(3),
+            "storyteller should not receive decoy bonus"
+        );
+        assert_eq!(
+            point_change.get("b").copied(),
+            Some(6),
+            "b should get +3 for correct guess and +3 capped decoy bonus"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn threshold_loss_branch_still_applies_capped_decoy_bonus() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        add_player(&mut state, "a", 0);
+        add_player(&mut state, "b", 0);
+        add_player(&mut state, "c", 0);
+        add_player(&mut state, "d", 0);
+        add_player(&mut state, "e", 0);
+        add_player(&mut state, "f", 0);
+        state.player_order = vec![
+            "a".into(),
+            "b".into(),
+            "c".into(),
+            "d".into(),
+            "e".into(),
+            "f".into(),
+        ];
+        state.active_player = 0;
+        state.storyteller_loss_threshold = 4;
+
+        state.player_to_current_card.insert("a".into(), "ca".into());
+        state.player_to_current_card.insert("b".into(), "cb".into());
+        state.player_to_current_card.insert("c".into(), "cc".into());
+        state.player_to_current_card.insert("d".into(), "cd".into());
+        state.player_to_current_card.insert("e".into(), "ce".into());
+        state.player_to_current_card.insert("f".into(), "cf".into());
+
+        // Four wrong guesses (>= threshold) -> storyteller-loss branch.
+        state.player_to_vote.insert("b".into(), "ca".into());
+        state.player_to_vote.insert("c".into(), "cb".into());
+        state.player_to_vote.insert("d".into(), "cb".into());
+        state.player_to_vote.insert("e".into(), "cb".into());
+        state.player_to_vote.insert("f".into(), "cb".into());
+
+        let point_change = room.compute_results(&state);
+        assert_eq!(
+            point_change.get("a").copied(),
+            Some(0),
+            "storyteller should lose in threshold branch"
+        );
+        assert_eq!(
+            point_change.get("b").copied(),
+            Some(5),
+            "loss branch gives +2 base plus +3 capped decoy bonus"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn moderator_threshold_update_is_clamped_to_current_bounds() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            add_player(&mut state, "p2", 0);
+            add_player(&mut state, "p3", 0);
+            add_player(&mut state, "p4", 0);
+            add_player(&mut state, "p5", 0);
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 9);
+        }
+
+        room.handle_client_msg(
+            "host",
+            9,
+            to_ws(ClientMsg::SetStorytellerLossThreshold { threshold: 99 }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        // 5 active players => 4 guessers => max threshold is 4
+        assert_eq!(
+            state.storyteller_loss_threshold, 4,
+            "threshold should be clamped to current guesser upper bound"
         );
 
         Ok(())

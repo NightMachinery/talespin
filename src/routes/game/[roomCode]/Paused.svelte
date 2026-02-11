@@ -11,6 +11,9 @@
 	export let gameServer: GameServer;
 	export let reason = '';
 	export let allowNewPlayersMidgame = true;
+	export let storytellerLossThreshold = 1;
+	export let storytellerLossThresholdMin = 1;
+	export let storytellerLossThresholdMax = 1;
 
 	$: moderatorSet = new Set(moderators);
 	$: isModerator = moderatorSet.has(name);
@@ -25,6 +28,9 @@
 	{gameServer}
 	stage="Paused"
 	{allowNewPlayersMidgame}
+	{storytellerLossThreshold}
+	{storytellerLossThresholdMin}
+	{storytellerLossThresholdMax}
 	activePlayer=""
 	pointChange={{}}
 	roundNum={0}

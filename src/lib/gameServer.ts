@@ -149,6 +149,14 @@ class GameServer {
 		});
 	}
 
+	setStorytellerLossThreshold(threshold: number) {
+		this.send({
+			SetStorytellerLossThreshold: {
+				threshold
+			}
+		});
+	}
+
 	resumeGame() {
 		this.send({
 			ResumeGame: {}

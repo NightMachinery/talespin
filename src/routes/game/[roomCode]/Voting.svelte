@@ -17,6 +17,9 @@
 	export let description = '';
 	export let players: { [key: string]: PlayerInfo } = {};
 	export let allowNewPlayersMidgame = true;
+	export let storytellerLossThreshold = 1;
+	export let storytellerLossThresholdMin = 1;
+	export let storytellerLossThresholdMax = 1;
 	export let stage = '';
 	export let pointChange: { [key: string]: number } = {};
 	export let roundNum = 0;
@@ -54,6 +57,9 @@
 	{gameServer}
 	{stage}
 	{allowNewPlayersMidgame}
+	{storytellerLossThreshold}
+	{storytellerLossThresholdMin}
+	{storytellerLossThresholdMax}
 	{pointChange}
 	{activePlayer}
 	{roundNum}
@@ -87,29 +93,23 @@
 
 		<div class="card light p-4">
 			<h2 class="mb-2 text-lg font-semibold">How points work</h2>
+			<p class="mb-2 text-xs opacity-80">
+				Threshold (T): {storytellerLossThreshold} guesser{storytellerLossThreshold === 1
+					? ''
+					: 's'}
+			</p>
 			<Accordion>
 				<AccordionItem>
 					<svelte:fragment slot="summary">
 						<strong
-							>If all players find <span class="boujee-text">{activePlayer}'s</span> card:</strong
+							>Loss scenario: at least T guessers are right <em>or</em> wrong</strong
 						>
 					</svelte:fragment>
 					<svelte:fragment slot="content">
 						<ul class="ml-8">
 							<li>+0 for <span class="font-bold">{activePlayer}</span></li>
-							<li>+2 for everyone else</li>
-						</ul>
-					</svelte:fragment>
-				</AccordionItem>
-				<AccordionItem>
-					<svelte:fragment slot="summary">
-						<strong>If nobody finds <span class="boujee-text">{activePlayer}'s</span> card:</strong>
-					</svelte:fragment>
-					<svelte:fragment slot="content">
-						<ul class="ml-8">
-							<li>+0 for <span class="font-bold">{activePlayer}</span></li>
-							<li>+2 for everyone else</li>
-							<li>+1 bonus point for each vote your card receives</li>
+							<li>+2 for each guesser</li>
+							<li>Decoy bonus still applies: +1 per vote on your card, capped at +3</li>
 						</ul>
 					</svelte:fragment>
 				</AccordionItem>
@@ -120,8 +120,8 @@
 					<svelte:fragment slot="content">
 						<ul class="ml-8">
 							<li>+3 for <span class="font-bold">{activePlayer}</span></li>
-							<li>+3 for you if you find <span>{activePlayer}'s</span> card</li>
-							<li>+1 bonus point for each vote your card receives</li>
+							<li>+3 for guessers who find <span>{activePlayer}'s</span> card</li>
+							<li>Decoy bonus still applies: +1 per vote on your card, capped at +3</li>
 						</ul>
 					</svelte:fragment>
 				</AccordionItem>
@@ -151,29 +151,23 @@
 	<svelte:fragment slot="mobileBottom">
 		<div class="card light p-4">
 			<h2 class="mb-2 text-lg font-semibold">How points work</h2>
+			<p class="mb-2 text-xs opacity-80">
+				Threshold (T): {storytellerLossThreshold} guesser{storytellerLossThreshold === 1
+					? ''
+					: 's'}
+			</p>
 			<Accordion>
 				<AccordionItem>
 					<svelte:fragment slot="summary">
 						<strong
-							>If all players find <span class="boujee-text">{activePlayer}'s</span> card:</strong
+							>Loss scenario: at least T guessers are right <em>or</em> wrong</strong
 						>
 					</svelte:fragment>
 					<svelte:fragment slot="content">
 						<ul class="ml-8">
 							<li>+0 for <span class="font-bold">{activePlayer}</span></li>
-							<li>+2 for everyone else</li>
-						</ul>
-					</svelte:fragment>
-				</AccordionItem>
-				<AccordionItem>
-					<svelte:fragment slot="summary">
-						<strong>If nobody finds <span class="boujee-text">{activePlayer}'s</span> card:</strong>
-					</svelte:fragment>
-					<svelte:fragment slot="content">
-						<ul class="ml-8">
-							<li>+0 for <span class="font-bold">{activePlayer}</span></li>
-							<li>+2 for everyone else</li>
-							<li>+1 bonus point for each vote your card receives</li>
+							<li>+2 for each guesser</li>
+							<li>Decoy bonus still applies: +1 per vote on your card, capped at +3</li>
 						</ul>
 					</svelte:fragment>
 				</AccordionItem>
@@ -184,8 +178,8 @@
 					<svelte:fragment slot="content">
 						<ul class="ml-8">
 							<li>+3 for <span class="font-bold">{activePlayer}</span></li>
-							<li>+3 for you if you find <span>{activePlayer}'s</span> card</li>
-							<li>+1 bonus point for each vote your card receives</li>
+							<li>+3 for guessers who find <span>{activePlayer}'s</span> card</li>
+							<li>Decoy bonus still applies: +1 per vote on your card, capped at +3</li>
 						</ul>
 					</svelte:fragment>
 				</AccordionItem>

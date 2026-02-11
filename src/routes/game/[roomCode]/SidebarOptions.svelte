@@ -12,6 +12,9 @@
 	export let stage = '';
 	export let activePlayer = '';
 	export let allowNewPlayersMidgame = true;
+	export let storytellerLossThreshold = 1;
+	export let storytellerLossThresholdMin = 1;
+	export let storytellerLossThresholdMax = 1;
 	export let gameServer: GameServer;
 
 	$: moderatorSet = new Set(moderators);
@@ -67,6 +70,17 @@
 		const input = event.currentTarget as HTMLInputElement;
 		gameServer.setAllowMidgameJoin(input.checked);
 	}
+
+	function updateStorytellerLossThreshold(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const parsed = Number(input.value);
+		if (!Number.isFinite(parsed)) return;
+		const next = Math.max(
+			storytellerLossThresholdMin,
+			Math.min(storytellerLossThresholdMax, Math.round(parsed))
+		);
+		gameServer.setStorytellerLossThreshold(next);
+	}
 </script>
 
 <div class="card light space-y-3 p-4">
@@ -109,6 +123,27 @@
 						/>
 						<span>Allow new players to join</span>
 					</label>
+				</div>
+				<div class="mt-3 rounded border border-white/20 px-2 py-2">
+					<p class="block text-sm font-semibold">Storyteller loss threshold</p>
+					<p class="mt-1 text-xs opacity-75">
+						Storyteller loses if at least this many guessers are right or wrong.
+					</p>
+					<div class="mt-2 flex items-center gap-2">
+						<input
+							type="number"
+							class="w-24 rounded border px-2 py-1 text-gray-700 shadow"
+							min={storytellerLossThresholdMin}
+							max={storytellerLossThresholdMax}
+							step="1"
+							value={storytellerLossThreshold}
+							on:change={updateStorytellerLossThreshold}
+							disabled={!isModerator}
+						/>
+						<span class="text-xs opacity-75"
+							>Range: {storytellerLossThresholdMin}–{storytellerLossThresholdMax}</span
+						>
+					</div>
 				</div>
 			{/if}
 			<div class="mt-3 max-h-[45vh] space-y-2 overflow-y-auto pr-1">
