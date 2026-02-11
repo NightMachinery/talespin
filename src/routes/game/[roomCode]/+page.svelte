@@ -36,6 +36,9 @@
 	let storytellerLossThreshold = 1;
 	let storytellerLossThresholdMin = 1;
 	let storytellerLossThresholdMax = 1;
+	let votesPerGuesser = 1;
+	let votesPerGuesserMin = 1;
+	let votesPerGuesserMax = 1;
 	let activePlayer = '';
 	let description = '';
 	let roundNum = 0;
@@ -54,7 +57,7 @@
 
 	// results
 	let playerToCurrentCard: { [key: string]: string } = {};
-	let playerToVote: { [key: string]: string } = {};
+	let playerToVotes: { [key: string]: string[] } = {};
 	let activeCard = '';
 	let pointChange: { [key: string]: number } = {};
 
@@ -116,6 +119,9 @@
 				storytellerLossThreshold = data.RoomState.storyteller_loss_threshold ?? 1;
 				storytellerLossThresholdMin = data.RoomState.storyteller_loss_threshold_min ?? 1;
 				storytellerLossThresholdMax = data.RoomState.storyteller_loss_threshold_max ?? 1;
+				votesPerGuesser = data.RoomState.votes_per_guesser ?? 1;
+				votesPerGuesserMin = data.RoomState.votes_per_guesser_min ?? 1;
+				votesPerGuesserMax = data.RoomState.votes_per_guesser_max ?? 1;
 				activePlayer = data.RoomState.active_player || '';
 				roundNum = data.RoomState.round;
 				cardsRemaining = data.RoomState.cards_remaining || 0;
@@ -147,11 +153,12 @@
 				displayImages = data.BeginVoting.center_cards;
 				description = data.BeginVoting.description;
 				votingDisabledCard = data.BeginVoting.disabled_card || '';
+				votesPerGuesser = data.BeginVoting.votes_per_guesser ?? votesPerGuesser;
 			} else if (data.Results) {
 				stage = 'Results';
 				displayImages = Object.values(data.Results.player_to_current_card);
 				playerToCurrentCard = data.Results.player_to_current_card;
-				playerToVote = data.Results.player_to_vote;
+				playerToVotes = data.Results.player_to_votes || {};
 				activeCard = data.Results.active_card;
 				pointChange = data.Results.point_change;
 				votingDisabledCard = '';
@@ -229,6 +236,9 @@
 			{storytellerLossThreshold}
 			{storytellerLossThresholdMin}
 			{storytellerLossThresholdMax}
+			{votesPerGuesser}
+			{votesPerGuesserMin}
+			{votesPerGuesserMax}
 			{stage}
 			{pointChange}
 			{roundNum}
@@ -251,6 +261,9 @@
 			{storytellerLossThreshold}
 			{storytellerLossThresholdMin}
 			{storytellerLossThresholdMax}
+			{votesPerGuesser}
+			{votesPerGuesserMin}
+			{votesPerGuesserMax}
 			{stage}
 			{pointChange}
 			{roundNum}
@@ -273,6 +286,9 @@
 			{storytellerLossThreshold}
 			{storytellerLossThresholdMin}
 			{storytellerLossThresholdMax}
+			{votesPerGuesser}
+			{votesPerGuesserMin}
+			{votesPerGuesserMax}
 			{stage}
 			{pointChange}
 			{roundNum}
@@ -290,7 +306,7 @@
 			{observers}
 			{gameServer}
 			{playerToCurrentCard}
-			{playerToVote}
+			{playerToVotes}
 			{activeCard}
 			{activePlayer}
 			{players}
@@ -298,6 +314,9 @@
 			{storytellerLossThreshold}
 			{storytellerLossThresholdMin}
 			{storytellerLossThresholdMax}
+			{votesPerGuesser}
+			{votesPerGuesserMin}
+			{votesPerGuesserMax}
 			{stage}
 			{pointChange}
 			{roundNum}
@@ -317,6 +336,9 @@
 			{storytellerLossThreshold}
 			{storytellerLossThresholdMin}
 			{storytellerLossThresholdMax}
+			{votesPerGuesser}
+			{votesPerGuesserMin}
+			{votesPerGuesserMax}
 			reason={pausedReason}
 		/>
 	{:else if stage === 'End'}

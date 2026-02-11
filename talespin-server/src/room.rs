@@ -41,6 +41,9 @@ pub enum ServerMsg {
         storyteller_loss_threshold: u16,
         storyteller_loss_threshold_min: u16,
         storyteller_loss_threshold_max: u16,
+        votes_per_guesser: u16,
+        votes_per_guesser_min: u16,
+        votes_per_guesser_max: u16,
     },
     StartRound {
         hand: Vec<String>,
@@ -53,9 +56,10 @@ pub enum ServerMsg {
         center_cards: Vec<String>,
         description: String,
         disabled_card: Option<String>,
+        votes_per_guesser: u16,
     },
     Results {
-        player_to_vote: HashMap<String, String>,
+        player_to_votes: HashMap<String, Vec<String>>,
         player_to_current_card: HashMap<String, String>,
         active_card: String,
         point_change: HashMap<String, u16>,
@@ -101,6 +105,9 @@ pub enum ClientMsg {
     SetStorytellerLossThreshold {
         threshold: u16,
     },
+    SetVotesPerGuesser {
+        votes: u16,
+    },
     ResumeGame {},
     RequestJoinFromObserver {},
     JoinRoom {
@@ -118,6 +125,10 @@ pub enum ClientMsg {
     PlayerChooseCard {
         card: String,
     },
+    SubmitVotes {
+        cards: Vec<String>,
+    },
+    // legacy single-vote message kept for compatibility with older clients
     Vote {
         card: String,
     },
@@ -184,6 +195,8 @@ struct RoomState {
     paused_reason: Option<String>,
     // storyteller-loss threshold used in score computation (server-clamped)
     storyteller_loss_threshold: u16,
+    // number of vote tokens each guesser can cast in Voting
+    votes_per_guesser: u16,
     // store general stats about each player
     players: HashMap<String, PlayerInfo>,
     // store 6 cards in hand per player
@@ -208,8 +221,8 @@ struct RoomState {
     // for the active player, this is the active card; for other players, this is the card they chose
     player_to_current_card: HashMap<String, String>,
     // for each player, the card they voted for as being the active's card
-    // they cannot vote for themselves
-    player_to_vote: HashMap<String, String>,
+    // they cannot vote for themselves; duplicates are allowed
+    player_to_votes: HashMap<String, Vec<String>>,
     // configured win condition for this room
     win_condition: WinCondition,
     // increments whenever draw deck is refilled from base deck
@@ -259,6 +272,7 @@ impl Room {
             allow_new_players_midgame: true,
             paused_reason: None,
             storyteller_loss_threshold: 1,
+            votes_per_guesser: 1,
             players: HashMap::new(),
             deck: base_deck.to_vec(),
             stage: RoomStage::Joining,
@@ -269,7 +283,7 @@ impl Room {
             active_player: 0,
             current_description: "".to_string(),
             player_to_current_card: HashMap::new(),
-            player_to_vote: HashMap::new(),
+            player_to_votes: HashMap::new(),
             round: 0,
             win_condition,
             deck_refill_count: 0,
@@ -390,11 +404,36 @@ impl Room {
         (1, max_u16)
     }
 
+    fn votes_per_guesser_bounds(&self, state: &RwLockWriteGuard<RoomState>) -> (u16, u16) {
+        let max_votes = self
+            .non_observer_player_count(state)
+            .saturating_sub(2)
+            .max(1)
+            .min(usize::from(u16::MAX)) as u16;
+        (1, max_votes)
+    }
+
     fn clamp_storyteller_loss_threshold(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
         let (min_threshold, max_threshold) = self.storyteller_loss_threshold_bounds(state);
         state.storyteller_loss_threshold = state
             .storyteller_loss_threshold
             .clamp(min_threshold, max_threshold);
+    }
+
+    fn clamp_votes_per_guesser(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
+        let (min_votes, max_votes) = self.votes_per_guesser_bounds(state);
+        state.votes_per_guesser = state.votes_per_guesser.clamp(min_votes, max_votes);
+    }
+
+    fn clamp_vote_submission_lengths(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
+        let (_, max_votes) = self.votes_per_guesser_bounds(state);
+        let max_votes = usize::from(max_votes);
+        for votes in state.player_to_votes.values_mut() {
+            if votes.len() > max_votes {
+                let keep_start = votes.len().saturating_sub(max_votes);
+                *votes = votes.split_off(keep_start);
+            }
+        }
     }
 
     fn default_storyteller_loss_threshold_on_game_start(
@@ -452,7 +491,7 @@ impl Room {
     fn reset_round_keep_hands(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
         state.current_description.clear();
         state.player_to_current_card.clear();
-        state.player_to_vote.clear();
+        state.player_to_votes.clear();
         self.clear_ready(state);
     }
 
@@ -542,6 +581,8 @@ impl Room {
         }
 
         self.clamp_storyteller_loss_threshold(state);
+        self.clamp_votes_per_guesser(state);
+        self.clamp_vote_submission_lengths(state);
         self.clean_moderators(state);
         self.sync_player_order_with_players(state);
         promoted
@@ -582,7 +623,7 @@ impl Room {
                 state.discard_pile.push(card);
             }
         }
-        state.player_to_vote.remove(player_name);
+        state.player_to_votes.remove(player_name);
 
         if let Some(pos) = state
             .player_order
@@ -609,6 +650,8 @@ impl Room {
             },
         );
         self.clamp_storyteller_loss_threshold(state);
+        self.clamp_votes_per_guesser(state);
+        self.clamp_vote_submission_lengths(state);
         self.clean_moderators(state);
         Ok(true)
     }
@@ -639,6 +682,8 @@ impl Room {
         }
 
         self.clamp_storyteller_loss_threshold(state);
+        self.clamp_votes_per_guesser(state);
+        self.clamp_vote_submission_lengths(state);
         self.clean_moderators(state);
         Ok(true)
     }
@@ -668,7 +713,7 @@ impl Room {
             }
         }
 
-        state.player_to_vote.remove(player_name);
+        state.player_to_votes.remove(player_name);
 
         if let Some(pos) = state
             .player_order
@@ -700,6 +745,8 @@ impl Room {
         }
 
         self.clamp_storyteller_loss_threshold(state);
+        self.clamp_votes_per_guesser(state);
+        self.clamp_vote_submission_lengths(state);
         self.clean_moderators(state);
         Ok(true)
     }
@@ -811,7 +858,8 @@ impl Room {
                     return Ok(());
                 }
 
-                if state.player_to_vote.len() >= state.players.len().saturating_sub(1) {
+                let ready_count = state.players.values().filter(|player| player.ready).count();
+                if ready_count >= state.players.len().saturating_sub(1) {
                     self.init_results(state)?;
                 } else {
                     self.broadcast_msg(self.room_state(state))?;
@@ -864,9 +912,13 @@ impl Room {
                         state.player_to_current_card.get(player_name).cloned()
                     }
                 }),
+                votes_per_guesser: {
+                    let (min_votes, max_votes) = self.votes_per_guesser_bounds(state);
+                    state.votes_per_guesser.clamp(min_votes, max_votes)
+                },
             }),
             RoomStage::Results => Ok(ServerMsg::Results {
-                player_to_vote: state.player_to_vote.clone(),
+                player_to_votes: state.player_to_votes.clone(),
                 player_to_current_card: state.player_to_current_card.clone(),
                 active_card: state
                     .player_to_current_card
@@ -903,8 +955,103 @@ impl Room {
             .to_string())
     }
 
+    async fn submit_votes(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+        name: &str,
+        cards: Vec<String>,
+    ) -> Result<()> {
+        if !state.players.contains_key(name) {
+            return Ok(());
+        }
+
+        if !matches!(state.stage, RoomStage::Voting) || state.player_order.is_empty() {
+            return Ok(());
+        }
+
+        if state.player_order[state.active_player] == name {
+            println!(
+                "{} is the active player",
+                state.player_order[state.active_player]
+            );
+            println!("{} is trying to vote", name);
+            return Err(anyhow!("Active player cannot vote"));
+        }
+
+        let (_, max_votes) = self.votes_per_guesser_bounds(state);
+        let max_votes = usize::from(state.votes_per_guesser.clamp(1, max_votes));
+        if cards.is_empty() {
+            if let Some(socket) = state.player_to_socket.get(name) {
+                socket
+                    .send(
+                        ServerMsg::ErrorMsg("You must submit at least one vote".to_string()).into(),
+                    )
+                    .await?;
+            }
+            return Ok(());
+        }
+
+        if cards.len() > max_votes {
+            if let Some(socket) = state.player_to_socket.get(name) {
+                socket
+                    .send(
+                        ServerMsg::ErrorMsg(format!(
+                            "You can submit at most {} vote{}",
+                            max_votes,
+                            if max_votes == 1 { "" } else { "s" }
+                        ))
+                        .into(),
+                    )
+                    .await?;
+            }
+            return Ok(());
+        }
+
+        let own_card = state.player_to_current_card.get(name).cloned();
+        for card in cards.iter() {
+            if !state
+                .player_to_current_card
+                .values()
+                .any(|value| value == card)
+            {
+                return Err(anyhow!("Invalid card"));
+            }
+
+            if own_card
+                .as_ref()
+                .map(|value| value == card)
+                .unwrap_or(false)
+            {
+                if let Some(socket) = state.player_to_socket.get(name) {
+                    socket
+                        .send(
+                            ServerMsg::ErrorMsg("You cannot vote for your own card".to_string())
+                                .into(),
+                        )
+                        .await?;
+                }
+                return Ok(());
+            }
+        }
+
+        state.player_to_votes.insert(name.to_string(), cards);
+        if let Some(player) = state.players.get_mut(name) {
+            player.ready = true;
+        }
+        self.broadcast_msg(self.room_state(state))?;
+
+        if state.players.values().filter(|player| player.ready).count()
+            >= state.players.len().saturating_sub(1)
+        {
+            self.init_results(state)?;
+        }
+
+        Ok(())
+    }
+
     async fn init_voting(&self, state: &mut RwLockWriteGuard<'_, RoomState>) -> Result<()> {
         state.stage = RoomStage::Voting;
+        state.player_to_votes.clear();
 
         // choose random card for those who didn't choose by the deadline
         for player in state.player_order.clone().iter() {
@@ -944,22 +1091,44 @@ impl Room {
         state.stage = RoomStage::Results;
 
         let center_cards = self.get_center_cards(state);
+        let active_player = state
+            .player_order
+            .get(state.active_player)
+            .cloned()
+            .ok_or_else(|| anyhow!("Missing active player during results initialization"))?;
+        let (_, max_votes) = self.votes_per_guesser_bounds(state);
+        let votes_per_guesser = usize::from(state.votes_per_guesser.clamp(1, max_votes));
 
-        // choose random card to vote for if the player didn't choose
+        // choose random cards to vote for if the player didn't choose by deadline
         for player in state.player_order.clone().iter() {
-            if player != &state.player_order[state.active_player]
-                && !state.player_to_vote.contains_key(player)
-            {
-                // choose random card
-                let mut rng = rand::thread_rng();
-                let mut card = center_cards.choose(&mut rng).unwrap().clone();
+            if player == &active_player {
+                continue;
+            }
 
-                // ensure player cannot choose their own card
-                while &card == state.player_to_current_card.get(player).unwrap() {
-                    card = center_cards.choose(&mut rng).unwrap().clone();
-                }
+            let own_card = state
+                .player_to_current_card
+                .get(player)
+                .cloned()
+                .ok_or_else(|| anyhow!("Missing card for player {}", player))?;
+            let valid_cards = center_cards
+                .iter()
+                .filter(|card| card.as_str() != own_card.as_str())
+                .cloned()
+                .collect::<Vec<_>>();
+            if valid_cards.is_empty() {
+                return Err(anyhow!("No valid voting cards available for {}", player));
+            }
 
-                state.player_to_vote.insert(player.to_string(), card);
+            let votes = state.player_to_votes.entry(player.to_string()).or_default();
+            if votes.len() > votes_per_guesser {
+                let keep_start = votes.len().saturating_sub(votes_per_guesser);
+                *votes = votes.split_off(keep_start);
+            }
+
+            let mut rng = rand::thread_rng();
+            while votes.len() < votes_per_guesser {
+                let card = valid_cards.choose(&mut rng).unwrap().clone();
+                votes.push(card);
             }
         }
 
@@ -1051,10 +1220,11 @@ impl Room {
         }
 
         self.clamp_storyteller_loss_threshold(state);
+        self.clamp_votes_per_guesser(state);
 
         state.deck.shuffle(&mut rand::thread_rng());
         state.player_to_current_card.clear();
-        state.player_to_vote.clear();
+        state.player_to_votes.clear();
         state.current_description.clear();
         state.paused_reason = None;
 
@@ -1460,6 +1630,29 @@ impl Room {
                 self.clamp_storyteller_loss_threshold(&mut state);
                 self.broadcast_msg(self.room_state(&state))?;
             }
+            ClientMsg::SetVotesPerGuesser { votes } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change votes per guesser".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if matches!(state.stage, RoomStage::End) {
+                    return Ok(());
+                }
+
+                state.votes_per_guesser = votes;
+                self.clamp_votes_per_guesser(&mut state);
+                self.clamp_vote_submission_lengths(&mut state);
+                self.broadcast_msg(self.room_state(&state))?;
+            }
             ClientMsg::ResumeGame {} => {
                 if !matches!(state.stage, RoomStage::Paused) {
                     return Ok(());
@@ -1579,61 +1772,11 @@ impl Room {
                     }
                 }
             }
+            ClientMsg::SubmitVotes { cards } => {
+                self.submit_votes(&mut state, name, cards).await?;
+            }
             ClientMsg::Vote { card } => {
-                if !state.players.contains_key(name) {
-                    return Ok(());
-                }
-
-                if matches!(state.stage, RoomStage::Voting) {
-                    if state.player_order.is_empty() {
-                        return Ok(());
-                    }
-                    // verify that the player is not the active player
-                    if state.player_order[state.active_player] == name {
-                        println!(
-                            "{} is the active player",
-                            state.player_order[state.active_player]
-                        );
-                        println!("{} is trying to vote", name);
-                        return Err(anyhow!("Active player cannot vote"));
-                    }
-
-                    // verify that the card is in the center
-                    if !state.player_to_current_card.values().any(|e| e == &card) {
-                        return Err(anyhow!("Invalid card"));
-                    }
-
-                    // verify that this player is not voting for their own code or send an error message
-                    if state.player_to_current_card.get(name).map(|v| v == &card) == Some(true) {
-                        if let Some(socket) = state.player_to_socket.get(name) {
-                            socket
-                                .send(
-                                    ServerMsg::ErrorMsg(
-                                        "You cannot vote for your own card".to_string(),
-                                    )
-                                    .into(),
-                                )
-                                .await?;
-                        }
-                        return Ok(());
-                    }
-
-                    // record vote
-                    state
-                        .player_to_vote
-                        .insert(name.to_string(), card.to_string());
-
-                    // ready
-                    state.players.get_mut(name).unwrap().ready = true;
-                    self.broadcast_msg(self.room_state(&state))?;
-
-                    // check if everyone except for the active player is ready
-                    if state.players.values().filter(|p| p.ready).count()
-                        >= state.players.len().saturating_sub(1)
-                    {
-                        self.init_results(&mut state)?;
-                    }
-                }
+                self.submit_votes(&mut state, name, vec![card]).await?;
             }
             _ => {
                 // nothing
@@ -1653,34 +1796,65 @@ impl Room {
             .clone();
 
         let mut votes_for_card: HashMap<String, u16> = HashMap::new();
+        let mut correct_guessers = 0u16;
+        let mut double_correct_guessers = HashSet::new();
 
-        for (_, card) in state.player_to_vote.iter() {
-            *votes_for_card.entry(card.to_string()).or_insert(0) += 1;
+        for (player, votes) in state.player_to_votes.iter() {
+            if player == &active_player {
+                continue;
+            }
+            for card in votes.iter() {
+                *votes_for_card.entry(card.to_string()).or_insert(0) += 1;
+            }
+
+            let correct_vote_count = votes.iter().filter(|card| *card == &active_card).count();
+            if correct_vote_count > 0 {
+                correct_guessers = correct_guessers.saturating_add(1);
+            }
+            if correct_vote_count >= 2 {
+                double_correct_guessers.insert(player.to_string());
+            }
         }
 
-        let votes_for_active_card = *votes_for_card.get(&active_card).unwrap_or(&0);
         let guesser_count = self.guesser_count(state) as u16;
         let (min_threshold, max_threshold) = self.storyteller_loss_threshold_bounds(state);
         let threshold = state
             .storyteller_loss_threshold
             .clamp(min_threshold, max_threshold);
-        let wrong_guesses = guesser_count.saturating_sub(votes_for_active_card);
-        let storyteller_loses = votes_for_active_card >= threshold || wrong_guesses >= threshold;
+        let wrong_guesses = guesser_count.saturating_sub(correct_guessers);
+        let storyteller_loses = correct_guessers >= threshold || wrong_guesses >= threshold;
 
         if storyteller_loses {
-            for (player, _) in state.player_to_vote.iter() {
+            for player in state.players.keys() {
+                if player == &active_player {
+                    continue;
+                }
                 point_change.insert(player.to_string(), 2);
             }
             point_change.insert(active_player.clone(), 0);
         } else {
-            for (player, card) in state.player_to_vote.iter() {
-                if card == &active_card {
+            for player in state.players.keys() {
+                if player == &active_player {
+                    continue;
+                }
+                let has_correct_vote = state
+                    .player_to_votes
+                    .get(player)
+                    .map(|votes| votes.iter().any(|card| card == &active_card))
+                    .unwrap_or(false);
+                if has_correct_vote {
                     point_change.insert(player.to_string(), 3);
                 } else {
                     point_change.insert(player.to_string(), 0);
                 }
             }
             point_change.insert(active_player.clone(), 3);
+        }
+
+        // +1 extra point for correct double-vote on storyteller card.
+        for player in double_correct_guessers.iter() {
+            let entry = point_change.entry(player.to_string()).or_insert(0);
+            *entry += 1;
         }
 
         // decoy bonus is always applied for non-storyteller cards, capped at 3 per round
@@ -1909,6 +2083,8 @@ impl Room {
             state.moderators.insert(name.to_string());
         }
         self.clamp_storyteller_loss_threshold(&mut state);
+        self.clamp_votes_per_guesser(&mut state);
+        self.clamp_vote_submission_lengths(&mut state);
         self.clean_moderators(&mut state);
         self.maybe_promote_moderator(&mut state);
 
@@ -2043,6 +2219,8 @@ impl Room {
         let threshold = state
             .storyteller_loss_threshold
             .clamp(threshold_min, threshold_max);
+        let (votes_min, votes_max) = self.votes_per_guesser_bounds(state);
+        let votes_per_guesser = state.votes_per_guesser.clamp(votes_min, votes_max);
 
         ServerMsg::RoomState {
             room_id: state.room_id.clone(),
@@ -2062,6 +2240,9 @@ impl Room {
             storyteller_loss_threshold: threshold,
             storyteller_loss_threshold_min: threshold_min,
             storyteller_loss_threshold_max: threshold_max,
+            votes_per_guesser,
+            votes_per_guesser_min: votes_min,
+            votes_per_guesser_max: votes_max,
         }
     }
 }
@@ -2145,8 +2326,10 @@ mod tests {
         state.player_to_current_card.insert("b".into(), "cb".into());
         state.player_to_current_card.insert("c".into(), "cc".into());
         state.player_to_current_card.insert("d".into(), "cd".into());
-        state.player_to_vote.insert("b".into(), "ca".into());
-        state.player_to_vote.insert("c".into(), "ca".into());
+        state.player_to_votes.insert("b".into(), vec!["ca".into()]);
+        state.player_to_votes.insert("c".into(), vec!["ca".into()]);
+        state.players.get_mut("b").unwrap().ready = true;
+        state.players.get_mut("c").unwrap().ready = true;
         // d intentionally has not voted yet
 
         let removed = room.remove_player(&mut state, "d", None).await?;
@@ -2315,6 +2498,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn votes_per_guesser_defaults_to_one_and_clamps_with_player_count() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        for i in 0..6 {
+            add_player(&mut state, &format!("p{}", i), 0);
+        }
+        state.stage = RoomStage::Joining;
+
+        room.init_round(&mut state).await?;
+        assert_eq!(
+            state.votes_per_guesser, 1,
+            "votes per guesser should default to 1 at game start"
+        );
+
+        state.votes_per_guesser = 99;
+        room.clamp_votes_per_guesser(&mut state);
+        assert_eq!(
+            state.votes_per_guesser, 4,
+            "with 6 active players, max votes per guesser should be active-2 = 4"
+        );
+
+        let removed = room.remove_player(&mut state, "p5", None).await?;
+        assert!(removed);
+        assert_eq!(
+            state.votes_per_guesser, 3,
+            "after removing one player, max should clamp to active-2 = 3"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn decoy_bonus_is_capped_and_never_applies_to_storyteller() -> Result<()> {
         let room = test_room();
         let mut state = room.state.write().await;
@@ -2344,11 +2560,11 @@ mod tests {
         state.player_to_current_card.insert("f".into(), "cf".into());
 
         // One correct vote, four decoy votes for b's card.
-        state.player_to_vote.insert("b".into(), "ca".into());
-        state.player_to_vote.insert("c".into(), "cb".into());
-        state.player_to_vote.insert("d".into(), "cb".into());
-        state.player_to_vote.insert("e".into(), "cb".into());
-        state.player_to_vote.insert("f".into(), "cb".into());
+        state.player_to_votes.insert("b".into(), vec!["ca".into()]);
+        state.player_to_votes.insert("c".into(), vec!["cb".into()]);
+        state.player_to_votes.insert("d".into(), vec!["cb".into()]);
+        state.player_to_votes.insert("e".into(), vec!["cb".into()]);
+        state.player_to_votes.insert("f".into(), vec!["cb".into()]);
 
         let point_change = room.compute_results(&state);
         assert_eq!(
@@ -2385,7 +2601,7 @@ mod tests {
             "f".into(),
         ];
         state.active_player = 0;
-        state.storyteller_loss_threshold = 4;
+        state.storyteller_loss_threshold = 3;
 
         state.player_to_current_card.insert("a".into(), "ca".into());
         state.player_to_current_card.insert("b".into(), "cb".into());
@@ -2395,11 +2611,11 @@ mod tests {
         state.player_to_current_card.insert("f".into(), "cf".into());
 
         // Four wrong guesses (>= threshold) -> storyteller-loss branch.
-        state.player_to_vote.insert("b".into(), "ca".into());
-        state.player_to_vote.insert("c".into(), "cb".into());
-        state.player_to_vote.insert("d".into(), "cb".into());
-        state.player_to_vote.insert("e".into(), "cb".into());
-        state.player_to_vote.insert("f".into(), "cb".into());
+        state.player_to_votes.insert("b".into(), vec!["ca".into()]);
+        state.player_to_votes.insert("c".into(), vec!["cb".into()]);
+        state.player_to_votes.insert("d".into(), vec!["cb".into()]);
+        state.player_to_votes.insert("e".into(), vec!["cb".into()]);
+        state.player_to_votes.insert("f".into(), vec!["cb".into()]);
 
         let point_change = room.compute_results(&state);
         assert_eq!(
@@ -2411,6 +2627,108 @@ mod tests {
             point_change.get("b").copied(),
             Some(5),
             "loss branch gives +2 base plus +3 capped decoy bonus"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn threshold_checks_guesser_correctness_not_total_correct_tokens() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        add_player(&mut state, "a", 0);
+        add_player(&mut state, "b", 0);
+        add_player(&mut state, "c", 0);
+        add_player(&mut state, "d", 0);
+        add_player(&mut state, "e", 0);
+        state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into(), "e".into()];
+        state.active_player = 0;
+        state.storyteller_loss_threshold = 3;
+        state.votes_per_guesser = 2;
+
+        state.player_to_current_card.insert("a".into(), "ca".into());
+        state.player_to_current_card.insert("b".into(), "cb".into());
+        state.player_to_current_card.insert("c".into(), "cc".into());
+        state.player_to_current_card.insert("d".into(), "cd".into());
+        state.player_to_current_card.insert("e".into(), "ce".into());
+
+        // Two guessers are correct (double-voting active card), two are wrong.
+        // Correct token count is 4, but correct guesser count is only 2.
+        state
+            .player_to_votes
+            .insert("b".into(), vec!["ca".into(), "ca".into()]);
+        state
+            .player_to_votes
+            .insert("c".into(), vec!["ca".into(), "ca".into()]);
+        state
+            .player_to_votes
+            .insert("d".into(), vec!["cb".into(), "cc".into()]);
+        state
+            .player_to_votes
+            .insert("e".into(), vec!["cb".into(), "cc".into()]);
+
+        let point_change = room.compute_results(&state);
+        assert_eq!(
+            point_change.get("a").copied(),
+            Some(3),
+            "storyteller should not lose when only 2/4 guessers are correct and threshold is 4"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn double_correct_bonus_and_duplicate_decoys_apply_with_caps() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        add_player(&mut state, "a", 0);
+        add_player(&mut state, "b", 0);
+        add_player(&mut state, "c", 0);
+        add_player(&mut state, "d", 0);
+        add_player(&mut state, "e", 0);
+        state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into(), "e".into()];
+        state.active_player = 0;
+        state.storyteller_loss_threshold = 3;
+        state.votes_per_guesser = 2;
+
+        state.player_to_current_card.insert("a".into(), "ca".into());
+        state.player_to_current_card.insert("b".into(), "cb".into());
+        state.player_to_current_card.insert("c".into(), "cc".into());
+        state.player_to_current_card.insert("d".into(), "cd".into());
+        state.player_to_current_card.insert("e".into(), "ce".into());
+
+        // b double-guesses correctly (+1 bonus).
+        // c and d both vote for b's decoy, with one duplicate token from c, so b decoy reaches cap 3.
+        state
+            .player_to_votes
+            .insert("b".into(), vec!["ca".into(), "ca".into()]);
+        state
+            .player_to_votes
+            .insert("c".into(), vec!["cb".into(), "cb".into()]);
+        state
+            .player_to_votes
+            .insert("d".into(), vec!["cb".into(), "cc".into()]);
+        state
+            .player_to_votes
+            .insert("e".into(), vec!["cd".into(), "cb".into()]);
+
+        let point_change = room.compute_results(&state);
+        assert_eq!(
+            point_change.get("a").copied(),
+            Some(0),
+            "wrong guessers reach threshold=3 so storyteller should lose"
+        );
+        assert_eq!(
+            point_change.get("b").copied(),
+            Some(6),
+            "b should get +2 loss-branch base, +1 double-correct bonus, +3 capped decoy bonus"
+        );
+        assert_eq!(
+            point_change.get("c").copied(),
+            Some(3),
+            "c should get +2 base plus +1 decoy bonus from d voting c's card"
         );
 
         Ok(())
@@ -2442,6 +2760,37 @@ mod tests {
         assert_eq!(
             state.storyteller_loss_threshold, 4,
             "threshold should be clamped to current guesser upper bound"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn moderator_votes_per_guesser_update_is_clamped_to_current_bounds() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            add_player(&mut state, "p2", 0);
+            add_player(&mut state, "p3", 0);
+            add_player(&mut state, "p4", 0);
+            add_player(&mut state, "p5", 0);
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 11);
+        }
+
+        room.handle_client_msg(
+            "host",
+            11,
+            to_ws(ClientMsg::SetVotesPerGuesser { votes: 99 }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        // 5 active players => max votes per guesser is active-2 = 3
+        assert_eq!(
+            state.votes_per_guesser, 3,
+            "votes per guesser should be clamped to current upper bound"
         );
 
         Ok(())

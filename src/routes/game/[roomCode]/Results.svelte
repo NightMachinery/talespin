@@ -15,12 +15,15 @@
 	export let activePlayer = '';
 	export let gameServer: GameServer;
 	export let playerToCurrentCard: { [key: string]: string } = {};
-	export let playerToVote: { [key: string]: string } = {};
+	export let playerToVotes: { [key: string]: string[] } = {};
 	export let players: { [key: string]: PlayerInfo } = {};
 	export let allowNewPlayersMidgame = true;
 	export let storytellerLossThreshold = 1;
 	export let storytellerLossThresholdMin = 1;
 	export let storytellerLossThresholdMax = 1;
+	export let votesPerGuesser = 1;
+	export let votesPerGuesserMin = 1;
+	export let votesPerGuesserMax = 1;
 	export let stage = '';
 	export let pointChange: { [key: string]: number } = {};
 	export let roundNum = 0;
@@ -32,7 +35,7 @@
 	};
 
 	let cardToPlayer: { [key: string]: string } = {};
-	let cardToVoters: { [key: string]: string[] } = {};
+	let cardToVoterCounts: { [key: string]: { [key: string]: number } } = {};
 	let isObserver = false;
 	$: isObserver = !!observers[name];
 	$: resultsDesktopFitClass = $cardsFitToHeight ? 'lg:h-full' : '';
@@ -45,16 +48,21 @@
 
 	$: {
 		cardToPlayer = {};
-		cardToVoters = {};
+		cardToVoterCounts = {};
 		Object.entries(playerToCurrentCard).forEach(([key, value]) => {
 			cardToPlayer[value] = key;
 		});
 
-		Object.entries(playerToVote).forEach(([key, value]) => {
-			if (!cardToVoters[value]) {
-				cardToVoters[value] = [];
+		Object.entries(playerToVotes).forEach(([voter, votes]) => {
+			for (const votedCard of votes || []) {
+				if (!cardToVoterCounts[votedCard]) {
+					cardToVoterCounts[votedCard] = {};
+				}
+				if (!cardToVoterCounts[votedCard][voter]) {
+					cardToVoterCounts[votedCard][voter] = 0;
+				}
+				cardToVoterCounts[votedCard][voter] += 1;
 			}
-			cardToVoters[value].push(key);
 		});
 	}
 </script>
@@ -71,6 +79,9 @@
 	{storytellerLossThreshold}
 	{storytellerLossThresholdMin}
 	{storytellerLossThresholdMax}
+	{votesPerGuesser}
+	{votesPerGuesserMin}
+	{votesPerGuesserMax}
 	{pointChange}
 	{activePlayer}
 	{roundNum}
@@ -120,12 +131,12 @@
 						alt={CARD_IMAGE_ALT_TEXT}
 						class={resultsImageClass}
 					/>
-					{#if cardToVoters[image]}
+					{#if cardToVoterCounts[image]}
 						<div class="absolute" style="top: 20px; right: 12px;">
 							<div class="flex flex-col gap-2">
-								{#each cardToVoters[image] as voter}
+								{#each Object.entries(cardToVoterCounts[image]) as [voter, count]}
 									<div class="bg-success-500 px-1.5 rounded text-black font-bold">
-										🔘 {voter}
+										🔘 {voter}{count > 1 ? ` ×${count}` : ''}
 									</div>
 								{/each}
 							</div>

@@ -17,6 +17,9 @@
 	export let storytellerLossThreshold = 1;
 	export let storytellerLossThresholdMin = 1;
 	export let storytellerLossThresholdMax = 1;
+	export let votesPerGuesser = 1;
+	export let votesPerGuesserMin = 1;
+	export let votesPerGuesserMax = 1;
 	export let stage = '';
 	export let pointChange: { [key: string]: number } = {};
 	export let roundNum = 0;
@@ -60,6 +63,9 @@
 	{storytellerLossThreshold}
 	{storytellerLossThresholdMin}
 	{storytellerLossThresholdMax}
+	{votesPerGuesser}
+	{votesPerGuesserMin}
+	{votesPerGuesserMax}
 	{pointChange}
 	{activePlayer}
 	{roundNum}

@@ -157,6 +157,14 @@ class GameServer {
 		});
 	}
 
+	setVotesPerGuesser(votes: number) {
+		this.send({
+			SetVotesPerGuesser: {
+				votes
+			}
+		});
+	}
+
 	resumeGame() {
 		this.send({
 			ResumeGame: {}
@@ -184,6 +192,14 @@ class GameServer {
 		this.send({
 			Vote: {
 				card
+			}
+		});
+	}
+
+	submitVotes(cards: string[]) {
+		this.send({
+			SubmitVotes: {
+				cards
 			}
 		});
 	}

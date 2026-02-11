@@ -14,6 +14,9 @@
 	export let storytellerLossThreshold = 1;
 	export let storytellerLossThresholdMin = 1;
 	export let storytellerLossThresholdMax = 1;
+	export let votesPerGuesser = 1;
+	export let votesPerGuesserMin = 1;
+	export let votesPerGuesserMax = 1;
 
 	$: moderatorSet = new Set(moderators);
 	$: isModerator = moderatorSet.has(name);
@@ -31,6 +34,9 @@
 	{storytellerLossThreshold}
 	{storytellerLossThresholdMin}
 	{storytellerLossThresholdMax}
+	{votesPerGuesser}
+	{votesPerGuesserMin}
+	{votesPerGuesserMax}
 	activePlayer=""
 	pointChange={{}}
 	roundNum={0}

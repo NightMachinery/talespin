@@ -15,6 +15,9 @@
 	export let storytellerLossThreshold = 1;
 	export let storytellerLossThresholdMin = 1;
 	export let storytellerLossThresholdMax = 1;
+	export let votesPerGuesser = 1;
+	export let votesPerGuesserMin = 1;
+	export let votesPerGuesserMax = 1;
 	export let gameServer: GameServer;
 
 	$: moderatorSet = new Set(moderators);
@@ -81,6 +84,14 @@
 		);
 		gameServer.setStorytellerLossThreshold(next);
 	}
+
+	function updateVotesPerGuesser(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const parsed = Number(input.value);
+		if (!Number.isFinite(parsed)) return;
+		const next = Math.max(votesPerGuesserMin, Math.min(votesPerGuesserMax, Math.round(parsed)));
+		gameServer.setVotesPerGuesser(next);
+	}
 </script>
 
 <div class="card light space-y-3 p-4">
@@ -142,6 +153,27 @@
 						/>
 						<span class="text-xs opacity-75"
 							>Range: {storytellerLossThresholdMin}–{storytellerLossThresholdMax}</span
+						>
+					</div>
+				</div>
+				<div class="mt-3 rounded border border-white/20 px-2 py-2">
+					<p class="block text-sm font-semibold">Votes per guesser</p>
+					<p class="mt-1 text-xs opacity-75">
+						How many vote tokens each guesser can cast in voting.
+					</p>
+					<div class="mt-2 flex items-center gap-2">
+						<input
+							type="number"
+							class="w-24 rounded border px-2 py-1 text-gray-700 shadow"
+							min={votesPerGuesserMin}
+							max={votesPerGuesserMax}
+							step="1"
+							value={votesPerGuesser}
+							on:change={updateVotesPerGuesser}
+							disabled={!isModerator}
+						/>
+						<span class="text-xs opacity-75"
+							>Range: {votesPerGuesserMin}–{votesPerGuesserMax}</span
 						>
 					</div>
 				</div>
