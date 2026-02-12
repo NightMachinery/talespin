@@ -14,9 +14,9 @@
 	export let gameServer: GameServer;
 	export let players: { [key: string]: PlayerInfo } = {};
 	export let allowNewPlayersMidgame = true;
-	export let storytellerLossThreshold = 1;
-	export let storytellerLossThresholdMin = 1;
-	export let storytellerLossThresholdMax = 1;
+	export let storytellerLossComplement = 0;
+	export let storytellerLossComplementMin = 0;
+	export let storytellerLossComplementMax = 0;
 	export let votesPerGuesser = 1;
 	export let votesPerGuesserMin = 1;
 	export let votesPerGuesserMax = 1;
@@ -60,9 +60,9 @@
 	{gameServer}
 	{stage}
 	{allowNewPlayersMidgame}
-	{storytellerLossThreshold}
-	{storytellerLossThresholdMin}
-	{storytellerLossThresholdMax}
+	{storytellerLossComplement}
+	{storytellerLossComplementMin}
+	{storytellerLossComplementMax}
 	{votesPerGuesser}
 	{votesPerGuesserMin}
 	{votesPerGuesserMax}

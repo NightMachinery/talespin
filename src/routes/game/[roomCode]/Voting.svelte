@@ -18,9 +18,9 @@
 	export let description = '';
 	export let players: { [key: string]: PlayerInfo } = {};
 	export let allowNewPlayersMidgame = true;
-	export let storytellerLossThreshold = 1;
-	export let storytellerLossThresholdMin = 1;
-	export let storytellerLossThresholdMax = 1;
+	export let storytellerLossComplement = 0;
+	export let storytellerLossComplementMin = 0;
+	export let storytellerLossComplementMax = 0;
 	export let votesPerGuesser = 1;
 	export let votesPerGuesserMin = 1;
 	export let votesPerGuesserMax = 1;
@@ -41,6 +41,8 @@
 	let isVoter = false;
 	$: isObserver = !!observers[name];
 	$: isVoter = activePlayer !== name && !isObserver;
+	$: guesserCount = Math.max(0, Object.keys(players).length - 1);
+	$: effectiveLossThreshold = Math.max(0, guesserCount - storytellerLossComplement);
 	$: effectiveVotesPerGuesser = Math.max(
 		1,
 		Math.min(votesPerGuesser, Math.max(votesPerGuesserMax, 1))
@@ -110,9 +112,9 @@
 	{gameServer}
 	{stage}
 	{allowNewPlayersMidgame}
-	{storytellerLossThreshold}
-	{storytellerLossThresholdMin}
-	{storytellerLossThresholdMax}
+	{storytellerLossComplement}
+	{storytellerLossComplementMin}
+	{storytellerLossComplementMax}
 	{votesPerGuesser}
 	{votesPerGuesserMin}
 	{votesPerGuesserMax}
@@ -153,12 +155,14 @@
 		<div class="card light p-4">
 			<h2 class="mb-2 text-lg font-semibold">How points work</h2>
 			<p class="mb-2 text-xs opacity-80">
-				Threshold (T): {storytellerLossThreshold} guesser{storytellerLossThreshold === 1 ? '' : 's'}
+				Complement (C): {storytellerLossComplement}. Loss threshold = guessers − C = {effectiveLossThreshold}
 			</p>
 			<Accordion>
 				<AccordionItem>
 					<svelte:fragment slot="summary">
-						<strong>Loss scenario: at least T guessers are right <em>or</em> wrong</strong>
+						<strong
+							>Loss scenario: at least (guessers − C) guessers are right <em>or</em> wrong</strong
+						>
 					</svelte:fragment>
 					<svelte:fragment slot="content">
 						<ul class="ml-8">
@@ -212,12 +216,14 @@
 		<div class="card light p-4">
 			<h2 class="mb-2 text-lg font-semibold">How points work</h2>
 			<p class="mb-2 text-xs opacity-80">
-				Threshold (T): {storytellerLossThreshold} guesser{storytellerLossThreshold === 1 ? '' : 's'}
+				Complement (C): {storytellerLossComplement}. Loss threshold = guessers − C = {effectiveLossThreshold}
 			</p>
 			<Accordion>
 				<AccordionItem>
 					<svelte:fragment slot="summary">
-						<strong>Loss scenario: at least T guessers are right <em>or</em> wrong</strong>
+						<strong
+							>Loss scenario: at least (guessers − C) guessers are right <em>or</em> wrong</strong
+						>
 					</svelte:fragment>
 					<svelte:fragment slot="content">
 						<ul class="ml-8">

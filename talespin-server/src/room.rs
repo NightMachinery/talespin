@@ -38,9 +38,9 @@ pub enum ServerMsg {
         win_condition: WinCondition,
         allow_new_players_midgame: bool,
         paused_reason: Option<String>,
-        storyteller_loss_threshold: u16,
-        storyteller_loss_threshold_min: u16,
-        storyteller_loss_threshold_max: u16,
+        storyteller_loss_complement: u16,
+        storyteller_loss_complement_min: u16,
+        storyteller_loss_complement_max: u16,
         votes_per_guesser: u16,
         votes_per_guesser_min: u16,
         votes_per_guesser_max: u16,
@@ -102,8 +102,8 @@ pub enum ClientMsg {
     SetAllowMidgameJoin {
         enabled: bool,
     },
-    SetStorytellerLossThreshold {
-        threshold: u16,
+    SetStorytellerLossComplement {
+        complement: u16,
     },
     SetVotesPerGuesser {
         votes: u16,
@@ -193,8 +193,8 @@ struct RoomState {
     allow_new_players_midgame: bool,
     // user-facing pause reason for RoomStage::Paused
     paused_reason: Option<String>,
-    // storyteller-loss threshold used in score computation (server-clamped)
-    storyteller_loss_threshold: u16,
+    // storyteller-loss complement used in score computation (server-clamped)
+    storyteller_loss_complement: u16,
     // number of vote tokens each guesser can cast in Voting
     votes_per_guesser: u16,
     // store general stats about each player
@@ -271,7 +271,7 @@ impl Room {
             next_generation: 0,
             allow_new_players_midgame: true,
             paused_reason: None,
-            storyteller_loss_threshold: 1,
+            storyteller_loss_complement: 0,
             votes_per_guesser: 1,
             players: HashMap::new(),
             deck: base_deck.to_vec(),
@@ -398,10 +398,13 @@ impl Room {
         state.players.len().saturating_sub(1)
     }
 
-    fn storyteller_loss_threshold_bounds(&self, state: &RwLockWriteGuard<RoomState>) -> (u16, u16) {
-        let max_guessers = self.guesser_count(state).max(1);
-        let max_u16 = max_guessers.min(usize::from(u16::MAX)) as u16;
-        (1, max_u16)
+    fn storyteller_loss_complement_bounds(
+        &self,
+        state: &RwLockWriteGuard<RoomState>,
+    ) -> (u16, u16) {
+        let guessers = self.guesser_count(state);
+        let max_complement = guessers.saturating_sub(1).min(usize::from(u16::MAX)) as u16;
+        (0, max_complement)
     }
 
     fn votes_per_guesser_bounds(&self, state: &RwLockWriteGuard<RoomState>) -> (u16, u16) {
@@ -413,11 +416,11 @@ impl Room {
         (1, max_votes)
     }
 
-    fn clamp_storyteller_loss_threshold(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
-        let (min_threshold, max_threshold) = self.storyteller_loss_threshold_bounds(state);
-        state.storyteller_loss_threshold = state
-            .storyteller_loss_threshold
-            .clamp(min_threshold, max_threshold);
+    fn clamp_storyteller_loss_complement(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
+        let (min_complement, max_complement) = self.storyteller_loss_complement_bounds(state);
+        state.storyteller_loss_complement = state
+            .storyteller_loss_complement
+            .clamp(min_complement, max_complement);
     }
 
     fn clamp_votes_per_guesser(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
@@ -436,19 +439,21 @@ impl Room {
         }
     }
 
-    fn default_storyteller_loss_threshold_on_game_start(
+    fn default_storyteller_loss_complement_on_game_start(
         &self,
         state: &RwLockWriteGuard<'_, RoomState>,
     ) -> u16 {
         let guessers = self.guesser_count(state).max(1);
-        let initial = if state.players.len() > 6 {
+        let default_threshold = if state.players.len() > 6 {
             ((guessers as f64) * 0.8).round() as usize
         } else {
             guessers
         };
+        let default_complement = guessers.saturating_sub(default_threshold);
 
-        let (min_threshold, max_threshold) = self.storyteller_loss_threshold_bounds(state);
-        (initial.min(usize::from(max_threshold)) as u16).clamp(min_threshold, max_threshold)
+        let (min_complement, max_complement) = self.storyteller_loss_complement_bounds(state);
+        (default_complement.min(usize::from(max_complement)) as u16)
+            .clamp(min_complement, max_complement)
     }
 
     fn disconnect_previous_session(
@@ -580,7 +585,7 @@ impl Room {
             }
         }
 
-        self.clamp_storyteller_loss_threshold(state);
+        self.clamp_storyteller_loss_complement(state);
         self.clamp_votes_per_guesser(state);
         self.clamp_vote_submission_lengths(state);
         self.clean_moderators(state);
@@ -637,7 +642,7 @@ impl Room {
             }
         }
 
-        self.clamp_storyteller_loss_threshold(state);
+        self.clamp_storyteller_loss_complement(state);
         self.clamp_votes_per_guesser(state);
         self.clamp_vote_submission_lengths(state);
         self.clean_moderators(state);
@@ -711,7 +716,7 @@ impl Room {
                 auto_join_on_next_round,
             },
         );
-        self.clamp_storyteller_loss_threshold(state);
+        self.clamp_storyteller_loss_complement(state);
         self.clamp_votes_per_guesser(state);
         self.clamp_vote_submission_lengths(state);
         self.clean_moderators(state);
@@ -743,7 +748,7 @@ impl Room {
             }
         }
 
-        self.clamp_storyteller_loss_threshold(state);
+        self.clamp_storyteller_loss_complement(state);
         self.clamp_votes_per_guesser(state);
         self.clamp_vote_submission_lengths(state);
         self.clean_moderators(state);
@@ -806,7 +811,7 @@ impl Room {
             }
         }
 
-        self.clamp_storyteller_loss_threshold(state);
+        self.clamp_storyteller_loss_complement(state);
         self.clamp_votes_per_guesser(state);
         self.clamp_vote_submission_lengths(state);
         self.clean_moderators(state);
@@ -1303,13 +1308,13 @@ impl Room {
         if is_first_round {
             state.active_player = 0;
             state.player_order.shuffle(&mut rand::thread_rng());
-            state.storyteller_loss_threshold =
-                self.default_storyteller_loss_threshold_on_game_start(state);
+            state.storyteller_loss_complement =
+                self.default_storyteller_loss_complement_on_game_start(state);
         } else {
             self.check_deck(state);
         }
 
-        self.clamp_storyteller_loss_threshold(state);
+        self.clamp_storyteller_loss_complement(state);
         self.clamp_votes_per_guesser(state);
 
         state.deck.shuffle(&mut rand::thread_rng());
@@ -1724,12 +1729,13 @@ impl Room {
                 state.allow_new_players_midgame = enabled;
                 self.broadcast_msg(self.room_state(&state))?;
             }
-            ClientMsg::SetStorytellerLossThreshold { threshold } => {
+            ClientMsg::SetStorytellerLossComplement { complement } => {
                 if !self.is_moderator(&state, name) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
-                                "Only moderators can change storyteller threshold".to_string(),
+                                "Only moderators can change storyteller loss complement"
+                                    .to_string(),
                             )
                             .into(),
                         )
@@ -1738,8 +1744,8 @@ impl Room {
                     return Ok(());
                 }
 
-                state.storyteller_loss_threshold = threshold;
-                self.clamp_storyteller_loss_threshold(&mut state);
+                state.storyteller_loss_complement = complement;
+                self.clamp_storyteller_loss_complement(&mut state);
                 self.broadcast_msg(self.room_state(&state))?;
             }
             ClientMsg::SetVotesPerGuesser { votes } => {
@@ -1933,10 +1939,11 @@ impl Room {
         }
 
         let guesser_count = self.guesser_count(state) as u16;
-        let (min_threshold, max_threshold) = self.storyteller_loss_threshold_bounds(state);
-        let threshold = state
-            .storyteller_loss_threshold
-            .clamp(min_threshold, max_threshold);
+        let (min_complement, max_complement) = self.storyteller_loss_complement_bounds(state);
+        let complement = state
+            .storyteller_loss_complement
+            .clamp(min_complement, max_complement);
+        let threshold = guesser_count.saturating_sub(complement);
         let wrong_guesses = guesser_count.saturating_sub(correct_guessers);
         let storyteller_loses = correct_guessers >= threshold || wrong_guesses >= threshold;
 
@@ -2198,7 +2205,7 @@ impl Room {
         if state.creator.as_deref() == Some(name) {
             state.moderators.insert(name.to_string());
         }
-        self.clamp_storyteller_loss_threshold(&mut state);
+        self.clamp_storyteller_loss_complement(&mut state);
         self.clamp_votes_per_guesser(&mut state);
         self.clamp_vote_submission_lengths(&mut state);
         self.clean_moderators(&mut state);
@@ -2331,10 +2338,10 @@ impl Room {
     fn room_state(&self, state: &RwLockWriteGuard<RoomState>) -> ServerMsg {
         let mut moderators = state.moderators.iter().cloned().collect::<Vec<_>>();
         moderators.sort();
-        let (threshold_min, threshold_max) = self.storyteller_loss_threshold_bounds(state);
-        let threshold = state
-            .storyteller_loss_threshold
-            .clamp(threshold_min, threshold_max);
+        let (complement_min, complement_max) = self.storyteller_loss_complement_bounds(state);
+        let complement = state
+            .storyteller_loss_complement
+            .clamp(complement_min, complement_max);
         let (votes_min, votes_max) = self.votes_per_guesser_bounds(state);
         let votes_per_guesser = state.votes_per_guesser.clamp(votes_min, votes_max);
 
@@ -2353,9 +2360,9 @@ impl Room {
             win_condition: state.win_condition,
             allow_new_players_midgame: state.allow_new_players_midgame,
             paused_reason: state.paused_reason.clone(),
-            storyteller_loss_threshold: threshold,
-            storyteller_loss_threshold_min: threshold_min,
-            storyteller_loss_threshold_max: threshold_max,
+            storyteller_loss_complement: complement,
+            storyteller_loss_complement_min: complement_min,
+            storyteller_loss_complement_max: complement_max,
             votes_per_guesser,
             votes_per_guesser_min: votes_min,
             votes_per_guesser_max: votes_max,
@@ -2730,7 +2737,9 @@ mod tests {
             state.round = 3;
             state.stage = RoomStage::PlayersChoose;
             state.current_description = "clue".to_string();
-            state.player_to_current_card.insert("host".into(), "ch".into());
+            state
+                .player_to_current_card
+                .insert("host".into(), "ch".into());
             state.moderators.insert("host".to_string());
             state.observers.insert(
                 "obs".to_string(),
@@ -2947,7 +2956,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn storyteller_threshold_default_uses_80_percent_for_large_games() -> Result<()> {
+    async fn storyteller_complement_default_matches_80_percent_threshold_for_large_games(
+    ) -> Result<()> {
         let room = test_room();
         let mut state = room.state.write().await;
 
@@ -2958,15 +2968,15 @@ mod tests {
 
         room.init_round(&mut state).await?;
         assert_eq!(
-            state.storyteller_loss_threshold, 7,
-            "10 active players -> 9 guessers -> round(0.8*9)=7"
+            state.storyteller_loss_complement, 2,
+            "10 active players -> 9 guessers -> threshold 7 => complement 9-7 = 2"
         );
 
         Ok(())
     }
 
     #[tokio::test]
-    async fn storyteller_threshold_default_for_small_games_matches_all_guessers() -> Result<()> {
+    async fn storyteller_complement_default_for_small_games_is_zero() -> Result<()> {
         let room = test_room();
         let mut state = room.state.write().await;
 
@@ -2977,8 +2987,8 @@ mod tests {
 
         room.init_round(&mut state).await?;
         assert_eq!(
-            state.storyteller_loss_threshold, 5,
-            "6 active players -> 5 guessers default threshold should be 5"
+            state.storyteller_loss_complement, 0,
+            "6 active players -> 5 guessers default threshold is 5, so complement should be 0"
         );
 
         Ok(())
@@ -3037,7 +3047,7 @@ mod tests {
             "f".into(),
         ];
         state.active_player = 0;
-        state.storyteller_loss_threshold = 5;
+        state.storyteller_loss_complement = 0;
 
         state.player_to_current_card.insert("a".into(), "ca".into());
         state.player_to_current_card.insert("b".into(), "cb".into());
@@ -3088,7 +3098,7 @@ mod tests {
             "f".into(),
         ];
         state.active_player = 0;
-        state.storyteller_loss_threshold = 3;
+        state.storyteller_loss_complement = 2;
 
         state.player_to_current_card.insert("a".into(), "ca".into());
         state.player_to_current_card.insert("b".into(), "cb".into());
@@ -3097,7 +3107,7 @@ mod tests {
         state.player_to_current_card.insert("e".into(), "ce".into());
         state.player_to_current_card.insert("f".into(), "cf".into());
 
-        // Four wrong guesses (>= threshold) -> storyteller-loss branch.
+        // Four wrong guesses; with complement=2 and guessers=5, threshold is 3.
         state.player_to_votes.insert("b".into(), vec!["ca".into()]);
         state.player_to_votes.insert("c".into(), vec!["cb".into()]);
         state.player_to_votes.insert("d".into(), vec!["cb".into()]);
@@ -3108,7 +3118,7 @@ mod tests {
         assert_eq!(
             point_change.get("a").copied(),
             Some(0),
-            "storyteller should lose in threshold branch"
+            "storyteller should lose in complement-derived loss branch"
         );
         assert_eq!(
             point_change.get("b").copied(),
@@ -3131,7 +3141,7 @@ mod tests {
         add_player(&mut state, "e", 0);
         state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into(), "e".into()];
         state.active_player = 0;
-        state.storyteller_loss_threshold = 3;
+        state.storyteller_loss_complement = 1;
         state.votes_per_guesser = 2;
 
         state.player_to_current_card.insert("a".into(), "ca".into());
@@ -3159,7 +3169,7 @@ mod tests {
         assert_eq!(
             point_change.get("a").copied(),
             Some(3),
-            "storyteller should not lose when only 2/4 guessers are correct and threshold is 4"
+            "storyteller should not lose when only 2/4 guessers are correct and complement implies threshold 3"
         );
 
         Ok(())
@@ -3177,7 +3187,7 @@ mod tests {
         add_player(&mut state, "e", 0);
         state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into(), "e".into()];
         state.active_player = 0;
-        state.storyteller_loss_threshold = 3;
+        state.storyteller_loss_complement = 1;
         state.votes_per_guesser = 2;
 
         state.player_to_current_card.insert("a".into(), "ca".into());
@@ -3205,7 +3215,7 @@ mod tests {
         assert_eq!(
             point_change.get("a").copied(),
             Some(0),
-            "wrong guessers reach threshold=3 so storyteller should lose"
+            "wrong guessers reach complement-derived threshold=3 so storyteller should lose"
         );
         assert_eq!(
             point_change.get("b").copied(),
@@ -3222,7 +3232,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn moderator_threshold_update_is_clamped_to_current_bounds() -> Result<()> {
+    async fn moderator_complement_update_is_clamped_to_current_bounds() -> Result<()> {
         let room = test_room();
         {
             let mut state = room.state.write().await;
@@ -3238,15 +3248,49 @@ mod tests {
         room.handle_client_msg(
             "host",
             9,
-            to_ws(ClientMsg::SetStorytellerLossThreshold { threshold: 99 }),
+            to_ws(ClientMsg::SetStorytellerLossComplement { complement: 99 }),
         )
         .await?;
 
         let state = room.state.read().await;
-        // 5 active players => 4 guessers => max threshold is 4
+        // 5 active players => 4 guessers => max complement is guessers-1 = 3
         assert_eq!(
-            state.storyteller_loss_threshold, 4,
-            "threshold should be clamped to current guesser upper bound"
+            state.storyteller_loss_complement, 3,
+            "complement should be clamped to current guesser upper bound"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn complement_max_edge_sets_effective_threshold_to_one() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        add_player(&mut state, "a", 0);
+        add_player(&mut state, "b", 0);
+        add_player(&mut state, "c", 0);
+        add_player(&mut state, "d", 0);
+        state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into()];
+        state.active_player = 0;
+        // 3 guessers => max complement is 2 => effective threshold is 1
+        state.storyteller_loss_complement = 2;
+
+        state.player_to_current_card.insert("a".into(), "ca".into());
+        state.player_to_current_card.insert("b".into(), "cb".into());
+        state.player_to_current_card.insert("c".into(), "cc".into());
+        state.player_to_current_card.insert("d".into(), "cd".into());
+
+        // Any single wrong guess should trigger storyteller-loss branch when threshold is 1.
+        state.player_to_votes.insert("b".into(), vec!["cc".into()]);
+        state.player_to_votes.insert("c".into(), vec!["cb".into()]);
+        state.player_to_votes.insert("d".into(), vec!["cb".into()]);
+
+        let point_change = room.compute_results(&state);
+        assert_eq!(
+            point_change.get("a").copied(),
+            Some(0),
+            "with complement=max (threshold=1), storyteller should lose immediately"
         );
 
         Ok(())

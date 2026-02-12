@@ -32,9 +32,9 @@
 	let moderators: string[] = [];
 	let allowNewPlayersMidgame = true;
 	let pausedReason = '';
-	let storytellerLossThreshold = 1;
-	let storytellerLossThresholdMin = 1;
-	let storytellerLossThresholdMax = 1;
+	let storytellerLossComplement = 0;
+	let storytellerLossComplementMin = 0;
+	let storytellerLossComplementMax = 0;
 	let votesPerGuesser = 1;
 	let votesPerGuesserMin = 1;
 	let votesPerGuesserMax = 1;
@@ -99,9 +99,9 @@
 				stage = data.RoomState.stage;
 				allowNewPlayersMidgame = data.RoomState.allow_new_players_midgame ?? true;
 				pausedReason = data.RoomState.paused_reason || '';
-				storytellerLossThreshold = data.RoomState.storyteller_loss_threshold ?? 1;
-				storytellerLossThresholdMin = data.RoomState.storyteller_loss_threshold_min ?? 1;
-				storytellerLossThresholdMax = data.RoomState.storyteller_loss_threshold_max ?? 1;
+				storytellerLossComplement = data.RoomState.storyteller_loss_complement ?? 0;
+				storytellerLossComplementMin = data.RoomState.storyteller_loss_complement_min ?? 0;
+				storytellerLossComplementMax = data.RoomState.storyteller_loss_complement_max ?? 0;
 				votesPerGuesser = data.RoomState.votes_per_guesser ?? 1;
 				votesPerGuesserMin = data.RoomState.votes_per_guesser_min ?? 1;
 				votesPerGuesserMax = data.RoomState.votes_per_guesser_max ?? 1;
@@ -210,9 +210,9 @@
 			{gameServer}
 			{players}
 			{allowNewPlayersMidgame}
-			{storytellerLossThreshold}
-			{storytellerLossThresholdMin}
-			{storytellerLossThresholdMax}
+			{storytellerLossComplement}
+			{storytellerLossComplementMin}
+			{storytellerLossComplementMax}
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}
@@ -235,9 +235,9 @@
 			{description}
 			{players}
 			{allowNewPlayersMidgame}
-			{storytellerLossThreshold}
-			{storytellerLossThresholdMin}
-			{storytellerLossThresholdMax}
+			{storytellerLossComplement}
+			{storytellerLossComplementMin}
+			{storytellerLossComplementMax}
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}
@@ -260,9 +260,9 @@
 			{description}
 			{players}
 			{allowNewPlayersMidgame}
-			{storytellerLossThreshold}
-			{storytellerLossThresholdMin}
-			{storytellerLossThresholdMax}
+			{storytellerLossComplement}
+			{storytellerLossComplementMin}
+			{storytellerLossComplementMax}
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}
@@ -288,9 +288,9 @@
 			{activePlayer}
 			{players}
 			{allowNewPlayersMidgame}
-			{storytellerLossThreshold}
-			{storytellerLossThresholdMin}
-			{storytellerLossThresholdMax}
+			{storytellerLossComplement}
+			{storytellerLossComplementMin}
+			{storytellerLossComplementMax}
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}
@@ -310,9 +310,9 @@
 			{players}
 			{gameServer}
 			{allowNewPlayersMidgame}
-			{storytellerLossThreshold}
-			{storytellerLossThresholdMin}
-			{storytellerLossThresholdMax}
+			{storytellerLossComplement}
+			{storytellerLossComplementMin}
+			{storytellerLossComplementMax}
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}

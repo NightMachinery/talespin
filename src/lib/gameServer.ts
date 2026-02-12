@@ -149,10 +149,10 @@ class GameServer {
 		});
 	}
 
-	setStorytellerLossThreshold(threshold: number) {
+	setStorytellerLossComplement(complement: number) {
 		this.send({
-			SetStorytellerLossThreshold: {
-				threshold
+			SetStorytellerLossComplement: {
+				complement
 			}
 		});
 	}

@@ -13,9 +13,9 @@
 	export let stage = '';
 	export let activePlayer = '';
 	export let allowNewPlayersMidgame = true;
-	export let storytellerLossThreshold = 1;
-	export let storytellerLossThresholdMin = 1;
-	export let storytellerLossThresholdMax = 1;
+	export let storytellerLossComplement = 0;
+	export let storytellerLossComplementMin = 0;
+	export let storytellerLossComplementMax = 0;
 	export let votesPerGuesser = 1;
 	export let votesPerGuesserMin = 1;
 	export let votesPerGuesserMax = 1;
@@ -74,19 +74,19 @@
 		gameServer.setAllowMidgameJoin(input.checked);
 	}
 
-	function updateStorytellerLossThreshold(event: Event) {
+	function updateStorytellerLossComplement(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
 		const parsed = Number(input.value);
 		if (
 			!Number.isInteger(parsed) ||
-			parsed < storytellerLossThresholdMin ||
-			parsed > storytellerLossThresholdMax
+			parsed < storytellerLossComplementMin ||
+			parsed > storytellerLossComplementMax
 		) {
-			input.value = `${storytellerLossThreshold}`;
+			input.value = `${storytellerLossComplement}`;
 			return;
 		}
-		if (parsed !== storytellerLossThreshold) {
-			gameServer.setStorytellerLossThreshold(parsed);
+		if (parsed !== storytellerLossComplement) {
+			gameServer.setStorytellerLossComplement(parsed);
 		}
 	}
 
@@ -147,23 +147,23 @@
 					</label>
 				</div>
 				<div class="mt-3 rounded border border-white/20 px-2 py-2">
-					<p class="block text-sm font-semibold">Storyteller loss threshold</p>
+					<p class="block text-sm font-semibold">Storyteller loss complement (C)</p>
 					<p class="mt-1 text-xs opacity-75">
-						Storyteller loses if at least this many guessers are right or wrong.
+						Loss triggers when at least (guessers − C) are right or wrong.
 					</p>
 					<div class="mt-2 flex items-center gap-2">
 						<input
 							type="number"
 							class="w-24 rounded border px-2 py-1 text-gray-700 shadow"
-							min={storytellerLossThresholdMin}
-							max={storytellerLossThresholdMax}
+							min={storytellerLossComplementMin}
+							max={storytellerLossComplementMax}
 							step="1"
-							value={storytellerLossThreshold}
-							on:change={updateStorytellerLossThreshold}
+							value={storytellerLossComplement}
+							on:change={updateStorytellerLossComplement}
 							disabled={!isModerator}
 						/>
 						<span class="text-xs opacity-75"
-							>Range: {storytellerLossThresholdMin}–{storytellerLossThresholdMax}</span
+							>Range: {storytellerLossComplementMin}–{storytellerLossComplementMax}</span
 						>
 					</div>
 				</div>
