@@ -2050,6 +2050,16 @@ impl Room {
                 self.clamp_nominations_per_guesser(&mut state);
                 self.apply_cards_per_hand_change(&mut state);
                 self.clamp_player_nominations_lengths(&mut state);
+                for player in state.player_order.clone().iter() {
+                    let player_name = player.as_str();
+                    let _ = self
+                        .send_msg(
+                            &state,
+                            player_name,
+                            self.get_msg(Some(player_name), &state)?,
+                        )
+                        .await;
+                }
                 self.broadcast_msg(self.room_state(&state))?;
             }
             ClientMsg::SetNominationsPerGuesser { cards } => {
