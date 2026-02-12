@@ -17,6 +17,12 @@
 	export let votesPerGuesser = 1;
 	export let votesPerGuesserMin = 1;
 	export let votesPerGuesserMax = 1;
+	export let cardsPerHand = 6;
+	export let cardsPerHandMin = 1;
+	export let cardsPerHandMax = 12;
+	export let nominationsPerGuesser = 1;
+	export let nominationsPerGuesserMin = 1;
+	export let nominationsPerGuesserMax = 1;
 	export let roundNum = 0;
 	export let cardsRemaining = 0;
 	export let deckRefillFlashToken = 0;
@@ -46,6 +52,12 @@
 	{votesPerGuesser}
 	{votesPerGuesserMin}
 	{votesPerGuesserMax}
+	{cardsPerHand}
+	{cardsPerHandMin}
+	{cardsPerHandMax}
+	{nominationsPerGuesser}
+	{nominationsPerGuesserMin}
+	{nominationsPerGuesserMax}
 	activePlayer=""
 	pointChange={{}}
 	{roundNum}

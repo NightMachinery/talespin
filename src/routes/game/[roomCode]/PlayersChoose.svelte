@@ -1,7 +1,8 @@
 <script lang="ts">
 	import type GameServer from '$lib/gameServer';
+	import { CARD_IMAGE_ALT_TEXT } from '$lib/cardImageText';
+	import { http_host } from '$lib/gameServer';
 	import type { ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
-	import Images from './Images.svelte';
 	import StageShell from './StageShell.svelte';
 	import { getToastStore } from '@skeletonlabs/skeleton';
 
@@ -21,6 +22,12 @@
 	export let votesPerGuesser = 1;
 	export let votesPerGuesserMin = 1;
 	export let votesPerGuesserMax = 1;
+	export let cardsPerHand = 6;
+	export let cardsPerHandMin = 1;
+	export let cardsPerHandMax = 12;
+	export let nominationsPerGuesser = 1;
+	export let nominationsPerGuesserMin = 1;
+	export let nominationsPerGuesserMax = 1;
 	export let stage = '';
 	export let pointChange: { [key: string]: number } = {};
 	export let roundNum = 0;
@@ -32,11 +39,28 @@
 	};
 
 	let toastStore = getToastStore();
-	let selectedImage = '';
+	let selectedCards: string[] = [];
 	let isObserver = false;
 	let isChooser = false;
 	$: isObserver = !!observers[name];
 	$: isChooser = activePlayer !== name && !isObserver;
+	$: effectiveNominationsPerGuesser = Math.max(
+		1,
+		Math.min(nominationsPerGuesser, Math.max(nominationsPerGuesserMax, 1))
+	);
+	$: canSubmit = isChooser && selectedCards.length === effectiveNominationsPerGuesser;
+	$: {
+		const allowed = new Set(displayImages);
+		const filtered = selectedCards.filter((card) => allowed.has(card));
+		if (filtered.length !== selectedCards.length) {
+			selectedCards = filtered;
+		}
+	}
+	$: if (selectedCards.length > effectiveNominationsPerGuesser) {
+		selectedCards = selectedCards.slice(
+			selectedCards.length - effectiveNominationsPerGuesser
+		);
+	}
 
 	if (name !== activePlayer && !isObserver) {
 		toastStore.trigger({
@@ -47,12 +71,26 @@
 	}
 
 	function choose() {
-		gameServer.playersChoose(selectedImage);
+		if (!canSubmit) return;
+		gameServer.playersChoose(selectedCards);
 		toastStore.trigger({
 			message: '👌 Locked in!',
 			autohide: true,
 			timeout: 2500
 		});
+	}
+
+	function toggleCard(card: string) {
+		if (!isChooser) return;
+		if (selectedCards.includes(card)) {
+			selectedCards = selectedCards.filter((value) => value !== card);
+			return;
+		}
+		let next = [...selectedCards, card];
+		while (next.length > effectiveNominationsPerGuesser) {
+			next.shift();
+		}
+		selectedCards = next;
 	}
 </script>
 
@@ -71,6 +109,12 @@
 	{votesPerGuesser}
 	{votesPerGuesserMin}
 	{votesPerGuesserMax}
+	{cardsPerHand}
+	{cardsPerHandMin}
+	{cardsPerHandMax}
+	{nominationsPerGuesser}
+	{nominationsPerGuesserMin}
+	{nominationsPerGuesserMax}
 	{pointChange}
 	{activePlayer}
 	{roundNum}
@@ -84,11 +128,16 @@
 			<div class="card light space-y-2 p-4">
 				<h1 class="text-xl font-semibold">Your turn!</h1>
 				<p>
-					Choose a card that <span class="boujee-text">{activePlayer}</span> would put for "{description}"
+					Choose {effectiveNominationsPerGuesser} card{effectiveNominationsPerGuesser === 1
+						? ''
+						: 's'} that <span class="boujee-text">{activePlayer}</span> would put for "{description}"
+				</p>
+				<p class="text-xs opacity-80">
+					Selected: {selectedCards.length}/{effectiveNominationsPerGuesser}
 				</p>
 			</div>
 			<div class="card light p-4">
-				<button class="btn variant-filled w-full" disabled={selectedImage === ''} on:click={choose}
+				<button class="btn variant-filled w-full" disabled={!canSubmit} on:click={choose}
 					>Choose</button
 				>
 			</div>
@@ -108,7 +157,12 @@
 			<div class="card light space-y-2 p-4">
 				<h1 class="text-xl font-semibold">Your turn!</h1>
 				<p>
-					Choose a card that <span class="boujee-text">{activePlayer}</span> would put for "{description}"
+					Choose {effectiveNominationsPerGuesser} card{effectiveNominationsPerGuesser === 1
+						? ''
+						: 's'} that <span class="boujee-text">{activePlayer}</span> would put for "{description}"
+				</p>
+				<p class="text-xs opacity-80">
+					Selected: {selectedCards.length}/{effectiveNominationsPerGuesser}
 				</p>
 			</div>
 		{:else}
@@ -124,7 +178,7 @@
 
 	<svelte:fragment slot="mobileActions">
 		{#if isChooser}
-			<button class="btn variant-filled w-full" disabled={selectedImage === ''} on:click={choose}
+			<button class="btn variant-filled w-full" disabled={!canSubmit} on:click={choose}
 				>Choose</button
 			>
 		{/if}
@@ -132,8 +186,27 @@
 
 	<div class="flex h-full flex-col">
 		<h2 class="mb-2 hidden text-lg font-semibold lg:block">Your hand</h2>
-		<div class="min-h-0 flex-1 overflow-y-auto">
-			<Images {displayImages} bind:selectedImage selectable={isChooser} mode="hand" />
-		</div>
+		<section class="grid w-full grid-cols-2 gap-3 overflow-visible p-1 lg:grid-cols-3 lg:auto-rows-max lg:content-start">
+			{#each displayImages as image}
+				<button
+					type="button"
+					class={`group relative block w-full overflow-visible rounded-lg focus-visible:outline-none ${
+						!isChooser ? 'cursor-default' : ''
+					}`}
+					disabled={!isChooser}
+					on:click={() => toggleCard(image)}
+				>
+					<img
+						class={`pointer-events-none w-full rounded-lg object-cover object-center aspect-[2/3] transition-all duration-150 ease-out ${
+							selectedCards.includes(image)
+								? 'brightness-105 ring-4 ring-white shadow-xlg'
+								: 'cursor-pointer group-hover:ring-2 group-hover:ring-white/85 group-hover:brightness-105'
+						}`}
+						src={`${http_host}/cards/${image}`}
+						alt={CARD_IMAGE_ALT_TEXT}
+					/>
+				</button>
+			{/each}
+		</section>
 	</div>
 </StageShell>

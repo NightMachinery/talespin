@@ -165,6 +165,22 @@ class GameServer {
 		});
 	}
 
+	setCardsPerHand(cards: number) {
+		this.send({
+			SetCardsPerHand: {
+				cards
+			}
+		});
+	}
+
+	setNominationsPerGuesser(cards: number) {
+		this.send({
+			SetNominationsPerGuesser: {
+				cards
+			}
+		});
+	}
+
 	resumeGame() {
 		this.send({
 			ResumeGame: {}
@@ -180,10 +196,10 @@ class GameServer {
 		});
 	}
 
-	playersChoose(card: string) {
+	playersChoose(cards: string[]) {
 		this.send({
-			PlayerChooseCard: {
-				card
+			PlayerChooseCards: {
+				cards
 			}
 		});
 	}

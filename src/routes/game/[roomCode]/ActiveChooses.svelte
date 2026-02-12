@@ -20,6 +20,12 @@
 	export let votesPerGuesser = 1;
 	export let votesPerGuesserMin = 1;
 	export let votesPerGuesserMax = 1;
+	export let cardsPerHand = 6;
+	export let cardsPerHandMin = 1;
+	export let cardsPerHandMax = 12;
+	export let nominationsPerGuesser = 1;
+	export let nominationsPerGuesserMin = 1;
+	export let nominationsPerGuesserMax = 1;
 	export let stage = '';
 	export let pointChange: { [key: string]: number } = {};
 	export let roundNum = 0;
@@ -66,6 +72,12 @@
 	{votesPerGuesser}
 	{votesPerGuesserMin}
 	{votesPerGuesserMax}
+	{cardsPerHand}
+	{cardsPerHandMin}
+	{cardsPerHandMax}
+	{nominationsPerGuesser}
+	{nominationsPerGuesserMin}
+	{nominationsPerGuesserMax}
 	{pointChange}
 	{activePlayer}
 	{roundNum}
@@ -147,7 +159,7 @@
 	</svelte:fragment>
 
 	<div class="flex h-full flex-col">
-		<h2 class="mb-2 hidden text-lg font-semibold lg:block">{name}, your six cards</h2>
+		<h2 class="mb-2 hidden text-lg font-semibold lg:block">{name}, your cards</h2>
 		<div class="min-h-0 flex-1 overflow-y-auto">
 			<Images {displayImages} bind:selectedImage selectable={isActivePlayer} mode="hand" />
 		</div>

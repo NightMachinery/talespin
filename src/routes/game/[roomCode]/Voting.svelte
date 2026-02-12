@@ -24,6 +24,12 @@
 	export let votesPerGuesser = 1;
 	export let votesPerGuesserMin = 1;
 	export let votesPerGuesserMax = 1;
+	export let cardsPerHand = 6;
+	export let cardsPerHandMin = 1;
+	export let cardsPerHandMax = 12;
+	export let nominationsPerGuesser = 1;
+	export let nominationsPerGuesserMin = 1;
+	export let nominationsPerGuesserMax = 1;
 	export let stage = '';
 	export let pointChange: { [key: string]: number } = {};
 	export let roundNum = 0;
@@ -33,7 +39,7 @@
 		mode: 'points',
 		target_points: 10
 	};
-	export let disabledCard = '';
+	export let disabledCards: string[] = [];
 
 	let selectedVotes: string[] = [];
 	let toastStore = getToastStore();
@@ -50,7 +56,8 @@
 	$: canSubmit =
 		isVoter && effectiveVotesPerGuesser > 0 && selectedVotes.length === effectiveVotesPerGuesser;
 	$: {
-		const allowed = new Set(displayImages.filter((image) => image !== disabledCard));
+		const disabled = new Set(disabledCards);
+		const allowed = new Set(displayImages.filter((image) => !disabled.has(image)));
 		const filtered = selectedVotes.filter((card) => allowed.has(card));
 		if (filtered.length !== selectedVotes.length) {
 			selectedVotes = filtered;
@@ -65,7 +72,7 @@
 	}
 
 	function cycleCardVote(card: string) {
-		if (!isVoter || card === disabledCard) return;
+		if (!isVoter || disabledCards.includes(card)) return;
 
 		const currentCount = voteCountForCard(card);
 		if (currentCount >= 2) {
@@ -118,6 +125,12 @@
 	{votesPerGuesser}
 	{votesPerGuesserMin}
 	{votesPerGuesserMax}
+	{cardsPerHand}
+	{cardsPerHandMin}
+	{cardsPerHandMax}
+	{nominationsPerGuesser}
+	{nominationsPerGuesserMin}
+	{nominationsPerGuesserMax}
 	{pointChange}
 	{activePlayer}
 	{roundNum}
@@ -264,7 +277,7 @@
 		<section class="grid w-full grid-cols-2 gap-3 overflow-visible p-1 lg:grid-cols-3 lg:auto-rows-max lg:content-start">
 			{#each displayImages as image}
 				{@const selectedCount = voteCountForCard(image)}
-				{@const isDisabled = image === disabledCard}
+				{@const isDisabled = disabledCards.includes(image)}
 				<button
 					type="button"
 					class={`group relative block w-full overflow-visible rounded-lg focus-visible:outline-none ${isDisabled || !isVoter ? 'cursor-default' : ''}`}

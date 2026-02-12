@@ -12,6 +12,11 @@ use std::{
 use tokio::sync::{broadcast, mpsc, RwLock, RwLockWriteGuard};
 
 const MODERATOR_ABSENCE_PROMOTION_DELAY_S: u64 = 5 * 60;
+const DEFAULT_CARDS_PER_HAND: u16 = 6;
+const THREE_PLAYER_CARDS_PER_HAND: u16 = 7;
+const MAX_CARDS_PER_HAND: u16 = 12;
+const DEFAULT_NOMINATIONS_PER_GUESSER: u16 = 1;
+const THREE_PLAYER_NOMINATIONS_PER_GUESSER: u16 = 2;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
 #[serde(tag = "mode", rename_all = "snake_case")]
@@ -44,6 +49,12 @@ pub enum ServerMsg {
         votes_per_guesser: u16,
         votes_per_guesser_min: u16,
         votes_per_guesser_max: u16,
+        cards_per_hand: u16,
+        cards_per_hand_min: u16,
+        cards_per_hand_max: u16,
+        nominations_per_guesser: u16,
+        nominations_per_guesser_min: u16,
+        nominations_per_guesser_max: u16,
     },
     StartRound {
         hand: Vec<String>,
@@ -55,12 +66,12 @@ pub enum ServerMsg {
     BeginVoting {
         center_cards: Vec<String>,
         description: String,
-        disabled_card: Option<String>,
+        disabled_cards: Vec<String>,
         votes_per_guesser: u16,
     },
     Results {
         player_to_votes: HashMap<String, Vec<String>>,
-        player_to_current_card: HashMap<String, String>,
+        player_to_current_cards: HashMap<String, Vec<String>>,
         active_card: String,
         point_change: HashMap<String, u16>,
     },
@@ -108,6 +119,12 @@ pub enum ClientMsg {
     SetVotesPerGuesser {
         votes: u16,
     },
+    SetCardsPerHand {
+        cards: u16,
+    },
+    SetNominationsPerGuesser {
+        cards: u16,
+    },
     ResumeGame {},
     RequestJoinFromObserver {},
     JoinRoom {
@@ -124,6 +141,9 @@ pub enum ClientMsg {
     },
     PlayerChooseCard {
         card: String,
+    },
+    PlayerChooseCards {
+        cards: Vec<String>,
     },
     SubmitVotes {
         cards: Vec<String>,
@@ -197,6 +217,10 @@ struct RoomState {
     storyteller_loss_complement: u16,
     // number of vote tokens each guesser can cast in Voting
     votes_per_guesser: u16,
+    // hand size target for each active player
+    cards_per_hand: u16,
+    // number of cards each non-storyteller can submit in PlayersChoose
+    nominations_per_guesser: u16,
     // store general stats about each player
     players: HashMap<String, PlayerInfo>,
     // store 6 cards in hand per player
@@ -218,8 +242,8 @@ struct RoomState {
     /** Round-specific information */
     // chosen description by active player
     current_description: String,
-    // for the active player, this is the active card; for other players, this is the card they chose
-    player_to_current_card: HashMap<String, String>,
+    // for each player, cards they have submitted this round
+    player_to_current_cards: HashMap<String, Vec<String>>,
     // for each player, the card they voted for as being the active's card
     // they cannot vote for themselves; duplicates are allowed
     player_to_votes: HashMap<String, Vec<String>>,
@@ -273,6 +297,8 @@ impl Room {
             paused_reason: None,
             storyteller_loss_complement: 0,
             votes_per_guesser: 1,
+            cards_per_hand: DEFAULT_CARDS_PER_HAND,
+            nominations_per_guesser: DEFAULT_NOMINATIONS_PER_GUESSER,
             players: HashMap::new(),
             deck: base_deck.to_vec(),
             stage: RoomStage::Joining,
@@ -282,7 +308,7 @@ impl Room {
             discard_pile: Vec::new(),
             active_player: 0,
             current_description: "".to_string(),
-            player_to_current_card: HashMap::new(),
+            player_to_current_cards: HashMap::new(),
             player_to_votes: HashMap::new(),
             round: 0,
             win_condition,
@@ -416,6 +442,16 @@ impl Room {
         (1, max_votes)
     }
 
+    fn cards_per_hand_bounds(&self, _state: &RwLockWriteGuard<RoomState>) -> (u16, u16) {
+        (1, MAX_CARDS_PER_HAND)
+    }
+
+    fn nominations_per_guesser_bounds(&self, state: &RwLockWriteGuard<RoomState>) -> (u16, u16) {
+        let (_, cards_per_hand_max) = self.cards_per_hand_bounds(state);
+        let cards_per_hand = state.cards_per_hand.clamp(1, cards_per_hand_max);
+        (1, cards_per_hand.max(1))
+    }
+
     fn clamp_storyteller_loss_complement(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
         let (min_complement, max_complement) = self.storyteller_loss_complement_bounds(state);
         state.storyteller_loss_complement = state
@@ -428,6 +464,16 @@ impl Room {
         state.votes_per_guesser = state.votes_per_guesser.clamp(min_votes, max_votes);
     }
 
+    fn clamp_cards_per_hand(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
+        let (min_cards, max_cards) = self.cards_per_hand_bounds(state);
+        state.cards_per_hand = state.cards_per_hand.clamp(min_cards, max_cards);
+    }
+
+    fn clamp_nominations_per_guesser(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
+        let (min_cards, max_cards) = self.nominations_per_guesser_bounds(state);
+        state.nominations_per_guesser = state.nominations_per_guesser.clamp(min_cards, max_cards);
+    }
+
     fn clamp_vote_submission_lengths(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
         let (_, max_votes) = self.votes_per_guesser_bounds(state);
         let max_votes = usize::from(max_votes);
@@ -435,6 +481,23 @@ impl Room {
             if votes.len() > max_votes {
                 let keep_start = votes.len().saturating_sub(max_votes);
                 *votes = votes.split_off(keep_start);
+            }
+        }
+    }
+
+    fn clamp_player_nominations_lengths(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
+        let (_, max_nominations) = self.nominations_per_guesser_bounds(state);
+        let max_nominations = usize::from(max_nominations);
+        let active_player = self.active_player_name(state).map(str::to_owned);
+        for (player, cards) in state.player_to_current_cards.iter_mut() {
+            let limit = if active_player.as_deref() == Some(player.as_str()) {
+                1
+            } else {
+                max_nominations
+            };
+            if cards.len() > limit {
+                let keep_start = cards.len().saturating_sub(limit);
+                *cards = cards.split_off(keep_start);
             }
         }
     }
@@ -454,6 +517,29 @@ impl Room {
         let (min_complement, max_complement) = self.storyteller_loss_complement_bounds(state);
         (default_complement.min(usize::from(max_complement)) as u16)
             .clamp(min_complement, max_complement)
+    }
+
+    fn default_cards_per_hand_on_game_start(&self, state: &RwLockWriteGuard<'_, RoomState>) -> u16 {
+        let default_cards = if state.players.len() == 3 {
+            THREE_PLAYER_CARDS_PER_HAND
+        } else {
+            DEFAULT_CARDS_PER_HAND
+        };
+        let (min_cards, max_cards) = self.cards_per_hand_bounds(state);
+        default_cards.clamp(min_cards, max_cards)
+    }
+
+    fn default_nominations_per_guesser_on_game_start(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+    ) -> u16 {
+        let default_cards = if state.players.len() == 3 {
+            THREE_PLAYER_NOMINATIONS_PER_GUESSER
+        } else {
+            DEFAULT_NOMINATIONS_PER_GUESSER
+        };
+        let (min_cards, max_cards) = self.nominations_per_guesser_bounds(state);
+        default_cards.clamp(min_cards, max_cards)
     }
 
     fn disconnect_previous_session(
@@ -495,9 +581,100 @@ impl Room {
 
     fn reset_round_keep_hands(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
         state.current_description.clear();
-        state.player_to_current_card.clear();
+        state.player_to_current_cards.clear();
         state.player_to_votes.clear();
         self.clear_ready(state);
+    }
+
+    fn target_cards_per_hand(&self, state: &RwLockWriteGuard<'_, RoomState>) -> usize {
+        let (min_cards, max_cards) = self.cards_per_hand_bounds(state);
+        usize::from(state.cards_per_hand.clamp(min_cards, max_cards))
+    }
+
+    fn top_up_player_hand_to_target(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+        player: &str,
+    ) {
+        let target = self.target_cards_per_hand(state);
+        while state
+            .player_hand
+            .get(player)
+            .map(|hand| hand.len())
+            .unwrap_or_default()
+            < target
+        {
+            if state.deck.is_empty() {
+                self.check_deck(state);
+            }
+
+            let Some(next_card) = state.deck.pop() else {
+                break;
+            };
+            if let Some(hand) = state.player_hand.get_mut(player) {
+                hand.push(next_card);
+            }
+        }
+    }
+
+    fn apply_cards_per_hand_change(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
+        let target = self.target_cards_per_hand(state);
+        let active_players = state.players.keys().cloned().collect::<HashSet<String>>();
+        state
+            .player_hand
+            .retain(|player, _| active_players.contains(player));
+
+        let protected_cards: HashMap<String, HashSet<String>> = state
+            .player_to_current_cards
+            .iter()
+            .map(|(player, cards)| (player.clone(), cards.iter().cloned().collect()))
+            .collect();
+
+        let mut removed_cards = Vec::new();
+        for player in state.players.keys().cloned().collect::<Vec<_>>() {
+            state.player_hand.entry(player.clone()).or_default();
+            if let Some(hand) = state.player_hand.get_mut(&player) {
+                while hand.len() > target {
+                    let protected = protected_cards
+                        .get(&player)
+                        .map(|cards| cards.contains(hand.last().unwrap()))
+                        .unwrap_or(false);
+                    if protected {
+                        if let Some(idx) = hand.iter().rposition(|card| {
+                            !protected_cards
+                                .get(&player)
+                                .map(|cards| cards.contains(card))
+                                .unwrap_or(false)
+                        }) {
+                            removed_cards.push(hand.remove(idx));
+                        } else {
+                            removed_cards.push(hand.pop().unwrap());
+                        }
+                    } else {
+                        removed_cards.push(hand.pop().unwrap());
+                    }
+                }
+            }
+            self.top_up_player_hand_to_target(state, &player);
+        }
+
+        if !removed_cards.is_empty() {
+            state.deck.extend(removed_cards);
+            state.deck.shuffle(&mut rand::thread_rng());
+        }
+
+        let hand_lookup: HashMap<String, HashSet<String>> = state
+            .player_hand
+            .iter()
+            .map(|(player, hand)| (player.clone(), hand.iter().cloned().collect()))
+            .collect();
+        for (player, cards) in state.player_to_current_cards.iter_mut() {
+            if let Some(hand_set) = hand_lookup.get(player) {
+                cards.retain(|card| hand_set.contains(card));
+            } else {
+                cards.clear();
+            }
+        }
     }
 
     fn maybe_pause_for_low_player_count(
@@ -587,7 +764,10 @@ impl Room {
 
         self.clamp_storyteller_loss_complement(state);
         self.clamp_votes_per_guesser(state);
+        self.clamp_cards_per_hand(state);
+        self.clamp_nominations_per_guesser(state);
         self.clamp_vote_submission_lengths(state);
+        self.clamp_player_nominations_lengths(state);
         self.clean_moderators(state);
         self.sync_player_order_with_players(state);
         promoted
@@ -622,29 +802,15 @@ impl Room {
                 .player_hand
                 .entry(observer_name.to_string())
                 .or_insert_with(Vec::new);
-            while state
-                .player_hand
-                .get(observer_name)
-                .map(|hand| hand.len())
-                .unwrap_or_default()
-                < 6
-            {
-                if state.deck.is_empty() {
-                    self.check_deck(state);
-                }
-
-                let Some(next_card) = state.deck.pop() else {
-                    break;
-                };
-                if let Some(hand) = state.player_hand.get_mut(observer_name) {
-                    hand.push(next_card);
-                }
-            }
+            self.top_up_player_hand_to_target(state, observer_name);
         }
 
         self.clamp_storyteller_loss_complement(state);
         self.clamp_votes_per_guesser(state);
+        self.clamp_cards_per_hand(state);
+        self.clamp_nominations_per_guesser(state);
         self.clamp_vote_submission_lengths(state);
+        self.clamp_player_nominations_lengths(state);
         self.clean_moderators(state);
         self.sync_player_order_with_players(state);
 
@@ -685,9 +851,11 @@ impl Room {
             }
         }
 
-        if let Some(card) = state.player_to_current_card.remove(player_name) {
-            if moved_cards.insert(card.clone()) {
-                state.discard_pile.push(card);
+        if let Some(cards) = state.player_to_current_cards.remove(player_name) {
+            for card in cards {
+                if moved_cards.insert(card.clone()) {
+                    state.discard_pile.push(card);
+                }
             }
         }
         state.player_to_votes.remove(player_name);
@@ -718,7 +886,10 @@ impl Room {
         );
         self.clamp_storyteller_loss_complement(state);
         self.clamp_votes_per_guesser(state);
+        self.clamp_cards_per_hand(state);
+        self.clamp_nominations_per_guesser(state);
         self.clamp_vote_submission_lengths(state);
+        self.clamp_player_nominations_lengths(state);
         self.clean_moderators(state);
         Ok(true)
     }
@@ -750,7 +921,10 @@ impl Room {
 
         self.clamp_storyteller_loss_complement(state);
         self.clamp_votes_per_guesser(state);
+        self.clamp_cards_per_hand(state);
+        self.clamp_nominations_per_guesser(state);
         self.clamp_vote_submission_lengths(state);
+        self.clamp_player_nominations_lengths(state);
         self.clean_moderators(state);
         Ok(true)
     }
@@ -774,9 +948,11 @@ impl Room {
             }
         }
 
-        if let Some(card) = state.player_to_current_card.remove(player_name) {
-            if moved_cards.insert(card.clone()) {
-                state.discard_pile.push(card);
+        if let Some(cards) = state.player_to_current_cards.remove(player_name) {
+            for card in cards {
+                if moved_cards.insert(card.clone()) {
+                    state.discard_pile.push(card);
+                }
             }
         }
 
@@ -813,7 +989,10 @@ impl Room {
 
         self.clamp_storyteller_loss_complement(state);
         self.clamp_votes_per_guesser(state);
+        self.clamp_cards_per_hand(state);
+        self.clamp_nominations_per_guesser(state);
         self.clamp_vote_submission_lengths(state);
+        self.clamp_player_nominations_lengths(state);
         self.clean_moderators(state);
         Ok(true)
     }
@@ -836,31 +1015,14 @@ impl Room {
         state.stage = RoomStage::ActiveChooses;
         state.paused_reason = None;
 
-        // Ensure all active players have a hand entry and top up to 6 cards when possible.
+        // Ensure all active players have a hand entry and top up to configured hand size when possible.
         let active_players = state.players.keys().cloned().collect::<HashSet<String>>();
         state
             .player_hand
             .retain(|player, _| active_players.contains(player));
         for player in state.players.keys().cloned().collect::<Vec<_>>() {
             state.player_hand.entry(player.clone()).or_default();
-            while state
-                .player_hand
-                .get(&player)
-                .map(|hand| hand.len())
-                .unwrap_or_default()
-                < 6
-            {
-                if state.deck.is_empty() {
-                    self.check_deck(state);
-                }
-
-                let Some(next_card) = state.deck.pop() else {
-                    break;
-                };
-                if let Some(hand) = state.player_hand.get_mut(&player) {
-                    hand.push(next_card);
-                }
-            }
+            self.top_up_player_hand_to_target(state, &player);
         }
 
         for player in state.player_order.clone().iter() {
@@ -943,7 +1105,11 @@ impl Room {
                     .active_player_name(state)
                     .map(|name| {
                         state.players.contains_key(name)
-                            && state.player_to_current_card.contains_key(name)
+                            && state
+                                .player_to_current_cards
+                                .get(name)
+                                .map(|cards| !cards.is_empty())
+                                .unwrap_or(false)
                     })
                     .unwrap_or(false);
                 if !active_exists {
@@ -1000,13 +1166,19 @@ impl Room {
             RoomStage::Voting => Ok(ServerMsg::BeginVoting {
                 center_cards: self.get_center_cards(state),
                 description: state.current_description.clone(),
-                disabled_card: name.and_then(|player_name| {
-                    if player_name == state.player_order[state.active_player].as_str() {
-                        None
-                    } else {
-                        state.player_to_current_card.get(player_name).cloned()
-                    }
-                }),
+                disabled_cards: name
+                    .map(|player_name| {
+                        if player_name == state.player_order[state.active_player].as_str() {
+                            Vec::new()
+                        } else {
+                            state
+                                .player_to_current_cards
+                                .get(player_name)
+                                .cloned()
+                                .unwrap_or_default()
+                        }
+                    })
+                    .unwrap_or_default(),
                 votes_per_guesser: {
                     let (min_votes, max_votes) = self.votes_per_guesser_bounds(state);
                     state.votes_per_guesser.clamp(min_votes, max_votes)
@@ -1014,12 +1186,13 @@ impl Room {
             }),
             RoomStage::Results => Ok(ServerMsg::Results {
                 player_to_votes: state.player_to_votes.clone(),
-                player_to_current_card: state.player_to_current_card.clone(),
+                player_to_current_cards: state.player_to_current_cards.clone(),
                 active_card: state
-                    .player_to_current_card
+                    .player_to_current_cards
                     .get(&self.get_active_player(state)?)
-                    .unwrap()
-                    .to_string(),
+                    .and_then(|cards| cards.first())
+                    .cloned()
+                    .ok_or_else(|| anyhow!("Missing active card"))?,
                 point_change: self.compute_results(state),
             }),
             RoomStage::Paused => Err(anyhow!("No stage-specific paused message")),
@@ -1030,9 +1203,9 @@ impl Room {
 
     fn get_center_cards(&self, state: &RwLockWriteGuard<RoomState>) -> Vec<String> {
         let mut center_cards: Vec<String> = state
-            .player_to_current_card
+            .player_to_current_cards
             .values()
-            .map(|e| e.to_string())
+            .flat_map(|cards| cards.iter().cloned())
             .collect();
         center_cards.shuffle(&mut rand::thread_rng());
         center_cards
@@ -1102,21 +1275,22 @@ impl Room {
             return Ok(());
         }
 
-        let own_card = state.player_to_current_card.get(name).cloned();
+        let own_cards = state
+            .player_to_current_cards
+            .get(name)
+            .cloned()
+            .unwrap_or_default();
         for card in cards.iter() {
             if !state
-                .player_to_current_card
+                .player_to_current_cards
                 .values()
+                .flat_map(|values| values.iter())
                 .any(|value| value == card)
             {
                 return Err(anyhow!("Invalid card"));
             }
 
-            if own_card
-                .as_ref()
-                .map(|value| value == card)
-                .unwrap_or(false)
-            {
+            if own_cards.iter().any(|value| value == card) {
                 if let Some(socket) = state.player_to_socket.get(name) {
                     socket
                         .send(
@@ -1148,26 +1322,66 @@ impl Room {
         state.stage = RoomStage::Voting;
         state.player_to_votes.clear();
 
-        // choose random card for those who didn't choose by the deadline
+        let active_player = self.get_active_player(state)?;
+        let (_, nomination_max) = self.nominations_per_guesser_bounds(state);
+        let nominations_per_guesser =
+            usize::from(state.nominations_per_guesser.clamp(1, nomination_max));
+
+        // choose random cards for those who didn't choose by the deadline
         for player in state.player_order.clone().iter() {
-            if !state.player_to_current_card.contains_key(player) {
-                let mut rng = rand::thread_rng();
-                let card = state.player_hand[player].choose(&mut rng).unwrap().clone();
-                state
-                    .player_to_current_card
-                    .insert(player.to_string(), card);
+            let desired = if player == &active_player {
+                1
+            } else {
+                nominations_per_guesser
+            };
+            let mut chosen = state
+                .player_to_current_cards
+                .get(player)
+                .cloned()
+                .unwrap_or_default();
+            if chosen.len() > desired {
+                let keep_start = chosen.len().saturating_sub(desired);
+                chosen = chosen.split_off(keep_start);
             }
+
+            let hand_cards = state.player_hand.get(player).cloned().unwrap_or_default();
+            if hand_cards.is_empty() {
+                state
+                    .player_to_current_cards
+                    .insert(player.to_string(), chosen);
+                continue;
+            }
+            let mut rng = rand::thread_rng();
+            let mut available = hand_cards
+                .iter()
+                .filter(|card| !chosen.contains(*card))
+                .cloned()
+                .collect::<Vec<_>>();
+            available.shuffle(&mut rng);
+            while chosen.len() < desired {
+                let Some(card) = available.pop() else {
+                    break;
+                };
+                chosen.push(card);
+            }
+            state
+                .player_to_current_cards
+                .insert(player.to_string(), chosen);
         }
 
         self.clear_ready(state);
 
         // remove cards from hand that were put in the center
-        for (player, card) in state.player_to_current_card.clone().iter() {
+        for (player, cards) in state.player_to_current_cards.clone().iter() {
             if let Some(hand) = state.player_hand.get_mut(player) {
-                if let Some(pos) = hand.iter().position(|e| e == card) {
-                    let played_card = hand.remove(pos);
-                    state.discard_pile.push(played_card);
+                let mut removed_for_player = Vec::new();
+                for card in cards {
+                    if let Some(pos) = hand.iter().position(|e| e == card) {
+                        let played_card = hand.remove(pos);
+                        removed_for_player.push(played_card);
+                    }
                 }
+                state.discard_pile.extend(removed_for_player);
             }
         }
 
@@ -1200,14 +1414,14 @@ impl Room {
                 continue;
             }
 
-            let own_card = state
-                .player_to_current_card
+            let own_cards = state
+                .player_to_current_cards
                 .get(player)
                 .cloned()
-                .ok_or_else(|| anyhow!("Missing card for player {}", player))?;
+                .unwrap_or_default();
             let valid_cards = center_cards
                 .iter()
-                .filter(|card| card.as_str() != own_card.as_str())
+                .filter(|card| !own_cards.iter().any(|own| own == *card))
                 .cloned()
                 .collect::<Vec<_>>();
             if valid_cards.is_empty() {
@@ -1246,11 +1460,20 @@ impl Room {
     }
 
     fn check_deck(&self, state: &mut RwLockWriteGuard<'_, RoomState>) -> bool {
-        if state.deck.len() < state.player_order.len() {
+        self.ensure_deck_size(state, state.player_order.len())
+    }
+
+    fn ensure_deck_size(&self, state: &mut RwLockWriteGuard<'_, RoomState>, needed: usize) -> bool {
+        if state.deck.len() >= needed {
+            return false;
+        }
+
+        while state.deck.len() < needed {
             if matches!(state.win_condition, WinCondition::CardsFinish) {
                 return false;
             }
 
+            let before = state.deck.len();
             if !state.discard_pile.is_empty() {
                 let mut refill = std::mem::take(&mut state.discard_pile);
                 refill.shuffle(&mut rand::thread_rng());
@@ -1277,10 +1500,12 @@ impl Room {
             }
 
             state.deck_refill_count += 1;
-            return true;
+            if state.deck.len() <= before {
+                break;
+            }
         }
 
-        false
+        state.deck.len() >= needed
     }
 
     async fn init_round(&self, state: &mut RwLockWriteGuard<'_, RoomState>) -> Result<()> {
@@ -1310,21 +1535,35 @@ impl Room {
             state.player_order.shuffle(&mut rand::thread_rng());
             state.storyteller_loss_complement =
                 self.default_storyteller_loss_complement_on_game_start(state);
-        } else {
-            self.check_deck(state);
+            state.cards_per_hand = self.default_cards_per_hand_on_game_start(state);
+            state.nominations_per_guesser =
+                self.default_nominations_per_guesser_on_game_start(state);
         }
 
         self.clamp_storyteller_loss_complement(state);
         self.clamp_votes_per_guesser(state);
+        self.clamp_cards_per_hand(state);
+        self.clamp_nominations_per_guesser(state);
 
         state.deck.shuffle(&mut rand::thread_rng());
-        state.player_to_current_card.clear();
+        state.player_to_current_cards.clear();
         state.player_to_votes.clear();
         state.current_description.clear();
         state.paused_reason = None;
 
         let mut player_hand = state.player_hand.clone();
         player_hand.retain(|name, _| state.players.contains_key(name));
+        let target_hand_size = usize::from(state.cards_per_hand);
+        let required_draws = state
+            .players
+            .keys()
+            .map(|player| {
+                let existing = player_hand.get(player).map(|hand| hand.len()).unwrap_or(0);
+                target_hand_size.saturating_sub(existing)
+            })
+            .sum::<usize>();
+
+        self.ensure_deck_size(state, required_draws);
 
         let mut deck = state.deck.clone();
         for player in state.players.keys() {
@@ -1332,7 +1571,7 @@ impl Room {
                 player_hand.insert(player.clone(), Vec::new());
             }
 
-            while player_hand.get(player).unwrap().len() < 6 {
+            while player_hand.get(player).unwrap().len() < target_hand_size {
                 let next_card = match deck.pop() {
                     Some(card) => card,
                     None => {
@@ -1654,7 +1893,11 @@ impl Room {
                     let storyteller_can_switch_before_clue =
                         matches!(state.stage, RoomStage::ActiveChooses)
                             && state.current_description.trim().is_empty()
-                            && !state.player_to_current_card.contains_key(target);
+                            && state
+                                .player_to_current_cards
+                                .get(target)
+                                .map(|cards| cards.is_empty())
+                                .unwrap_or(true);
                     let storyteller_switch_blocked = target_is_storyteller
                         && !storyteller_can_switch_before_clue
                         && matches!(
@@ -1771,6 +2014,67 @@ impl Room {
                 self.clamp_vote_submission_lengths(&mut state);
                 self.broadcast_msg(self.room_state(&state))?;
             }
+            ClientMsg::SetCardsPerHand { cards } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change cards per hand".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if matches!(state.stage, RoomStage::End) {
+                    return Ok(());
+                }
+
+                if !matches!(state.stage, RoomStage::ActiveChooses) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Cards per hand can only be changed at round start".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                state.cards_per_hand = cards;
+                self.clamp_cards_per_hand(&mut state);
+                self.clamp_nominations_per_guesser(&mut state);
+                self.apply_cards_per_hand_change(&mut state);
+                self.clamp_player_nominations_lengths(&mut state);
+                self.broadcast_msg(self.room_state(&state))?;
+            }
+            ClientMsg::SetNominationsPerGuesser { cards } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change nominations per guesser".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if matches!(state.stage, RoomStage::End) {
+                    return Ok(());
+                }
+
+                state.nominations_per_guesser = cards;
+                self.clamp_nominations_per_guesser(&mut state);
+                self.clamp_player_nominations_lengths(&mut state);
+                self.broadcast_msg(self.room_state(&state))?;
+            }
             ClientMsg::ResumeGame {} => {
                 if !matches!(state.stage, RoomStage::Paused) {
                     return Ok(());
@@ -1842,8 +2146,8 @@ impl Room {
 
                     // record choice
                     state
-                        .player_to_current_card
-                        .insert(name.to_string(), card.to_string());
+                        .player_to_current_cards
+                        .insert(name.to_string(), vec![card.to_string()]);
 
                     // notify players of the active player's choice
                     for player in state.player_order.iter() {
@@ -1857,42 +2161,12 @@ impl Room {
                 }
             }
             ClientMsg::PlayerChooseCard { card } => {
-                if !state.players.contains_key(name) {
-                    return Ok(());
-                }
-
-                if matches!(state.stage, RoomStage::PlayersChoose) {
-                    if state.player_order.is_empty() {
-                        return Ok(());
-                    }
-                    if state.player_order[state.active_player] != name {
-                        // verify that player has this card
-                        if !state
-                            .player_hand
-                            .get(name)
-                            .map(|cards| cards.contains(&card))
-                            .unwrap_or(false)
-                        {
-                            return Err(anyhow!("Invalid card chosen by player"));
-                        }
-
-                        // record choice
-                        state
-                            .player_to_current_card
-                            .insert(name.to_string(), card.to_string());
-
-                        // ready
-                        state.players.get_mut(name).unwrap().ready = true;
-                        self.broadcast_msg(self.room_state(&state))?;
-
-                        // check if everyone except for the active player is ready
-                        if state.players.values().filter(|p| p.ready).count()
-                            >= state.players.len().saturating_sub(1)
-                        {
-                            self.init_voting(&mut state).await?;
-                        }
-                    }
-                }
+                self.handle_player_choose_cards(&mut state, name, vec![card])
+                    .await?;
+            }
+            ClientMsg::PlayerChooseCards { cards } => {
+                self.handle_player_choose_cards(&mut state, name, cards)
+                    .await?;
             }
             ClientMsg::SubmitVotes { cards } => {
                 self.submit_votes(&mut state, name, cards).await?;
@@ -1908,14 +2182,88 @@ impl Room {
         Ok(())
     }
 
+    async fn handle_player_choose_cards(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+        name: &str,
+        cards: Vec<String>,
+    ) -> Result<()> {
+        if !state.players.contains_key(name) {
+            return Ok(());
+        }
+
+        if matches!(state.stage, RoomStage::PlayersChoose) {
+            if state.player_order.is_empty() {
+                return Ok(());
+            }
+            if state.player_order[state.active_player] != name {
+                let (_, nomination_max) = self.nominations_per_guesser_bounds(state);
+                let nominations_per_guesser =
+                    usize::from(state.nominations_per_guesser.clamp(1, nomination_max));
+                if cards.len() != nominations_per_guesser {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(format!(
+                                "You must choose exactly {} card{}",
+                                nominations_per_guesser,
+                                if nominations_per_guesser == 1 {
+                                    ""
+                                } else {
+                                    "s"
+                                }
+                            ))
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                let unique = cards.iter().collect::<HashSet<_>>();
+                if unique.len() != cards.len() {
+                    return Err(anyhow!("Duplicate cards chosen by player"));
+                }
+
+                // verify cards are in player's hand
+                for card in cards.iter() {
+                    if !state
+                        .player_hand
+                        .get(name)
+                        .map(|hand| hand.contains(card))
+                        .unwrap_or(false)
+                    {
+                        return Err(anyhow!("Invalid card chosen by player"));
+                    }
+                }
+
+                state
+                    .player_to_current_cards
+                    .insert(name.to_string(), cards.clone());
+
+                // ready
+                state.players.get_mut(name).unwrap().ready = true;
+                self.broadcast_msg(self.room_state(&state))?;
+
+                // check if everyone except for the active player is ready
+                if state.players.values().filter(|p| p.ready).count()
+                    >= state.players.len().saturating_sub(1)
+                {
+                    self.init_voting(state).await?;
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn compute_results(&self, state: &RwLockWriteGuard<RoomState>) -> HashMap<String, u16> {
         let mut point_change: HashMap<String, u16> = HashMap::new();
         let active_player = state.player_order[state.active_player].clone();
         let active_card = state
-            .player_to_current_card
+            .player_to_current_cards
             .get(&active_player)
-            .unwrap()
-            .clone();
+            .and_then(|cards| cards.first())
+            .cloned()
+            .unwrap();
 
         let mut votes_for_card: HashMap<String, u16> = HashMap::new();
         let mut correct_guessers = 0u16;
@@ -1981,13 +2329,17 @@ impl Room {
         }
 
         // decoy bonus is always applied for non-storyteller cards, capped at 3 per round
-        for (player, card) in state.player_to_current_card.iter() {
+        for (player, cards) in state.player_to_current_cards.iter() {
             if player == &active_player {
                 continue;
             }
-            let bonus = (*votes_for_card.get(card).unwrap_or(&0)).min(3);
+            let total_bonus = cards
+                .iter()
+                .map(|card| *votes_for_card.get(card).unwrap_or(&0))
+                .sum::<u16>()
+                .min(3);
             let entry = point_change.entry(player.to_string()).or_insert(0);
-            *entry += bonus;
+            *entry += total_bonus;
         }
 
         point_change
@@ -2155,20 +2507,7 @@ impl Room {
                         },
                     );
                     state.player_hand.insert(name.to_string(), Vec::new());
-                    while state.player_hand.get(name).map(|h| h.len()).unwrap_or(0) < 6 {
-                        if state.deck.is_empty() {
-                            self.check_deck(&mut state);
-                        }
-
-                        let card = match state.deck.pop() {
-                            Some(card) => card,
-                            None => break,
-                        };
-
-                        if let Some(hand) = state.player_hand.get_mut(name) {
-                            hand.push(card);
-                        }
-                    }
+                    self.top_up_player_hand_to_target(&mut state, name);
 
                     if !state.player_order.iter().any(|player| player == name) {
                         state.player_order.push(name.to_string());
@@ -2207,7 +2546,10 @@ impl Room {
         }
         self.clamp_storyteller_loss_complement(&mut state);
         self.clamp_votes_per_guesser(&mut state);
+        self.clamp_cards_per_hand(&mut state);
+        self.clamp_nominations_per_guesser(&mut state);
         self.clamp_vote_submission_lengths(&mut state);
+        self.clamp_player_nominations_lengths(&mut state);
         self.clean_moderators(&mut state);
         self.maybe_promote_moderator(&mut state);
 
@@ -2344,6 +2686,12 @@ impl Room {
             .clamp(complement_min, complement_max);
         let (votes_min, votes_max) = self.votes_per_guesser_bounds(state);
         let votes_per_guesser = state.votes_per_guesser.clamp(votes_min, votes_max);
+        let (cards_min, cards_max) = self.cards_per_hand_bounds(state);
+        let cards_per_hand = state.cards_per_hand.clamp(cards_min, cards_max);
+        let (nominations_min, nominations_max) = self.nominations_per_guesser_bounds(state);
+        let nominations_per_guesser = state
+            .nominations_per_guesser
+            .clamp(nominations_min, nominations_max);
 
         ServerMsg::RoomState {
             room_id: state.room_id.clone(),
@@ -2366,6 +2714,12 @@ impl Room {
             votes_per_guesser,
             votes_per_guesser_min: votes_min,
             votes_per_guesser_max: votes_max,
+            cards_per_hand,
+            cards_per_hand_min: cards_min,
+            cards_per_hand_max: cards_max,
+            nominations_per_guesser,
+            nominations_per_guesser_min: nominations_min,
+            nominations_per_guesser_max: nominations_max,
         }
     }
 }
@@ -2445,10 +2799,18 @@ mod tests {
         state.stage = RoomStage::Voting;
         state.current_description = "clue".to_string();
 
-        state.player_to_current_card.insert("a".into(), "ca".into());
-        state.player_to_current_card.insert("b".into(), "cb".into());
-        state.player_to_current_card.insert("c".into(), "cc".into());
-        state.player_to_current_card.insert("d".into(), "cd".into());
+        state
+            .player_to_current_cards
+            .insert("a".into(), vec!["ca".into()]);
+        state
+            .player_to_current_cards
+            .insert("b".into(), vec!["cb".into()]);
+        state
+            .player_to_current_cards
+            .insert("c".into(), vec!["cc".into()]);
+        state
+            .player_to_current_cards
+            .insert("d".into(), vec!["cd".into()]);
         state.player_to_votes.insert("b".into(), vec!["ca".into()]);
         state.player_to_votes.insert("c".into(), vec!["ca".into()]);
         state.players.get_mut("b").unwrap().ready = true;
@@ -2633,7 +2995,9 @@ mod tests {
             state.round = 4;
             state.stage = RoomStage::PlayersChoose;
             state.current_description = "clue".to_string();
-            state.player_to_current_card.insert("a".into(), "ca".into());
+            state
+                .player_to_current_cards
+                .insert("a".into(), vec!["ca".into()]);
             state.observers.insert(
                 "obs".to_string(),
                 ObserverInfo {
@@ -2688,9 +3052,15 @@ mod tests {
             state.round = 5;
             state.stage = RoomStage::Voting;
             state.current_description = "clue".to_string();
-            state.player_to_current_card.insert("a".into(), "ca".into());
-            state.player_to_current_card.insert("b".into(), "cb".into());
-            state.player_to_current_card.insert("c".into(), "cc".into());
+            state
+                .player_to_current_cards
+                .insert("a".into(), vec!["ca".into()]);
+            state
+                .player_to_current_cards
+                .insert("b".into(), vec!["cb".into()]);
+            state
+                .player_to_current_cards
+                .insert("c".into(), vec!["cc".into()]);
             state.observers.insert(
                 "obs".to_string(),
                 ObserverInfo {
@@ -2738,8 +3108,8 @@ mod tests {
             state.stage = RoomStage::PlayersChoose;
             state.current_description = "clue".to_string();
             state
-                .player_to_current_card
-                .insert("host".into(), "ch".into());
+                .player_to_current_cards
+                .insert("host".into(), vec!["ch".into()]);
             state.moderators.insert("host".to_string());
             state.observers.insert(
                 "obs".to_string(),
@@ -2787,7 +3157,7 @@ mod tests {
             state.round = 6;
             state.stage = RoomStage::ActiveChooses;
             state.current_description.clear();
-            state.player_to_current_card.clear();
+            state.player_to_current_cards.clear();
             setup_connected_member(&mut state, "a", "t-a", 21);
         }
 
@@ -2836,7 +3206,7 @@ mod tests {
             state.active_player = 0;
             state.stage = RoomStage::ActiveChooses;
             state.current_description.clear();
-            state.player_to_current_card.clear();
+            state.player_to_current_cards.clear();
             state.moderators.insert("b".to_string());
             setup_connected_member(&mut state, "b", "t-b", 22);
         }
@@ -2881,7 +3251,9 @@ mod tests {
             state.active_player = 0;
             state.stage = RoomStage::PlayersChoose;
             state.current_description = "hint".to_string();
-            state.player_to_current_card.insert("a".into(), "ca".into());
+            state
+                .player_to_current_cards
+                .insert("a".into(), vec!["ca".into()]);
             setup_connected_member(&mut state, "a", "t-a", 23);
         }
 
@@ -3049,12 +3421,24 @@ mod tests {
         state.active_player = 0;
         state.storyteller_loss_complement = 0;
 
-        state.player_to_current_card.insert("a".into(), "ca".into());
-        state.player_to_current_card.insert("b".into(), "cb".into());
-        state.player_to_current_card.insert("c".into(), "cc".into());
-        state.player_to_current_card.insert("d".into(), "cd".into());
-        state.player_to_current_card.insert("e".into(), "ce".into());
-        state.player_to_current_card.insert("f".into(), "cf".into());
+        state
+            .player_to_current_cards
+            .insert("a".into(), vec!["ca".into()]);
+        state
+            .player_to_current_cards
+            .insert("b".into(), vec!["cb".into()]);
+        state
+            .player_to_current_cards
+            .insert("c".into(), vec!["cc".into()]);
+        state
+            .player_to_current_cards
+            .insert("d".into(), vec!["cd".into()]);
+        state
+            .player_to_current_cards
+            .insert("e".into(), vec!["ce".into()]);
+        state
+            .player_to_current_cards
+            .insert("f".into(), vec!["cf".into()]);
 
         // One correct vote, four decoy votes for b's card.
         state.player_to_votes.insert("b".into(), vec!["ca".into()]);
@@ -3100,12 +3484,24 @@ mod tests {
         state.active_player = 0;
         state.storyteller_loss_complement = 2;
 
-        state.player_to_current_card.insert("a".into(), "ca".into());
-        state.player_to_current_card.insert("b".into(), "cb".into());
-        state.player_to_current_card.insert("c".into(), "cc".into());
-        state.player_to_current_card.insert("d".into(), "cd".into());
-        state.player_to_current_card.insert("e".into(), "ce".into());
-        state.player_to_current_card.insert("f".into(), "cf".into());
+        state
+            .player_to_current_cards
+            .insert("a".into(), vec!["ca".into()]);
+        state
+            .player_to_current_cards
+            .insert("b".into(), vec!["cb".into()]);
+        state
+            .player_to_current_cards
+            .insert("c".into(), vec!["cc".into()]);
+        state
+            .player_to_current_cards
+            .insert("d".into(), vec!["cd".into()]);
+        state
+            .player_to_current_cards
+            .insert("e".into(), vec!["ce".into()]);
+        state
+            .player_to_current_cards
+            .insert("f".into(), vec!["cf".into()]);
 
         // Four wrong guesses; with complement=2 and guessers=5, threshold is 3.
         state.player_to_votes.insert("b".into(), vec!["ca".into()]);
@@ -3144,11 +3540,21 @@ mod tests {
         state.storyteller_loss_complement = 1;
         state.votes_per_guesser = 2;
 
-        state.player_to_current_card.insert("a".into(), "ca".into());
-        state.player_to_current_card.insert("b".into(), "cb".into());
-        state.player_to_current_card.insert("c".into(), "cc".into());
-        state.player_to_current_card.insert("d".into(), "cd".into());
-        state.player_to_current_card.insert("e".into(), "ce".into());
+        state
+            .player_to_current_cards
+            .insert("a".into(), vec!["ca".into()]);
+        state
+            .player_to_current_cards
+            .insert("b".into(), vec!["cb".into()]);
+        state
+            .player_to_current_cards
+            .insert("c".into(), vec!["cc".into()]);
+        state
+            .player_to_current_cards
+            .insert("d".into(), vec!["cd".into()]);
+        state
+            .player_to_current_cards
+            .insert("e".into(), vec!["ce".into()]);
 
         // Two guessers are correct (double-voting active card), two are wrong.
         // Correct token count is 4, but correct guesser count is only 2.
@@ -3190,11 +3596,21 @@ mod tests {
         state.storyteller_loss_complement = 1;
         state.votes_per_guesser = 2;
 
-        state.player_to_current_card.insert("a".into(), "ca".into());
-        state.player_to_current_card.insert("b".into(), "cb".into());
-        state.player_to_current_card.insert("c".into(), "cc".into());
-        state.player_to_current_card.insert("d".into(), "cd".into());
-        state.player_to_current_card.insert("e".into(), "ce".into());
+        state
+            .player_to_current_cards
+            .insert("a".into(), vec!["ca".into()]);
+        state
+            .player_to_current_cards
+            .insert("b".into(), vec!["cb".into()]);
+        state
+            .player_to_current_cards
+            .insert("c".into(), vec!["cc".into()]);
+        state
+            .player_to_current_cards
+            .insert("d".into(), vec!["cd".into()]);
+        state
+            .player_to_current_cards
+            .insert("e".into(), vec!["ce".into()]);
 
         // b double-guesses correctly (+1 bonus).
         // c and d both vote for b's decoy, with one duplicate token from c, so b decoy reaches cap 3.
@@ -3276,10 +3692,18 @@ mod tests {
         // 3 guessers => max complement is 2 => effective threshold is 1
         state.storyteller_loss_complement = 2;
 
-        state.player_to_current_card.insert("a".into(), "ca".into());
-        state.player_to_current_card.insert("b".into(), "cb".into());
-        state.player_to_current_card.insert("c".into(), "cc".into());
-        state.player_to_current_card.insert("d".into(), "cd".into());
+        state
+            .player_to_current_cards
+            .insert("a".into(), vec!["ca".into()]);
+        state
+            .player_to_current_cards
+            .insert("b".into(), vec!["cb".into()]);
+        state
+            .player_to_current_cards
+            .insert("c".into(), vec!["cc".into()]);
+        state
+            .player_to_current_cards
+            .insert("d".into(), vec!["cd".into()]);
 
         // Any single wrong guess should trigger storyteller-loss branch when threshold is 1.
         state.player_to_votes.insert("b".into(), vec!["cc".into()]);

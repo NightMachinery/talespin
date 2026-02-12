@@ -19,6 +19,12 @@
 	export let votesPerGuesser = 1;
 	export let votesPerGuesserMin = 1;
 	export let votesPerGuesserMax = 1;
+	export let cardsPerHand = 6;
+	export let cardsPerHandMin = 1;
+	export let cardsPerHandMax = 12;
+	export let nominationsPerGuesser = 1;
+	export let nominationsPerGuesserMin = 1;
+	export let nominationsPerGuesserMax = 1;
 	export let gameServer: GameServer;
 
 	$: moderatorSet = new Set(moderators);
@@ -32,6 +38,9 @@
 	$: canBecomeObserver =
 		!isSelfObserver && stage !== 'Joining' && stage !== 'End' && !selfObserveBlocked;
 	$: joinBackLabel = stage === 'Voting' ? 'Join next round' : 'Join now';
+	$: guesserCount = Math.max(0, Object.keys(players).length - 1);
+	$: effectiveLossThreshold = Math.max(0, guesserCount - storytellerLossComplement);
+	$: canChangeCardsPerHand = stage === 'ActiveChooses';
 
 	function isPlayerModerator(playerName: string) {
 		return moderatorSet.has(playerName);
@@ -101,6 +110,34 @@
 			gameServer.setVotesPerGuesser(parsed);
 		}
 	}
+
+	function updateCardsPerHand(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const parsed = Number(input.value);
+		if (!Number.isInteger(parsed) || parsed < cardsPerHandMin || parsed > cardsPerHandMax) {
+			input.value = `${cardsPerHand}`;
+			return;
+		}
+		if (parsed !== cardsPerHand) {
+			gameServer.setCardsPerHand(parsed);
+		}
+	}
+
+	function updateNominationsPerGuesser(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const parsed = Number(input.value);
+		if (
+			!Number.isInteger(parsed) ||
+			parsed < nominationsPerGuesserMin ||
+			parsed > nominationsPerGuesserMax
+		) {
+			input.value = `${nominationsPerGuesser}`;
+			return;
+		}
+		if (parsed !== nominationsPerGuesser) {
+			gameServer.setNominationsPerGuesser(parsed);
+		}
+	}
 </script>
 
 <div class="card light space-y-3 p-4">
@@ -134,6 +171,91 @@
 	{#if showModeration}
 		<details class="rounded border border-white/20 px-3 py-2">
 			<summary class="cursor-pointer text-sm font-semibold">Moderation</summary>
+			<div class="mt-3 max-h-[45vh] space-y-2 overflow-y-auto pr-1">
+				<p class="text-xs font-semibold uppercase tracking-wide opacity-70">Manage players</p>
+				{#each sortedPlayerEntries as [playerName]}
+					<div class="rounded border border-white/20 px-2 py-1.5">
+						<div class="flex items-center justify-between gap-2">
+							<div class="font-semibold">
+								{playerName}
+								{#if playerName === creator}
+									<span class="ml-1 text-xs font-normal opacity-70">(creator)</span>
+								{:else if isPlayerModerator(playerName)}
+									<span class="ml-1 text-xs font-normal opacity-70">(mod)</span>
+								{/if}
+							</div>
+							<div class="flex items-center gap-1.5">
+								{#if isModerator && playerName !== name}
+									<button
+										class="btn variant-filled px-2 py-0.5 text-xs"
+										on:click={() => kickPlayer(playerName)}
+									>
+										Kick
+									</button>
+								{/if}
+								{#if playerName !== creator}
+									{#if isCreator && isPlayerModerator(playerName)}
+										<button
+											class="btn variant-filled px-2 py-0.5 text-xs"
+											on:click={() => setModerator(playerName, false)}
+										>
+											Demote
+										</button>
+									{:else if (isCreator || isModerator) && !isPlayerModerator(playerName)}
+										<button
+											class="btn variant-filled px-2 py-0.5 text-xs"
+											on:click={() => setModerator(playerName, true)}
+										>
+											Make Mod
+										</button>
+									{/if}
+								{/if}
+								{#if isModerator || playerName === name}
+									<button
+										class="btn variant-filled px-2 py-0.5 text-xs"
+										on:click={() => setObserver(playerName, true)}
+									>
+										Observer
+									</button>
+								{/if}
+							</div>
+						</div>
+					</div>
+				{/each}
+				{#each sortedObserverEntries as [observerName, info]}
+					<div class="rounded border border-white/20 px-2 py-1.5 opacity-85">
+						<div class="flex items-center justify-between gap-2">
+							<div class="font-semibold">
+								{observerName}
+								<span class="ml-1 text-xs font-normal opacity-70">(observer)</span>
+								{#if !info.connected}
+									<span class="ml-1 text-xs font-normal opacity-70"
+										>({OFFLINE_STATUS_LABEL})</span
+									>
+								{/if}
+							</div>
+							<div class="flex items-center gap-1.5">
+								{#if isModerator || observerName === name}
+									<button
+										class="btn variant-filled px-2 py-0.5 text-xs"
+										on:click={() => setObserver(observerName, false)}
+									>
+										{joinBackLabel}
+									</button>
+								{/if}
+								{#if isModerator}
+									<button
+										class="btn variant-filled px-2 py-0.5 text-xs"
+										on:click={() => kickPlayer(observerName)}
+									>
+										Kick
+									</button>
+								{/if}
+							</div>
+						</div>
+					</div>
+				{/each}
+			</div>
 			{#if stage !== 'Joining'}
 				<div class="mt-3 rounded border border-white/20 px-2 py-2">
 					<label class="flex items-start gap-3 text-sm">
@@ -188,91 +310,58 @@
 						>
 					</div>
 				</div>
+				<div class="mt-3 rounded border border-white/20 px-2 py-2">
+					<p class="block text-sm font-semibold">Cards per hand</p>
+					<div class="mt-2 flex items-center gap-2">
+						<input
+							type="number"
+							class="w-24 rounded border px-2 py-1 text-gray-700 shadow"
+							min={cardsPerHandMin}
+							max={cardsPerHandMax}
+							step="1"
+							value={cardsPerHand}
+							on:change={updateCardsPerHand}
+							disabled={!isModerator || !canChangeCardsPerHand}
+						/>
+						<span class="text-xs opacity-75">Range: {cardsPerHandMin}–{cardsPerHandMax}</span>
+					</div>
+					{#if !canChangeCardsPerHand}
+						<p class="mt-1 text-xs opacity-70">
+							Can only be changed at round start (before clue).
+						</p>
+					{/if}
+				</div>
+				<div class="mt-3 rounded border border-white/20 px-2 py-2">
+					<p class="block text-sm font-semibold">Nominations per guesser</p>
+					<div class="mt-2 flex items-center gap-2">
+						<input
+							type="number"
+							class="w-24 rounded border px-2 py-1 text-gray-700 shadow"
+							min={nominationsPerGuesserMin}
+							max={nominationsPerGuesserMax}
+							step="1"
+							value={nominationsPerGuesser}
+							on:change={updateNominationsPerGuesser}
+							disabled={!isModerator}
+						/>
+						<span class="text-xs opacity-75"
+							>Range: {nominationsPerGuesserMin}–{nominationsPerGuesserMax}</span
+						>
+					</div>
+				</div>
 			{/if}
-			<div class="mt-3 max-h-[45vh] space-y-2 overflow-y-auto pr-1">
-				{#each sortedPlayerEntries as [playerName]}
-					<div class="rounded border border-white/20 px-2 py-1.5">
-						<div class="flex items-center justify-between gap-2">
-							<div class="font-semibold">
-								{playerName}
-								{#if playerName === creator}
-									<span class="ml-1 text-xs font-normal opacity-70">(creator)</span>
-								{:else if isPlayerModerator(playerName)}
-									<span class="ml-1 text-xs font-normal opacity-70">(mod)</span>
-								{/if}
-							</div>
-							<div class="flex items-center gap-1.5">
-								{#if playerName !== creator}
-									{#if isCreator && isPlayerModerator(playerName)}
-										<button
-											class="btn variant-filled px-2 py-0.5 text-xs"
-											on:click={() => setModerator(playerName, false)}
-										>
-											Demote
-										</button>
-									{:else if (isCreator || isModerator) && !isPlayerModerator(playerName)}
-										<button
-											class="btn variant-filled px-2 py-0.5 text-xs"
-											on:click={() => setModerator(playerName, true)}
-										>
-											Make Mod
-										</button>
-									{/if}
-								{/if}
-								{#if isModerator && playerName !== name}
-									<button
-										class="btn variant-filled px-2 py-0.5 text-xs"
-										on:click={() => kickPlayer(playerName)}
-									>
-										Kick
-									</button>
-								{/if}
-								{#if isModerator || playerName === name}
-									<button
-										class="btn variant-filled px-2 py-0.5 text-xs"
-										on:click={() => setObserver(playerName, true)}
-									>
-										Observer
-									</button>
-								{/if}
-							</div>
-						</div>
-					</div>
-				{/each}
-				{#each sortedObserverEntries as [observerName, info]}
-					<div class="rounded border border-white/20 px-2 py-1.5 opacity-85">
-						<div class="flex items-center justify-between gap-2">
-							<div class="font-semibold">
-								{observerName}
-								<span class="ml-1 text-xs font-normal opacity-70">(observer)</span>
-								{#if !info.connected}
-									<span class="ml-1 text-xs font-normal opacity-70"
-										>({OFFLINE_STATUS_LABEL})</span
-									>
-								{/if}
-							</div>
-							<div class="flex items-center gap-1.5">
-								{#if isModerator || observerName === name}
-									<button
-										class="btn variant-filled px-2 py-0.5 text-xs"
-										on:click={() => setObserver(observerName, false)}
-									>
-											{joinBackLabel}
-										</button>
-								{/if}
-								{#if isModerator}
-									<button
-										class="btn variant-filled px-2 py-0.5 text-xs"
-										on:click={() => kickPlayer(observerName)}
-									>
-										Kick
-									</button>
-								{/if}
-							</div>
-						</div>
-					</div>
-				{/each}
-			</div>
 		</details>
 	{/if}
+	<div class="rounded border border-white/20 px-3 py-2 text-xs">
+		<p class="font-semibold">Scoring cheat sheet</p>
+		<p class="mt-1 opacity-80">
+			Storyteller loss when at least guessers − C are right or wrong.
+		</p>
+		<p class="opacity-80">
+			Current: C={storytellerLossComplement}, guessers={guesserCount}, threshold={effectiveLossThreshold}.
+		</p>
+		<p class="mt-1 opacity-80">
+			Decoy bonus: +1 per vote token on your non-storyteller cards (cap +3 per player-round).
+		</p>
+	</div>
 </div>

@@ -38,6 +38,12 @@
 	let votesPerGuesser = 1;
 	let votesPerGuesserMin = 1;
 	let votesPerGuesserMax = 1;
+	let cardsPerHand = 6;
+	let cardsPerHandMin = 1;
+	let cardsPerHandMax = 12;
+	let nominationsPerGuesser = 1;
+	let nominationsPerGuesserMin = 1;
+	let nominationsPerGuesserMax = 1;
 	let activePlayer = '';
 	let description = '';
 	let roundNum = 0;
@@ -52,10 +58,10 @@
 
 	// UI state
 	let displayImages: string[] = [];
-	let votingDisabledCard = '';
+	let votingDisabledCards: string[] = [];
 
 	// results
-	let playerToCurrentCard: { [key: string]: string } = {};
+	let playerToCurrentCards: { [key: string]: string[] } = {};
 	let playerToVotes: { [key: string]: string[] } = {};
 	let activeCard = '';
 	let pointChange: { [key: string]: number } = {};
@@ -105,6 +111,12 @@
 				votesPerGuesser = data.RoomState.votes_per_guesser ?? 1;
 				votesPerGuesserMin = data.RoomState.votes_per_guesser_min ?? 1;
 				votesPerGuesserMax = data.RoomState.votes_per_guesser_max ?? 1;
+				cardsPerHand = data.RoomState.cards_per_hand ?? 6;
+				cardsPerHandMin = data.RoomState.cards_per_hand_min ?? 1;
+				cardsPerHandMax = data.RoomState.cards_per_hand_max ?? 12;
+				nominationsPerGuesser = data.RoomState.nominations_per_guesser ?? 1;
+				nominationsPerGuesserMin = data.RoomState.nominations_per_guesser_min ?? 1;
+				nominationsPerGuesserMax = data.RoomState.nominations_per_guesser_max ?? 1;
 				activePlayer = data.RoomState.active_player || '';
 				roundNum = data.RoomState.round;
 				cardsRemaining = data.RoomState.cards_remaining || 0;
@@ -135,16 +147,16 @@
 				stage = 'Voting';
 				displayImages = data.BeginVoting.center_cards;
 				description = data.BeginVoting.description;
-				votingDisabledCard = data.BeginVoting.disabled_card || '';
+				votingDisabledCards = data.BeginVoting.disabled_cards || [];
 				votesPerGuesser = data.BeginVoting.votes_per_guesser ?? votesPerGuesser;
 			} else if (data.Results) {
 				stage = 'Results';
-				displayImages = Object.values(data.Results.player_to_current_card);
-				playerToCurrentCard = data.Results.player_to_current_card;
+				playerToCurrentCards = data.Results.player_to_current_cards || {};
+				displayImages = Object.values(playerToCurrentCards).flat();
 				playerToVotes = data.Results.player_to_votes || {};
 				activeCard = data.Results.active_card;
 				pointChange = data.Results.point_change;
-				votingDisabledCard = '';
+				votingDisabledCards = [];
 			} else if (data.ErrorMsg) {
 				toastStore.trigger({
 					message: '😭 ' + data.ErrorMsg,
@@ -216,6 +228,12 @@
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}
+			{cardsPerHand}
+			{cardsPerHandMin}
+			{cardsPerHandMax}
+			{nominationsPerGuesser}
+			{nominationsPerGuesserMin}
+			{nominationsPerGuesserMax}
 			{stage}
 			{pointChange}
 			{roundNum}
@@ -241,6 +259,12 @@
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}
+			{cardsPerHand}
+			{cardsPerHandMin}
+			{cardsPerHandMax}
+			{nominationsPerGuesser}
+			{nominationsPerGuesserMin}
+			{nominationsPerGuesserMax}
 			{stage}
 			{pointChange}
 			{roundNum}
@@ -266,13 +290,19 @@
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}
+			{cardsPerHand}
+			{cardsPerHandMin}
+			{cardsPerHandMax}
+			{nominationsPerGuesser}
+			{nominationsPerGuesserMin}
+			{nominationsPerGuesserMax}
 			{stage}
 			{pointChange}
 			{roundNum}
 			{cardsRemaining}
 			{deckRefillFlashToken}
 			{winCondition}
-			disabledCard={votingDisabledCard}
+			disabledCards={votingDisabledCards}
 		/>
 	{:else if stage === 'Results'}
 		<Results
@@ -282,7 +312,7 @@
 			{moderators}
 			{observers}
 			{gameServer}
-			{playerToCurrentCard}
+			{playerToCurrentCards}
 			{playerToVotes}
 			{activeCard}
 			{activePlayer}
@@ -294,6 +324,12 @@
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}
+			{cardsPerHand}
+			{cardsPerHandMin}
+			{cardsPerHandMax}
+			{nominationsPerGuesser}
+			{nominationsPerGuesserMin}
+			{nominationsPerGuesserMax}
 			{stage}
 			{pointChange}
 			{roundNum}
@@ -316,6 +352,12 @@
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}
+			{cardsPerHand}
+			{cardsPerHandMin}
+			{cardsPerHandMax}
+			{nominationsPerGuesser}
+			{nominationsPerGuesserMin}
+			{nominationsPerGuesserMax}
 			{roundNum}
 			{cardsRemaining}
 			{deckRefillFlashToken}

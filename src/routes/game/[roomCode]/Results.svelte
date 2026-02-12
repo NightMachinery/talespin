@@ -14,7 +14,7 @@
 	export let activeCard = '';
 	export let activePlayer = '';
 	export let gameServer: GameServer;
-	export let playerToCurrentCard: { [key: string]: string } = {};
+	export let playerToCurrentCards: { [key: string]: string[] } = {};
 	export let playerToVotes: { [key: string]: string[] } = {};
 	export let players: { [key: string]: PlayerInfo } = {};
 	export let allowNewPlayersMidgame = true;
@@ -24,6 +24,12 @@
 	export let votesPerGuesser = 1;
 	export let votesPerGuesserMin = 1;
 	export let votesPerGuesserMax = 1;
+	export let cardsPerHand = 6;
+	export let cardsPerHandMin = 1;
+	export let cardsPerHandMax = 12;
+	export let nominationsPerGuesser = 1;
+	export let nominationsPerGuesserMin = 1;
+	export let nominationsPerGuesserMax = 1;
 	export let stage = '';
 	export let pointChange: { [key: string]: number } = {};
 	export let roundNum = 0;
@@ -49,8 +55,10 @@
 	$: {
 		cardToPlayer = {};
 		cardToVoterCounts = {};
-		Object.entries(playerToCurrentCard).forEach(([key, value]) => {
-			cardToPlayer[value] = key;
+		Object.entries(playerToCurrentCards).forEach(([key, values]) => {
+			for (const value of values || []) {
+				cardToPlayer[value] = key;
+			}
 		});
 
 		Object.entries(playerToVotes).forEach(([voter, votes]) => {
@@ -82,6 +90,12 @@
 	{votesPerGuesser}
 	{votesPerGuesserMin}
 	{votesPerGuesserMax}
+	{cardsPerHand}
+	{cardsPerHandMin}
+	{cardsPerHandMax}
+	{nominationsPerGuesser}
+	{nominationsPerGuesserMin}
+	{nominationsPerGuesserMax}
 	{pointChange}
 	{activePlayer}
 	{roundNum}
