@@ -102,6 +102,7 @@
 			You are in room
 			<code class="code text-lg">{roomCode}</code>
 		</h2>
+		<p class="mt-1 text-center text-sm opacity-70">Players in lobby: {playerEntries.length}</p>
 		<div class="flex justify-center mt-4">
 			<button
 				class="btn variant-filled"
