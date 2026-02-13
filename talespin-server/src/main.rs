@@ -51,6 +51,7 @@ const CARD_CACHE_FORMAT_ENV: &str = "TALESPIN_CARD_CACHE_FORMAT";
 const CARD_AVIF_ENCODER_ENV: &str = "TALESPIN_CARD_AVIF_ENCODER";
 const CARD_AVIF_THREADS_ENV: &str = "TALESPIN_CARD_AVIF_THREADS";
 const VALIDATE_CACHE_HITS_ENV: &str = "TALESPIN_VALIDATE_CACHE_HITS_P";
+const PRODUCTION_ENV: &str = "TALESPIN_PRODUCTION_P";
 const DEFAULT_WIN_POINTS_ENV: &str = "TALESPIN_DEFAULT_WIN_POINTS";
 const MAX_MEMBERS_ENV: &str = "TALESPIN_MAX_MEMBERS";
 
@@ -115,6 +116,7 @@ struct NormalizationConfig {
     avif_encoder_backend: avif::EncoderBackend,
     avif_threads: avif::ThreadSetting,
     validate_cache_hits: bool,
+    production_mode: bool,
     cards_cache_dir: PathBuf,
 }
 
@@ -126,6 +128,7 @@ impl NormalizationConfig {
         let avif_encoder_backend = parse_avif_encoder_backend_from_env();
         let avif_threads = parse_avif_threads_from_env();
         let validate_cache_hits = parse_validate_cache_hits_from_env();
+        let production_mode = env_is_y(PRODUCTION_ENV);
 
         let cache_root = env::var(CACHE_DIR_ENV)
             .map(|v| expand_home(v.trim()))
@@ -146,6 +149,7 @@ impl NormalizationConfig {
             avif_encoder_backend,
             avif_threads,
             validate_cache_hits,
+            production_mode,
             cards_cache_dir,
         })
     }
@@ -163,6 +167,23 @@ impl NormalizationConfig {
                 .round() as u32)
                 .max(1);
             (width, height)
+        }
+    }
+
+    fn should_validate_cache_hits(&self) -> bool {
+        if matches!(self.cache_format, CacheImageFormat::Avif) && !self.production_mode {
+            return false;
+        }
+        self.validate_cache_hits
+    }
+
+    fn cache_validation_status_label(&self) -> &'static str {
+        if self.should_validate_cache_hits() {
+            "enabled"
+        } else if matches!(self.cache_format, CacheImageFormat::Avif) && !self.production_mode {
+            "disabled (dev mode avif shortcut)"
+        } else {
+            "disabled"
         }
     }
 }
@@ -666,7 +687,7 @@ fn normalize_source_to_cache(
     ));
 
     let mut should_rebuild_cache = !cache_path.exists();
-    if !should_rebuild_cache && config.validate_cache_hits {
+    if !should_rebuild_cache && config.should_validate_cache_hits() {
         if let Err(err) = validate_cached_image(&cache_path, output_width, output_height) {
             println!(
                 "Warning: cached image {} is invalid/corrupt: {}. Rebuilding.",
@@ -804,7 +825,7 @@ fn load_cards(
     if total_sources > 0 {
         println!(
             "Preparing card caches: {} and generating {} cache file{} from {} source image{}.",
-            if config.validate_cache_hits {
+            if config.should_validate_cache_hits() {
                 "checking existing cache entries for corruption"
             } else {
                 "skipping cache-hit corruption checks"
@@ -970,11 +991,7 @@ impl ServerState {
             config.cache_format.env_value(),
             config.avif_encoder_backend.env_value(),
             config.avif_threads.env_value(),
-            if config.validate_cache_hits {
-                "enabled"
-            } else {
-                "disabled"
-            },
+            config.cache_validation_status_label(),
             config.cards_cache_dir.display(),
             default_win_points_target,
             max_members
