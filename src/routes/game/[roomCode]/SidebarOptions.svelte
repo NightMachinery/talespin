@@ -39,7 +39,7 @@
 	$: canBecomeObserver =
 		!isSelfObserver && stage !== 'Joining' && stage !== 'End' && !selfObserveBlocked;
 	$: canChangeCardsPerHand = stage === 'ActiveChooses';
-	$: canChangePreVotingSettings = stage === 'ActiveChooses' || stage === 'PlayersChoose';
+	$: canChangePreVotingSettings = stage === 'ActiveChooses';
 	$: selfJoinPending =
 		!!selfObserverInfo && (selfObserverInfo.join_requested || selfObserverInfo.auto_join_on_next_round);
 	$: selfJoinBackLabel =
@@ -323,7 +323,9 @@
 						>
 					</div>
 					{#if !canChangePreVotingSettings}
-						<p class="mt-1 text-xs opacity-70">Can only be changed before voting begins.</p>
+						<p class="mt-1 text-xs opacity-70">
+							Can only be changed during storyteller choosing stage.
+						</p>
 					{/if}
 				</div>
 				<div class="mt-3 rounded border border-white/20 px-2 py-2">
@@ -365,7 +367,9 @@
 						>
 					</div>
 					{#if !canChangePreVotingSettings}
-						<p class="mt-1 text-xs opacity-70">Can only be changed before voting begins.</p>
+						<p class="mt-1 text-xs opacity-70">
+							Can only be changed during storyteller choosing stage.
+						</p>
 					{/if}
 				</div>
 			{/if}
