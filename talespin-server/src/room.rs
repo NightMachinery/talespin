@@ -1,7 +1,8 @@
 use anyhow::{anyhow, Context, Result};
 use axum::{extract::ws::Message as WsMessage, extract::ws::WebSocket};
-use rand::seq::SliceRandom;
+use rand::{seq::SliceRandom, Rng};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::{
     collections::{HashMap, HashSet},
     sync::{
@@ -242,6 +243,8 @@ struct RoomState {
     /** Round-specific information */
     // chosen description by active player
     current_description: String,
+    // seed used to compute deterministic center-card order in voting/results
+    voting_order_seed: u64,
     // for each player, cards they have submitted this round
     player_to_current_cards: HashMap<String, Vec<String>>,
     // for each player, the card they voted for as being the active's card
@@ -308,6 +311,7 @@ impl Room {
             discard_pile: Vec::new(),
             active_player: 0,
             current_description: "".to_string(),
+            voting_order_seed: 0,
             player_to_current_cards: HashMap::new(),
             player_to_votes: HashMap::new(),
             round: 0,
@@ -581,6 +585,7 @@ impl Room {
 
     fn reset_round_keep_hands(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
         state.current_description.clear();
+        state.voting_order_seed = 0;
         state.player_to_current_cards.clear();
         state.player_to_votes.clear();
         self.clear_ready(state);
@@ -1222,13 +1227,44 @@ impl Room {
     }
 
     fn get_center_cards(&self, state: &RwLockWriteGuard<RoomState>) -> Vec<String> {
-        let mut center_cards: Vec<String> = state
+        let center_cards: Vec<String> = state
             .player_to_current_cards
             .values()
             .flat_map(|cards| cards.iter().cloned())
             .collect();
-        center_cards.shuffle(&mut rand::thread_rng());
-        center_cards
+        if center_cards.len() <= 1 {
+            return center_cards;
+        }
+
+        let seed = state.voting_order_seed;
+        let mut keyed_cards = center_cards
+            .into_iter()
+            .enumerate()
+            .map(|(ordinal, card)| {
+                (
+                    self.voting_card_order_key(seed, &card, ordinal),
+                    ordinal,
+                    card,
+                )
+            })
+            .collect::<Vec<_>>();
+        keyed_cards.sort_by(|(key_a, ordinal_a, _), (key_b, ordinal_b, _)| {
+            key_a.cmp(key_b).then(ordinal_a.cmp(ordinal_b))
+        });
+
+        keyed_cards.into_iter().map(|(_, _, card)| card).collect()
+    }
+
+    fn voting_card_order_key(&self, seed: u64, card: &str, ordinal: usize) -> [u8; 32] {
+        let mut hasher = Sha256::new();
+        hasher.update(seed.to_le_bytes());
+        hasher.update((ordinal as u64).to_le_bytes());
+        hasher.update(card.as_bytes());
+        let digest = hasher.finalize();
+
+        let mut out = [0u8; 32];
+        out.copy_from_slice(&digest);
+        out
     }
 
     fn get_active_player(&self, state: &RwLockWriteGuard<RoomState>) -> Result<String> {
@@ -1340,6 +1376,7 @@ impl Room {
 
     async fn init_voting(&self, state: &mut RwLockWriteGuard<'_, RoomState>) -> Result<()> {
         state.stage = RoomStage::Voting;
+        state.voting_order_seed = rand::thread_rng().gen::<u64>();
         state.player_to_votes.clear();
 
         let active_player = self.get_active_player(state)?;
@@ -1566,6 +1603,7 @@ impl Room {
         self.clamp_nominations_per_guesser(state);
 
         state.deck.shuffle(&mut rand::thread_rng());
+        state.voting_order_seed = 0;
         state.player_to_current_cards.clear();
         state.player_to_votes.clear();
         state.current_description.clear();
@@ -2023,7 +2061,10 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::ActiveChooses | RoomStage::PlayersChoose) {
+                if !matches!(
+                    state.stage,
+                    RoomStage::ActiveChooses | RoomStage::PlayersChoose
+                ) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
@@ -2108,7 +2149,10 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::ActiveChooses | RoomStage::PlayersChoose) {
+                if !matches!(
+                    state.stage,
+                    RoomStage::ActiveChooses | RoomStage::PlayersChoose
+                ) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
@@ -3192,9 +3236,67 @@ mod tests {
             "second click should cancel pending next-round join"
         );
         assert_eq!(
-            state.observers.get("obs").map(|o| o.auto_join_on_next_round),
+            state
+                .observers
+                .get("obs")
+                .map(|o| o.auto_join_on_next_round),
             Some(false),
             "observer should no longer be queued to auto-join"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn voting_card_order_is_deterministic_for_round_seed() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        add_player(&mut state, "a", 0);
+        add_player(&mut state, "b", 0);
+        add_player(&mut state, "c", 0);
+        add_player(&mut state, "d", 0);
+        state.stage = RoomStage::Voting;
+        state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into()];
+        state.active_player = 0;
+        state.voting_order_seed = 4242;
+        state
+            .player_to_current_cards
+            .insert("a".into(), vec!["ca".into()]);
+        state
+            .player_to_current_cards
+            .insert("b".into(), vec!["cb".into()]);
+        state
+            .player_to_current_cards
+            .insert("c".into(), vec!["cc".into()]);
+        state
+            .player_to_current_cards
+            .insert("d".into(), vec!["cd".into()]);
+
+        let first = match room.get_msg(Some("b"), &state)? {
+            ServerMsg::BeginVoting { center_cards, .. } => center_cards,
+            _ => return Err(anyhow!("Expected BeginVoting message")),
+        };
+
+        let mut entries = state
+            .player_to_current_cards
+            .iter()
+            .map(|(player, cards)| (player.clone(), cards.clone()))
+            .collect::<Vec<_>>();
+        entries.reverse();
+        state.player_to_current_cards.clear();
+        for (player, cards) in entries {
+            state.player_to_current_cards.insert(player, cards);
+        }
+
+        let second = match room.get_msg(Some("b"), &state)? {
+            ServerMsg::BeginVoting { center_cards, .. } => center_cards,
+            _ => return Err(anyhow!("Expected BeginVoting message")),
+        };
+
+        assert_eq!(
+            first, second,
+            "voting card order should stay deterministic for a fixed round seed"
         );
 
         Ok(())
