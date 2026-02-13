@@ -3212,6 +3212,77 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn observer_rejoin_preserves_existing_hand_cards() -> Result<()> {
+        let room = test_room();
+        let original_hand: Vec<String>;
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "a", 10);
+            add_player(&mut state, "b", 8);
+            add_player(&mut state, "c", 2);
+            state.player_order = vec!["a".into(), "b".into(), "c".into()];
+            state.active_player = 0;
+            state.round = 9;
+            state.stage = RoomStage::ActiveChooses;
+            setup_connected_member(&mut state, "c", "t-c", 501);
+            original_hand = state
+                .player_hand
+                .get("c")
+                .cloned()
+                .expect("test setup should assign c a hand");
+        }
+
+        room.handle_client_msg(
+            "c",
+            501,
+            to_ws(ClientMsg::SetObserver {
+                player: "c".to_string(),
+                enabled: true,
+            }),
+        )
+        .await?;
+
+        {
+            let state = room.state.read().await;
+            assert!(
+                state.observers.contains_key("c"),
+                "c should become observer first"
+            );
+            assert_eq!(
+                state.observer_hand.get("c"),
+                Some(&original_hand),
+                "observer conversion should preserve full hand off-table"
+            );
+            assert!(
+                original_hand
+                    .iter()
+                    .all(|card| !state.discard_pile.contains(card)),
+                "observer conversion should not discard preserved hand cards"
+            );
+        }
+
+        room.handle_client_msg("c", 501, to_ws(ClientMsg::RequestJoinFromObserver {}))
+            .await?;
+
+        let state = room.state.read().await;
+        assert!(
+            state.players.contains_key("c"),
+            "observer should become active player when joining back"
+        );
+        assert_eq!(
+            state.player_hand.get("c"),
+            Some(&original_hand),
+            "joining back should restore original hand instead of drawing a new one"
+        );
+        assert!(
+            !state.observer_hand.contains_key("c"),
+            "observer hand cache should be cleared after restoration"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn observer_request_join_during_voting_waits_for_next_round() -> Result<()> {
         let room = test_room();
         {
