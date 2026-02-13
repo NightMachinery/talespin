@@ -735,6 +735,26 @@ impl Room {
         observer.auto_join_on_next_round || observer.join_requested
     }
 
+    fn toggle_observer_join_request(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+        observer_name: &str,
+    ) -> bool {
+        let Some(observer) = state.observers.get_mut(observer_name) else {
+            return false;
+        };
+
+        let currently_pending = observer.join_requested || observer.auto_join_on_next_round;
+        if currently_pending {
+            observer.join_requested = false;
+            observer.auto_join_on_next_round = false;
+        } else {
+            observer.join_requested = true;
+            observer.auto_join_on_next_round = false;
+        }
+        true
+    }
+
     fn promote_requested_observers(&self, state: &mut RwLockWriteGuard<'_, RoomState>) -> usize {
         let to_promote: Vec<String> = state
             .observers
@@ -1926,10 +1946,7 @@ impl Room {
                     }
                 } else if state.observers.contains_key(target) {
                     if matches!(state.stage, RoomStage::Voting) {
-                        if let Some(observer) = state.observers.get_mut(target) {
-                            observer.join_requested = true;
-                            observer.auto_join_on_next_round = false;
-                        }
+                        self.toggle_observer_join_request(&mut state, target);
                     } else {
                         let _ = self
                             .promote_observer_immediately(&mut state, target)
@@ -1941,10 +1958,7 @@ impl Room {
             ClientMsg::RequestJoinFromObserver {} => {
                 if state.observers.contains_key(name) {
                     if matches!(state.stage, RoomStage::Voting) {
-                        if let Some(observer) = state.observers.get_mut(name) {
-                            observer.join_requested = true;
-                            observer.auto_join_on_next_round = false;
-                        }
+                        self.toggle_observer_join_request(&mut state, name);
                     } else {
                         let _ = self.promote_observer_immediately(&mut state, name).await?;
                     }
@@ -3099,6 +3113,60 @@ mod tests {
             state.observers.get("obs").map(|o| o.join_requested),
             Some(true),
             "observer should be marked to join next round"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn observer_request_join_during_voting_can_be_cancelled() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "a", 3);
+            add_player(&mut state, "b", 6);
+            add_player(&mut state, "c", 9);
+            state.player_order = vec!["a".into(), "b".into(), "c".into()];
+            state.active_player = 0;
+            state.round = 5;
+            state.stage = RoomStage::Voting;
+            state.current_description = "clue".to_string();
+            state
+                .player_to_current_cards
+                .insert("a".into(), vec!["ca".into()]);
+            state
+                .player_to_current_cards
+                .insert("b".into(), vec!["cb".into()]);
+            state
+                .player_to_current_cards
+                .insert("c".into(), vec!["cc".into()]);
+            state.observers.insert(
+                "obs".to_string(),
+                ObserverInfo {
+                    connected: true,
+                    points: 1,
+                    join_requested: false,
+                    auto_join_on_next_round: false,
+                },
+            );
+            setup_connected_member(&mut state, "obs", "t-obs", 171);
+        }
+
+        room.handle_client_msg("obs", 171, to_ws(ClientMsg::RequestJoinFromObserver {}))
+            .await?;
+        room.handle_client_msg("obs", 171, to_ws(ClientMsg::RequestJoinFromObserver {}))
+            .await?;
+
+        let state = room.state.read().await;
+        assert_eq!(
+            state.observers.get("obs").map(|o| o.join_requested),
+            Some(false),
+            "second click should cancel pending next-round join"
+        );
+        assert_eq!(
+            state.observers.get("obs").map(|o| o.auto_join_on_next_round),
+            Some(false),
+            "observer should no longer be queued to auto-join"
         );
 
         Ok(())

@@ -34,11 +34,19 @@
 	$: isModerator = moderatorSet.has(name);
 	$: showModeration = stage !== 'End' && (isCreator || isModerator);
 	$: isSelfObserver = !!observers[name];
+	$: selfObserverInfo = observers[name];
 	$: selfObserveBlocked = (stage === 'PlayersChoose' || stage === 'Voting') && activePlayer === name;
 	$: canBecomeObserver =
 		!isSelfObserver && stage !== 'Joining' && stage !== 'End' && !selfObserveBlocked;
-	$: joinBackLabel = stage === 'Voting' ? 'Join next round' : 'Join now';
 	$: canChangeCardsPerHand = stage === 'ActiveChooses';
+	$: selfJoinPending =
+		!!selfObserverInfo && (selfObserverInfo.join_requested || selfObserverInfo.auto_join_on_next_round);
+	$: selfJoinBackLabel =
+		stage === 'Voting'
+			? selfJoinPending
+				? 'Cancel pending join'
+				: 'Join next round'
+			: 'Join now';
 
 	function isPlayerModerator(playerName: string) {
 		return moderatorSet.has(playerName);
@@ -74,6 +82,12 @@
 
 	function joinBack() {
 		gameServer.requestJoinFromObserver();
+	}
+
+	function observerJoinActionLabel(observerInfo: ObserverInfo) {
+		if (stage !== 'Voting') return 'Join now';
+		const pending = observerInfo.join_requested || observerInfo.auto_join_on_next_round;
+		return pending ? 'Cancel pending join' : 'Join next round';
 	}
 
 	function updateAllowMidgameJoin(event: Event) {
@@ -150,7 +164,7 @@
 	</label>
 	{#if stage !== 'Joining' && stage !== 'End'}
 		{#if isSelfObserver}
-			<button class="btn variant-filled w-full" on:click={joinBack}>{joinBackLabel}</button>
+			<button class="btn variant-filled w-full" on:click={joinBack}>{selfJoinBackLabel}</button>
 		{:else}
 			<button
 				class="btn variant-filled w-full"
@@ -238,7 +252,7 @@
 										class="btn variant-filled px-2 py-0.5 text-xs"
 										on:click={() => setObserver(observerName, false)}
 									>
-										{joinBackLabel}
+										{observerJoinActionLabel(info)}
 									</button>
 								{/if}
 								{#if isModerator}
