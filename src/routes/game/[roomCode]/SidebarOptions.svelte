@@ -5,6 +5,8 @@
 	import { OFFLINE_STATUS_LABEL } from '$lib/presence';
 	import { cardsFitToHeight } from '$lib/viewOptions';
 
+	const SETTINGS_EDIT_STAGE_HINT = 'Can only be changed during storyteller choosing stage.';
+
 	export let players: { [key: string]: PlayerInfo } = {};
 	export let observers: { [key: string]: ObserverInfo } = {};
 	export let name = '';
@@ -35,19 +37,17 @@
 	$: showModeration = stage !== 'End' && (isCreator || isModerator);
 	$: isSelfObserver = !!observers[name];
 	$: selfObserverInfo = observers[name];
-	$: selfObserveBlocked = (stage === 'PlayersChoose' || stage === 'Voting') && activePlayer === name;
+	$: selfObserveBlocked =
+		(stage === 'PlayersChoose' || stage === 'Voting') && activePlayer === name;
 	$: canBecomeObserver =
 		!isSelfObserver && stage !== 'Joining' && stage !== 'End' && !selfObserveBlocked;
 	$: canChangeCardsPerHand = stage === 'ActiveChooses';
 	$: canChangePreVotingSettings = stage === 'ActiveChooses';
 	$: selfJoinPending =
-		!!selfObserverInfo && (selfObserverInfo.join_requested || selfObserverInfo.auto_join_on_next_round);
+		!!selfObserverInfo &&
+		(selfObserverInfo.join_requested || selfObserverInfo.auto_join_on_next_round);
 	$: selfJoinBackLabel =
-		stage === 'Voting'
-			? selfJoinPending
-				? 'Cancel pending join'
-				: 'Join next round'
-			: 'Join now';
+		stage === 'Voting' ? (selfJoinPending ? 'Cancel pending join' : 'Join next round') : 'Join now';
 
 	function isPlayerModerator(playerName: string) {
 		return moderatorSet.has(playerName);
@@ -242,9 +242,7 @@
 								{observerName}
 								<span class="ml-1 text-xs font-normal opacity-70">(observer)</span>
 								{#if !info.connected}
-									<span class="ml-1 text-xs font-normal opacity-70"
-										>({OFFLINE_STATUS_LABEL})</span
-									>
+									<span class="ml-1 text-xs font-normal opacity-70">({OFFLINE_STATUS_LABEL})</span>
 								{/if}
 							</div>
 							<div class="flex items-center gap-1.5">
@@ -318,14 +316,10 @@
 							on:change={updateVotesPerGuesser}
 							disabled={!isModerator || !canChangePreVotingSettings}
 						/>
-						<span class="text-xs opacity-75"
-							>Range: {votesPerGuesserMin}–{votesPerGuesserMax}</span
-						>
+						<span class="text-xs opacity-75">Range: {votesPerGuesserMin}–{votesPerGuesserMax}</span>
 					</div>
 					{#if !canChangePreVotingSettings}
-						<p class="mt-1 text-xs opacity-70">
-							Can only be changed during storyteller choosing stage.
-						</p>
+						<p class="mt-1 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
 					{/if}
 				</div>
 				<div class="mt-3 rounded border border-white/20 px-2 py-2">
@@ -344,9 +338,7 @@
 						<span class="text-xs opacity-75">Range: {cardsPerHandMin}–{cardsPerHandMax}</span>
 					</div>
 					{#if !canChangeCardsPerHand}
-						<p class="mt-1 text-xs opacity-70">
-							Can only be changed at round start (before clue).
-						</p>
+						<p class="mt-1 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
 					{/if}
 				</div>
 				<div class="mt-3 rounded border border-white/20 px-2 py-2">
@@ -367,9 +359,7 @@
 						>
 					</div>
 					{#if !canChangePreVotingSettings}
-						<p class="mt-1 text-xs opacity-70">
-							Can only be changed during storyteller choosing stage.
-						</p>
+						<p class="mt-1 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
 					{/if}
 				</div>
 			{/if}
