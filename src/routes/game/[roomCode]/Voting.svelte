@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { Accordion, AccordionItem } from '@skeletonlabs/skeleton';
 	import { getToastStore } from '@skeletonlabs/skeleton';
 
 	import { CARD_IMAGE_ALT_TEXT } from '$lib/cardImageText';
@@ -164,43 +163,6 @@
 				{/if}
 			</div>
 		{/if}
-
-		<div class="card light p-4">
-			<h2 class="mb-2 text-lg font-semibold">How points work</h2>
-			<p class="mb-2 text-xs opacity-80">
-				Complement (C): {storytellerLossComplement}. Loss threshold = guessers − C = {effectiveLossThreshold}
-			</p>
-			<Accordion>
-				<AccordionItem>
-					<svelte:fragment slot="summary">
-						<strong
-							>Loss scenario: at least (guessers − C) guessers are right <em>or</em> wrong</strong
-						>
-					</svelte:fragment>
-					<svelte:fragment slot="content">
-						<ul class="ml-8">
-							<li>+0 for <span class="font-bold">{activePlayer}</span></li>
-							<li>+2 for each guesser</li>
-							<li>Double-correct bonus: +1 if 2+ votes hit storyteller card</li>
-							<li>Decoy bonus: +1 per vote token on your card (cap +3, non-storyteller only)</li>
-						</ul>
-					</svelte:fragment>
-				</AccordionItem>
-				<AccordionItem>
-					<svelte:fragment slot="summary">
-						<strong>Otherwise</strong>
-					</svelte:fragment>
-					<svelte:fragment slot="content">
-						<ul class="ml-8">
-							<li>+3 for <span class="font-bold">{activePlayer}</span></li>
-							<li>+3 for guessers who voted storyteller card at least once</li>
-							<li>Double-correct bonus: +1 if 2+ votes hit storyteller card</li>
-							<li>Decoy bonus: +1 per vote token on your card (cap +3, non-storyteller only)</li>
-						</ul>
-					</svelte:fragment>
-				</AccordionItem>
-			</Accordion>
-		</div>
 	</svelte:fragment>
 
 	<svelte:fragment slot="mobileTop">
@@ -225,42 +187,30 @@
 		{/if}
 	</svelte:fragment>
 
-	<svelte:fragment slot="mobileBottom">
+	<svelte:fragment slot="sidebarBottom">
 		<div class="card light p-4">
 			<h2 class="mb-2 text-lg font-semibold">How points work</h2>
 			<p class="mb-2 text-xs opacity-80">
-				Complement (C): {storytellerLossComplement}. Loss threshold = guessers − C = {effectiveLossThreshold}
+				There are <span class="font-semibold">{guesserCount}</span> guessers.
+				With C=<span class="font-semibold">{storytellerLossComplement}</span>, storyteller-loss threshold is
+				<span class="font-semibold">{effectiveLossThreshold}</span>.
 			</p>
-			<Accordion>
-				<AccordionItem>
-					<svelte:fragment slot="summary">
-						<strong
-							>Loss scenario: at least (guessers − C) guessers are right <em>or</em> wrong</strong
-						>
-					</svelte:fragment>
-					<svelte:fragment slot="content">
-						<ul class="ml-8">
-							<li>+0 for <span class="font-bold">{activePlayer}</span></li>
-							<li>+2 for each guesser</li>
-							<li>Double-correct bonus: +1 if 2+ votes hit storyteller card</li>
-							<li>Decoy bonus: +1 per vote token on your card (cap +3, non-storyteller only)</li>
-						</ul>
-					</svelte:fragment>
-				</AccordionItem>
-				<AccordionItem>
-					<svelte:fragment slot="summary">
-						<strong>Otherwise</strong>
-					</svelte:fragment>
-					<svelte:fragment slot="content">
-						<ul class="ml-8">
-							<li>+3 for <span class="font-bold">{activePlayer}</span></li>
-							<li>+3 for guessers who voted storyteller card at least once</li>
-							<li>Double-correct bonus: +1 if 2+ votes hit storyteller card</li>
-							<li>Decoy bonus: +1 per vote token on your card (cap +3, non-storyteller only)</li>
-						</ul>
-					</svelte:fragment>
-				</AccordionItem>
-			</Accordion>
+			<ul class="ml-5 list-disc space-y-1 text-sm">
+				<li>
+					Loss scenario triggers when right guesses ≥ {effectiveLossThreshold} or wrong guesses ≥
+					{effectiveLossThreshold}.
+				</li>
+				<li>Loss scenario points: <span class="font-semibold">{activePlayer}</span> +0, each guesser +2.</li>
+				<li>
+					Otherwise points: <span class="font-semibold">{activePlayer}</span> +3, each guesser with at least
+					one correct vote +3.
+				</li>
+				<li>
+					Double-correct bonus: +1 if 2+ of your {effectiveVotesPerGuesser} vote
+					{effectiveVotesPerGuesser === 1 ? '' : 's'} hit storyteller card.
+				</li>
+				<li>Decoy bonus: +1 per vote token on your card (max +3, non-storyteller only).</li>
+			</ul>
 		</div>
 	</svelte:fragment>
 

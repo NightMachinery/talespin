@@ -39,6 +39,7 @@
 	const hasMobileTop = !!$$slots.mobileTop;
 	const hasMobileActions = !!$$slots.mobileActions;
 	const hasMobileBottom = !!$$slots.mobileBottom;
+	const hasSidebarBottom = !!$$slots.sidebarBottom;
 	$: showMobileOptions = true;
 	$: mainContentClass = `rounded-lg bg-black/10 p-2 sm:p-3 lg:p-4 ${
 		$cardsFitToHeight ? 'lg:h-full' : ''
@@ -147,6 +148,12 @@
 							{activePlayer}
 						/>
 					</div>
+
+					{#if hasSidebarBottom}
+						<div>
+							<slot name="sidebarBottom" />
+						</div>
+					{/if}
 				</div>
 			</aside>
 		</div>

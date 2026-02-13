@@ -38,8 +38,6 @@
 	$: canBecomeObserver =
 		!isSelfObserver && stage !== 'Joining' && stage !== 'End' && !selfObserveBlocked;
 	$: joinBackLabel = stage === 'Voting' ? 'Join next round' : 'Join now';
-	$: guesserCount = Math.max(0, Object.keys(players).length - 1);
-	$: effectiveLossThreshold = Math.max(0, guesserCount - storytellerLossComplement);
 	$: canChangeCardsPerHand = stage === 'ActiveChooses';
 
 	function isPlayerModerator(playerName: string) {
@@ -352,16 +350,4 @@
 			{/if}
 		</details>
 	{/if}
-	<div class="rounded border border-white/20 px-3 py-2 text-xs">
-		<p class="font-semibold">Scoring cheat sheet</p>
-		<p class="mt-1 opacity-80">
-			Storyteller loss when at least guessers − C are right or wrong.
-		</p>
-		<p class="opacity-80">
-			Current: C={storytellerLossComplement}, guessers={guesserCount}, threshold={effectiveLossThreshold}.
-		</p>
-		<p class="mt-1 opacity-80">
-			Decoy bonus: +1 per vote token on your non-storyteller cards (cap +3 per player-round).
-		</p>
-	</div>
 </div>
