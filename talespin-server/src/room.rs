@@ -1571,8 +1571,11 @@ impl Room {
 
                 // get all cards currently in hands
                 let mut all_hands = Vec::new();
-                for player in state.player_hand.keys() {
-                    all_hands.append(&mut state.player_hand[player].clone());
+                for hand in state.player_hand.values() {
+                    all_hands.append(&mut hand.clone());
+                }
+                for hand in state.observer_hand.values() {
+                    all_hands.append(&mut hand.clone());
                 }
 
                 // remove cards from deck
