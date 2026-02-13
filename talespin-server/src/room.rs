@@ -228,6 +228,8 @@ struct RoomState {
     players: HashMap<String, PlayerInfo>,
     // store 6 cards in hand per player
     player_hand: HashMap<String, Vec<String>>,
+    // cards preserved while a member is observing
+    observer_hand: HashMap<String, Vec<String>>,
     // remaining deck; pop from this to players hands
     deck: Vec<String>,
     // stage of the game
@@ -310,6 +312,7 @@ impl Room {
             stage: RoomStage::Joining,
             player_order: Vec::new(),
             player_hand: HashMap::new(),
+            observer_hand: HashMap::new(),
             player_to_socket: HashMap::new(),
             discard_pile: Vec::new(),
             active_player: 0,
@@ -805,6 +808,8 @@ impl Room {
                         ready: false,
                     },
                 );
+                let restored_hand = state.observer_hand.remove(&name).unwrap_or_default();
+                state.player_hand.insert(name.clone(), restored_hand);
                 promoted += 1;
             }
         }
@@ -850,12 +855,15 @@ impl Room {
                 ready,
             },
         );
+        let restored_hand = state
+            .observer_hand
+            .remove(observer_name)
+            .unwrap_or_default();
+        state
+            .player_hand
+            .insert(observer_name.to_string(), restored_hand);
 
         if !matches!(state.stage, RoomStage::Joining) {
-            state
-                .player_hand
-                .entry(observer_name.to_string())
-                .or_insert_with(Vec::new);
             self.top_up_player_hand_to_target(state, observer_name);
         }
 
@@ -896,22 +904,9 @@ impl Room {
             .map(|p| p.connected)
             .unwrap_or(false);
 
-        let mut moved_cards = HashSet::new();
-        if let Some(hand) = state.player_hand.remove(player_name) {
-            for card in hand {
-                if moved_cards.insert(card.clone()) {
-                    state.discard_pile.push(card);
-                }
-            }
-        }
-
-        if let Some(cards) = state.player_to_current_cards.remove(player_name) {
-            for card in cards {
-                if moved_cards.insert(card.clone()) {
-                    state.discard_pile.push(card);
-                }
-            }
-        }
+        let hand = state.player_hand.remove(player_name).unwrap_or_default();
+        state.observer_hand.insert(player_name.to_string(), hand);
+        state.player_to_current_cards.remove(player_name);
         state.player_to_votes.remove(player_name);
 
         if let Some(pos) = state
@@ -960,6 +955,15 @@ impl Room {
     ) -> Result<bool> {
         if !state.observers.contains_key(name) {
             return Ok(false);
+        }
+
+        if let Some(hand) = state.observer_hand.remove(name) {
+            let mut moved_cards = HashSet::new();
+            for card in hand {
+                if moved_cards.insert(card.clone()) {
+                    state.discard_pile.push(card);
+                }
+            }
         }
 
         state.observers.remove(name);
