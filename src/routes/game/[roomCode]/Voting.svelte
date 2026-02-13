@@ -42,6 +42,7 @@
 	export let disabledCards: string[] = [];
 
 	let selectedVotes: string[] = [];
+	let selectedVoteCounts: Record<string, number> = {};
 	let toastStore = getToastStore();
 	let isObserver = false;
 	let isVoter = false;
@@ -80,9 +81,12 @@
 	$: if (selectedVotes.length > effectiveVotesPerGuesser) {
 		selectedVotes = selectedVotes.slice(selectedVotes.length - effectiveVotesPerGuesser);
 	}
-
-	function voteCountForCard(card: string) {
-		return selectedVotes.filter((value) => value === card).length;
+	$: {
+		const nextCounts: Record<string, number> = {};
+		for (const card of selectedVotes) {
+			nextCounts[card] = (nextCounts[card] ?? 0) + 1;
+		}
+		selectedVoteCounts = nextCounts;
 	}
 
 	function voteImageClass(selectedCount: number, isDisabled: boolean) {
@@ -101,7 +105,7 @@
 	function cycleCardVote(card: string) {
 		if (!isVoter || disabledCards.includes(card)) return;
 
-		const currentCount = voteCountForCard(card);
+		const currentCount = selectedVoteCounts[card] ?? 0;
 		if (currentCount >= 2) {
 			selectedVotes = selectedVotes.filter((value) => value !== card);
 			return;
@@ -257,7 +261,7 @@
 		<h2 class="mb-2 hidden text-lg font-semibold lg:block">Cards on table</h2>
 		<section class={tableSectionClass} style={tableDesktopFitStyle}>
 			{#each displayImages as image}
-				{@const selectedCount = voteCountForCard(image)}
+				{@const selectedCount = selectedVoteCounts[image] ?? 0}
 				{@const isDisabled = disabledCards.includes(image)}
 				<button
 					type="button"
