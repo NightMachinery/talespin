@@ -248,10 +248,16 @@
 						alt={CARD_IMAGE_ALT_TEXT}
 					/>
 					{#if selectedCount === 1}
-						<div class="pointer-events-none absolute inset-2 rounded-md border-2 border-white/90"></div>
+						<div class="pointer-events-none absolute inset-2 z-10 rounded-md border-2 border-white"></div>
+						<div
+							class="pointer-events-none absolute inset-[5px] z-10 rounded-md border border-black/35"
+						></div>
 					{:else if selectedCount >= 2}
-						<div class="pointer-events-none absolute inset-2 rounded-md border-4 border-white/90"></div>
-						<div class="pointer-events-none absolute inset-5 rounded-md border-2 border-white/95"></div>
+						<div class="pointer-events-none absolute inset-2 z-10 rounded-md border-4 border-white"></div>
+						<div class="pointer-events-none absolute inset-5 z-10 rounded-md border-2 border-white"></div>
+						<div
+							class="pointer-events-none absolute inset-[8px] z-10 rounded-md border border-black/40"
+						></div>
 					{/if}
 					{#if selectedCount > 0}
 						<div
