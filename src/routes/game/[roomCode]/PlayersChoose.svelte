@@ -3,6 +3,7 @@
 	import { CARD_IMAGE_ALT_TEXT } from '$lib/cardImageText';
 	import { http_host } from '$lib/gameServer';
 	import type { ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
+	import { cardsFitToHeight } from '$lib/viewOptions';
 	import StageShell from './StageShell.svelte';
 	import { getToastStore } from '@skeletonlabs/skeleton';
 
@@ -49,6 +50,20 @@
 		Math.min(nominationsPerGuesser, Math.max(nominationsPerGuesserMax, 1))
 	);
 	$: canSubmit = isChooser && selectedCards.length === effectiveNominationsPerGuesser;
+	$: handDesktopFitEnabled = $cardsFitToHeight;
+	$: handDesktopRowCount = Math.max(2, Math.ceil(Math.max(displayImages?.length ?? 0, 1) / 3));
+	$: handSectionClass = handDesktopFitEnabled
+		? 'hand-fit-grid grid w-full grid-cols-2 gap-3 overflow-visible p-1 lg:h-full lg:grid-cols-3 lg:content-stretch'
+		: 'grid w-full grid-cols-2 gap-3 overflow-visible p-1 lg:grid-cols-3 lg:auto-rows-max lg:content-start';
+	$: handImageClass = handDesktopFitEnabled
+		? 'pointer-events-none w-full rounded-lg object-cover object-center aspect-[2/3] lg:h-full transition-all duration-150 ease-out'
+		: 'pointer-events-none w-full rounded-lg object-cover object-center aspect-[2/3] transition-all duration-150 ease-out';
+	$: handButtonClass = handDesktopFitEnabled
+		? 'group relative block w-full overflow-visible rounded-lg focus-visible:outline-none lg:h-full'
+		: 'group relative block w-full overflow-visible rounded-lg focus-visible:outline-none';
+	$: handDesktopFitStyle = handDesktopFitEnabled
+		? `--hand-desktop-rows: ${handDesktopRowCount};`
+		: '';
 	$: {
 		const allowed = new Set(displayImages);
 		const filtered = selectedCards.filter((card) => allowed.has(card));
@@ -186,18 +201,18 @@
 
 	<div class="flex h-full flex-col">
 		<h2 class="mb-2 hidden text-lg font-semibold lg:block">Your hand</h2>
-		<section class="grid w-full grid-cols-2 gap-3 overflow-visible p-1 lg:grid-cols-3 lg:auto-rows-max lg:content-start">
+		<section class={handSectionClass} style={handDesktopFitStyle}>
 			{#each displayImages as image}
 				<button
 					type="button"
-					class={`group relative block w-full overflow-visible rounded-lg focus-visible:outline-none ${
+					class={`${handButtonClass} ${
 						!isChooser ? 'cursor-default' : ''
 					}`}
 					disabled={!isChooser}
 					on:click={() => toggleCard(image)}
 				>
 					<img
-						class={`pointer-events-none w-full rounded-lg object-cover object-center aspect-[2/3] transition-all duration-150 ease-out ${
+						class={`${handImageClass} ${
 							selectedCards.includes(image)
 								? 'brightness-105 ring-4 ring-white shadow-xlg'
 								: 'cursor-pointer lg:group-hover:ring-2 lg:group-hover:ring-white/85 lg:group-hover:brightness-105'
@@ -210,3 +225,11 @@
 		</section>
 	</div>
 </StageShell>
+
+<style>
+	@media (min-width: 1024px) {
+		.hand-fit-grid {
+			grid-template-rows: repeat(var(--hand-desktop-rows, 2), minmax(0, 1fr));
+		}
+	}
+</style>

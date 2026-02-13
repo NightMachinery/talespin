@@ -15,10 +15,14 @@
 
 	$: isHandMode = mode === 'hand';
 	$: handDesktopFitEnabled = isHandMode && $cardsFitToHeight;
+	$: handDesktopRowCount = Math.max(2, Math.ceil(Math.max(displayImages?.length ?? 0, 1) / 3));
 	$: handDesktopGridClass = handDesktopFitEnabled
-		? 'lg:h-full lg:grid-cols-3 lg:grid-rows-2 lg:content-stretch'
+		? 'hand-fit-grid lg:h-full lg:grid-cols-3 lg:content-stretch'
 		: 'lg:grid-cols-3 lg:auto-rows-max lg:content-start';
 	$: handButtonSizeClass = handDesktopFitEnabled ? 'lg:h-full' : '';
+	$: handDesktopFitStyle = handDesktopFitEnabled
+		? `--hand-desktop-rows: ${handDesktopRowCount};`
+		: '';
 	$: sectionClass = isHandMode
 		? `grid w-full grid-cols-2 gap-3 overflow-visible p-1 ${handDesktopGridClass}`
 		: 'grid w-full grid-cols-2 gap-3 overflow-visible p-1 lg:grid-cols-3 lg:auto-rows-max lg:content-start';
@@ -34,7 +38,7 @@
 	}
 </script>
 
-<section class={`${sectionClass} isolate`}>
+<section class={`${sectionClass} isolate`} style={handDesktopFitStyle}>
 	{#if selectable}
 		{#each displayImages as image}
 			{@const isDisabled = disabledImageSet.has(image)}
@@ -73,3 +77,11 @@
 		{/each}
 	{/if}
 </section>
+
+<style>
+	@media (min-width: 1024px) {
+		.hand-fit-grid {
+			grid-template-rows: repeat(var(--hand-desktop-rows, 2), minmax(0, 1fr));
+		}
+	}
+</style>
