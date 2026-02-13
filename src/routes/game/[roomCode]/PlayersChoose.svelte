@@ -200,7 +200,7 @@
 						class={`pointer-events-none w-full rounded-lg object-cover object-center aspect-[2/3] transition-all duration-150 ease-out ${
 							selectedCards.includes(image)
 								? 'brightness-105 ring-4 ring-white shadow-xlg'
-								: 'cursor-pointer group-hover:ring-2 group-hover:ring-white/85 group-hover:brightness-105'
+								: 'cursor-pointer lg:group-hover:ring-2 lg:group-hover:ring-white/85 lg:group-hover:brightness-105'
 						}`}
 						src={`${http_host}/cards/${image}`}
 						alt={CARD_IMAGE_ALT_TEXT}

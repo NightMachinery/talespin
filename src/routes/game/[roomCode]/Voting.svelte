@@ -240,7 +240,7 @@
 								? 'cursor-not-allowed ring-[3px] ring-gray-400'
 								: selectedCount > 0
 									? 'brightness-105 ring-4 ring-white shadow-xlg'
-									: 'cursor-pointer group-hover:ring-2 group-hover:ring-white/85 group-hover:brightness-105'
+									: 'cursor-pointer lg:group-hover:ring-2 lg:group-hover:ring-white/85 lg:group-hover:brightness-105'
 						}`}
 						src={`${http_host}/cards/${image}`}
 						alt={CARD_IMAGE_ALT_TEXT}
