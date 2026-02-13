@@ -205,6 +205,8 @@ struct RoomState {
     removed_players: HashSet<String>,
     // observers are room members but not active players in a round
     observers: HashMap<String, ObserverInfo>,
+    // round number when a member became an observer
+    observer_since_round: HashMap<String, u16>,
     // stable per-name token for reconnect/auth
     name_tokens: HashMap<String, String>,
     // active connection generation for each member
@@ -293,6 +295,7 @@ impl Room {
             no_connected_moderator_since_s: None,
             removed_players: HashSet::new(),
             observers: HashMap::new(),
+            observer_since_round: HashMap::new(),
             name_tokens: HashMap::new(),
             connection_generation: HashMap::new(),
             next_generation: 0,
@@ -715,6 +718,18 @@ impl Room {
         all_points.into_iter().min().unwrap_or(0)
     }
 
+    fn observer_is_floor_eligible(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+        observer_name: &str,
+    ) -> bool {
+        state
+            .observer_since_round
+            .get(observer_name)
+            .map(|since_round| state.round.saturating_sub(*since_round) >= 2)
+            .unwrap_or(false)
+    }
+
     fn sync_player_order_with_players(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
         let existing = state.players.keys().cloned().collect::<HashSet<_>>();
         state.player_order.retain(|name| existing.contains(name));
@@ -774,12 +789,19 @@ impl Room {
         let floor = self.observer_floor_score(state);
         let mut promoted = 0usize;
         for name in to_promote {
+            let floor_eligible = self.observer_is_floor_eligible(state, &name);
             if let Some(observer) = state.observers.remove(&name) {
+                state.observer_since_round.remove(&name);
+                let promoted_points = if floor_eligible {
+                    observer.points.max(floor)
+                } else {
+                    observer.points
+                };
                 state.players.insert(
                     name.clone(),
                     PlayerInfo {
                         connected: observer.connected,
-                        points: observer.points.max(floor),
+                        points: promoted_points,
                         ready: false,
                     },
                 );
@@ -808,8 +830,15 @@ impl Room {
         }
 
         let floor = self.observer_floor_score(state);
+        let floor_eligible = self.observer_is_floor_eligible(state, observer_name);
         let Some(observer) = state.observers.remove(observer_name) else {
             return Ok(false);
+        };
+        state.observer_since_round.remove(observer_name);
+        let promoted_points = if floor_eligible {
+            observer.points.max(floor)
+        } else {
+            observer.points
         };
 
         let ready = matches!(state.stage, RoomStage::Joining);
@@ -817,7 +846,7 @@ impl Room {
             observer_name.to_string(),
             PlayerInfo {
                 connected: observer.connected,
-                points: observer.points.max(floor),
+                points: promoted_points,
                 ready,
             },
         );
@@ -909,6 +938,10 @@ impl Room {
                 auto_join_on_next_round,
             },
         );
+        let observer_since_round = state.round;
+        state
+            .observer_since_round
+            .insert(player_name.to_string(), observer_since_round);
         self.clamp_storyteller_loss_complement(state);
         self.clamp_votes_per_guesser(state);
         self.clamp_cards_per_hand(state);
@@ -930,6 +963,7 @@ impl Room {
         }
 
         state.observers.remove(name);
+        state.observer_since_round.remove(name);
         state.moderators.remove(name);
         if state.creator.as_deref() == Some(name) {
             state.creator = None;
@@ -998,6 +1032,7 @@ impl Room {
         }
 
         state.players.remove(player_name);
+        state.observer_since_round.remove(player_name);
         state.moderators.remove(player_name);
         if state.creator.as_deref() == Some(player_name) {
             state.creator = None;
@@ -1239,26 +1274,17 @@ impl Room {
         let seed = state.voting_order_seed;
         let mut keyed_cards = center_cards
             .into_iter()
-            .enumerate()
-            .map(|(ordinal, card)| {
-                (
-                    self.voting_card_order_key(seed, &card, ordinal),
-                    ordinal,
-                    card,
-                )
-            })
+            .map(|card| (self.voting_card_order_key(seed, &card), card))
             .collect::<Vec<_>>();
-        keyed_cards.sort_by(|(key_a, ordinal_a, _), (key_b, ordinal_b, _)| {
-            key_a.cmp(key_b).then(ordinal_a.cmp(ordinal_b))
-        });
+        keyed_cards
+            .sort_by(|(key_a, card_a), (key_b, card_b)| key_a.cmp(key_b).then(card_a.cmp(card_b)));
 
-        keyed_cards.into_iter().map(|(_, _, card)| card).collect()
+        keyed_cards.into_iter().map(|(_, card)| card).collect()
     }
 
-    fn voting_card_order_key(&self, seed: u64, card: &str, ordinal: usize) -> [u8; 32] {
+    fn voting_card_order_key(&self, seed: u64, card: &str) -> [u8; 32] {
         let mut hasher = Sha256::new();
         hasher.update(seed.to_le_bytes());
-        hasher.update((ordinal as u64).to_le_bytes());
         hasher.update(card.as_bytes());
         let digest = hasher.finalize();
 
@@ -2502,6 +2528,7 @@ impl Room {
         } else if matches!(state.stage, RoomStage::Joining) {
             state.players.remove(name);
             state.observers.remove(name);
+            state.observer_since_round.remove(name);
             state.moderators.remove(name);
             state.name_tokens.remove(name);
             state.connection_generation.remove(name);
@@ -2610,6 +2637,7 @@ impl Room {
                     }
                 }
                 RoomStage::Voting | RoomStage::Results => {
+                    let observer_since_round = state.round;
                     state.observers.insert(
                         name.to_string(),
                         ObserverInfo {
@@ -2619,6 +2647,9 @@ impl Room {
                             auto_join_on_next_round: true,
                         },
                     );
+                    state
+                        .observer_since_round
+                        .insert(name.to_string(), observer_since_round);
                 }
                 RoomStage::End => {
                     socket
@@ -3071,8 +3102,8 @@ mod tests {
         );
         assert_eq!(
             state.players.get("obs").map(|p| p.points),
-            Some(6),
-            "promoted observer should be floored to minimum active player score"
+            Some(1),
+            "recent observers should keep score when rejoining before floor-eligibility window"
         );
 
         Ok(())
@@ -3120,8 +3151,8 @@ mod tests {
         );
         assert_eq!(
             state.players.get("obs").map(|p| p.points),
-            Some(3),
-            "promoted observer should be floored to minimum active player score"
+            Some(1),
+            "recent observers should keep score when rejoining before floor-eligibility window"
         );
         assert!(
             state
@@ -3130,6 +3161,44 @@ mod tests {
                 .map(|hand| !hand.is_empty())
                 .unwrap_or(false),
             "immediate promotion should provision a hand for current round"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn recent_observer_rejoin_does_not_floor_score() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "a", 10);
+            add_player(&mut state, "b", 8);
+            add_player(&mut state, "c", 2);
+            state.player_order = vec!["a".into(), "b".into(), "c".into()];
+            state.active_player = 0;
+            state.round = 9;
+            state.stage = RoomStage::ActiveChooses;
+            setup_connected_member(&mut state, "c", "t-c", 401);
+        }
+
+        room.handle_client_msg(
+            "c",
+            401,
+            to_ws(ClientMsg::SetObserver {
+                player: "c".to_string(),
+                enabled: true,
+            }),
+        )
+        .await?;
+
+        room.handle_client_msg("c", 401, to_ws(ClientMsg::RequestJoinFromObserver {}))
+            .await?;
+
+        let state = room.state.read().await;
+        assert_eq!(
+            state.players.get("c").map(|p| p.points),
+            Some(2),
+            "observer rejoining too soon should keep original score and not be floored"
         );
 
         Ok(())
@@ -3499,6 +3568,7 @@ mod tests {
 
         add_player(&mut state, "p1", 6);
         add_player(&mut state, "p2", 10);
+        state.round = 5;
 
         state.observers.insert(
             "low".to_string(),
@@ -3509,6 +3579,7 @@ mod tests {
                 auto_join_on_next_round: false,
             },
         );
+        state.observer_since_round.insert("low".to_string(), 3);
         state.observers.insert(
             "high".to_string(),
             ObserverInfo {
@@ -3518,6 +3589,7 @@ mod tests {
                 auto_join_on_next_round: false,
             },
         );
+        state.observer_since_round.insert("high".to_string(), 3);
 
         let promoted = room.promote_requested_observers(&mut state);
         assert_eq!(promoted, 2, "expected both observers to be promoted");
