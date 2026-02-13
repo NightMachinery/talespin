@@ -94,10 +94,10 @@
 			return 'cursor-not-allowed ring-[3px] ring-gray-400 saturate-50';
 		}
 		if (selectedCount >= 2) {
-			return 'brightness-110 ring-[5px] ring-white shadow-[0_0_0_2px_rgba(255,255,255,0.72),0_0_0_8px_rgba(255,255,255,0.3),0_22px_44px_rgba(0,0,0,0.55)]';
+			return 'brightness-110 ring-4 ring-white shadow-xlg double-vote-glow';
 		}
 		if (selectedCount === 1) {
-			return 'brightness-105 ring-[3px] ring-white shadow-[0_0_0_1px_rgba(255,255,255,0.55),0_16px_30px_rgba(0,0,0,0.45)]';
+			return 'brightness-105 ring-4 ring-white shadow-xlg';
 		}
 		return 'card-hover-target cursor-pointer group-focus-visible:ring-2 group-focus-visible:ring-white/85 group-focus-visible:shadow-[0_0_0_2px_rgba(255,255,255,0.22),0_16px_30px_rgba(0,0,0,0.38)]';
 	}
@@ -274,30 +274,6 @@
 						src={`${http_host}/cards/${image}`}
 						alt={CARD_IMAGE_ALT_TEXT}
 					/>
-					{#if selectedCount === 1}
-						<div
-							class="pointer-events-none absolute inset-2 z-10 rounded-md border-2 border-white"
-						></div>
-						<div
-							class="pointer-events-none absolute inset-[8px] z-10 rounded-[7px] border-2 border-white/90"
-						></div>
-						<div
-							class="pointer-events-none absolute inset-[9px] z-10 rounded-[6px] border border-black/40"
-						></div>
-					{:else if selectedCount >= 2}
-						<div
-							class="pointer-events-none absolute inset-[5px] z-10 rounded-[9px] border-4 border-white"
-						></div>
-						<div
-							class="pointer-events-none absolute inset-5 z-10 rounded-md border-2 border-white"
-						></div>
-						<div
-							class="pointer-events-none absolute inset-[12px] z-10 rounded-[7px] border-[3px] border-white/90"
-						></div>
-						<div
-							class="pointer-events-none absolute inset-[13px] z-10 rounded-[6px] border border-black/45"
-						></div>
-					{/if}
 					{#if selectedCount > 0}
 						<div
 							class={`absolute left-2 top-2 z-20 rounded px-2 py-0.5 text-xs font-bold text-white ${
@@ -316,6 +292,14 @@
 </StageShell>
 
 <style>
+	.double-vote-glow {
+		box-shadow:
+			0 0 0 2px rgb(255 255 255 / 0.65),
+			0 0 0 8px rgb(var(--color-primary-500) / 0.45),
+			0 0 28px rgb(var(--color-primary-500) / 0.75),
+			0 22px 44px rgb(0 0 0 / 0.55);
+	}
+
 	@media (min-width: 1024px) {
 		.voting-fit-grid {
 			grid-template-rows: repeat(var(--voting-desktop-rows, 2), minmax(0, 1fr));
