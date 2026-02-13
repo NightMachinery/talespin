@@ -238,19 +238,26 @@
 						class={`pointer-events-none w-full rounded-lg object-cover object-center aspect-[2/3] transition-all duration-150 ease-out ${
 							isDisabled
 								? 'cursor-not-allowed ring-[3px] ring-gray-400'
-								: selectedCount > 0
-									? 'brightness-105 ring-4 ring-white shadow-xlg'
+								: selectedCount >= 2
+									? 'brightness-110 ring-4 ring-white shadow-xlg'
+									: selectedCount === 1
+										? 'brightness-105 ring-2 ring-white shadow-xlg'
 									: 'cursor-pointer lg:group-hover:ring-2 lg:group-hover:ring-white/85 lg:group-hover:brightness-105'
 						}`}
 						src={`${http_host}/cards/${image}`}
 						alt={CARD_IMAGE_ALT_TEXT}
 					/>
-					{#if selectedCount >= 2}
+					{#if selectedCount === 1}
+						<div class="pointer-events-none absolute inset-2 rounded-md border-2 border-white/90"></div>
+					{:else if selectedCount >= 2}
 						<div class="pointer-events-none absolute inset-2 rounded-md border-4 border-white/90"></div>
+						<div class="pointer-events-none absolute inset-5 rounded-md border-2 border-white/95"></div>
 					{/if}
 					{#if selectedCount > 0}
 						<div
-							class="absolute left-2 top-2 rounded bg-primary-500 px-2 py-0.5 text-xs font-bold text-white"
+							class={`absolute left-2 top-2 rounded px-2 py-0.5 text-xs font-bold text-white ${
+								selectedCount >= 2 ? 'bg-success-500' : 'bg-primary-500'
+							}`}
 						>
 							×{selectedCount}
 						</div>
