@@ -5,6 +5,7 @@
 	import { http_host } from '$lib/gameServer';
 	import type GameServer from '$lib/gameServer';
 	import type { ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
+	import { cardsFitToHeight } from '$lib/viewOptions';
 	import StageShell from './StageShell.svelte';
 
 	export let displayImages: string[] = [];
@@ -52,6 +53,20 @@
 		1,
 		Math.min(votesPerGuesser, Math.max(votesPerGuesserMax, 1))
 	);
+	$: tableDesktopFitEnabled = $cardsFitToHeight;
+	$: tableDesktopRowCount = Math.max(2, Math.ceil(Math.max(displayImages?.length ?? 0, 1) / 3));
+	$: tableSectionClass = tableDesktopFitEnabled
+		? 'voting-fit-grid grid w-full grid-cols-2 gap-3 overflow-visible p-1 lg:min-h-0 lg:flex-1 lg:grid-cols-3 lg:content-stretch'
+		: 'grid w-full grid-cols-2 gap-3 overflow-visible p-1 lg:grid-cols-3 lg:auto-rows-max lg:content-start';
+	$: tableImageClass = tableDesktopFitEnabled
+		? 'pointer-events-none aspect-[2/3] w-full rounded-lg object-cover object-center transition-all duration-150 ease-out lg:h-full'
+		: 'pointer-events-none aspect-[2/3] w-full rounded-lg object-cover object-center transition-all duration-150 ease-out';
+	$: tableButtonClass = tableDesktopFitEnabled
+		? 'group relative block w-full overflow-visible rounded-lg focus-visible:outline-none lg:h-full'
+		: 'group relative block w-full overflow-visible rounded-lg focus-visible:outline-none';
+	$: tableDesktopFitStyle = tableDesktopFitEnabled
+		? `--voting-desktop-rows: ${tableDesktopRowCount};`
+		: '';
 	$: canSubmit =
 		isVoter && effectiveVotesPerGuesser > 0 && selectedVotes.length === effectiveVotesPerGuesser;
 	$: {
@@ -68,6 +83,19 @@
 
 	function voteCountForCard(card: string) {
 		return selectedVotes.filter((value) => value === card).length;
+	}
+
+	function voteImageClass(selectedCount: number, isDisabled: boolean) {
+		if (isDisabled) {
+			return 'cursor-not-allowed ring-[3px] ring-gray-400 saturate-50';
+		}
+		if (selectedCount >= 2) {
+			return 'brightness-110 ring-[5px] ring-white shadow-[0_0_0_2px_rgba(255,255,255,0.72),0_0_0_8px_rgba(255,255,255,0.3),0_22px_44px_rgba(0,0,0,0.55)]';
+		}
+		if (selectedCount === 1) {
+			return 'brightness-105 ring-[3px] ring-white shadow-[0_0_0_1px_rgba(255,255,255,0.55),0_16px_30px_rgba(0,0,0,0.45)]';
+		}
+		return 'cursor-pointer lg:group-hover:ring-2 lg:group-hover:ring-white/85 lg:group-hover:brightness-105 lg:group-hover:shadow-[0_0_0_2px_rgba(255,255,255,0.22),0_16px_30px_rgba(0,0,0,0.38)] group-focus-visible:ring-2 group-focus-visible:ring-white/85 group-focus-visible:shadow-[0_0_0_2px_rgba(255,255,255,0.22),0_16px_30px_rgba(0,0,0,0.38)]';
 	}
 
 	function cycleCardVote(card: string) {
@@ -191,8 +219,9 @@
 		<div class="card light p-4">
 			<h2 class="mb-2 text-lg font-semibold">How points work</h2>
 			<p class="mb-2 text-xs opacity-80">
-				There are <span class="font-semibold">{guesserCount}</span> guessers.
-				With C=<span class="font-semibold">{storytellerLossComplement}</span>, storyteller-loss threshold is
+				There are <span class="font-semibold">{guesserCount}</span> guessers. With C=<span
+					class="font-semibold">{storytellerLossComplement}</span
+				>, storyteller-loss threshold is
 				<span class="font-semibold">{effectiveLossThreshold}</span>.
 			</p>
 			<ul class="ml-5 list-disc space-y-1 text-sm">
@@ -200,10 +229,12 @@
 					Loss scenario triggers when right guesses ≥ {effectiveLossThreshold} or wrong guesses ≥
 					{effectiveLossThreshold}.
 				</li>
-				<li>Loss scenario points: <span class="font-semibold">{activePlayer}</span> +0, each guesser +2.</li>
 				<li>
-					Otherwise points: <span class="font-semibold">{activePlayer}</span> +3, each guesser with at least
-					one correct vote +3.
+					Loss scenario points: <span class="font-semibold">{activePlayer}</span> +0, each guesser +2.
+				</li>
+				<li>
+					Otherwise points: <span class="font-semibold">{activePlayer}</span> +3, each guesser with at
+					least one correct vote +3.
 				</li>
 				<li>
 					Double-correct bonus: +1 if 2+ of your {effectiveVotesPerGuesser} vote
@@ -222,47 +253,53 @@
 		{/if}
 	</svelte:fragment>
 
-	<div class="flex h-full flex-col">
+	<div class="flex h-full min-h-0 flex-col">
 		<h2 class="mb-2 hidden text-lg font-semibold lg:block">Cards on table</h2>
-		<section class="grid w-full grid-cols-2 gap-3 overflow-visible p-1 lg:grid-cols-3 lg:auto-rows-max lg:content-start">
+		<section class={tableSectionClass} style={tableDesktopFitStyle}>
 			{#each displayImages as image}
 				{@const selectedCount = voteCountForCard(image)}
 				{@const isDisabled = disabledCards.includes(image)}
 				<button
 					type="button"
-					class={`group relative block w-full overflow-visible rounded-lg focus-visible:outline-none ${isDisabled || !isVoter ? 'cursor-default' : ''}`}
+					class={`${tableButtonClass} ${isDisabled || !isVoter ? 'cursor-default' : ''}`}
 					disabled={!isVoter || isDisabled}
 					on:click={() => cycleCardVote(image)}
 				>
 					<img
-						class={`pointer-events-none w-full rounded-lg object-cover object-center aspect-[2/3] transition-all duration-150 ease-out ${
-							isDisabled
-								? 'cursor-not-allowed ring-[3px] ring-gray-400'
-								: selectedCount >= 2
-									? 'brightness-110 ring-4 ring-white shadow-xlg'
-									: selectedCount === 1
-										? 'brightness-105 ring-2 ring-white shadow-xlg'
-									: 'cursor-pointer lg:group-hover:ring-2 lg:group-hover:ring-white/85 lg:group-hover:brightness-105'
-						}`}
+						class={`${tableImageClass} ${voteImageClass(selectedCount, isDisabled)}`}
 						src={`${http_host}/cards/${image}`}
 						alt={CARD_IMAGE_ALT_TEXT}
 					/>
 					{#if selectedCount === 1}
-						<div class="pointer-events-none absolute inset-2 z-10 rounded-md border-2 border-white"></div>
 						<div
-							class="pointer-events-none absolute inset-[5px] z-10 rounded-md border border-black/35"
+							class="pointer-events-none absolute inset-2 z-10 rounded-md border-2 border-white"
+						></div>
+						<div
+							class="pointer-events-none absolute inset-[8px] z-10 rounded-[7px] border-2 border-white/90"
+						></div>
+						<div
+							class="pointer-events-none absolute inset-[9px] z-10 rounded-[6px] border border-black/40"
 						></div>
 					{:else if selectedCount >= 2}
-						<div class="pointer-events-none absolute inset-2 z-10 rounded-md border-4 border-white"></div>
-						<div class="pointer-events-none absolute inset-5 z-10 rounded-md border-2 border-white"></div>
 						<div
-							class="pointer-events-none absolute inset-[8px] z-10 rounded-md border border-black/40"
+							class="pointer-events-none absolute inset-[5px] z-10 rounded-[9px] border-4 border-white"
+						></div>
+						<div
+							class="pointer-events-none absolute inset-5 z-10 rounded-md border-2 border-white"
+						></div>
+						<div
+							class="pointer-events-none absolute inset-[12px] z-10 rounded-[7px] border-[3px] border-white/90"
+						></div>
+						<div
+							class="pointer-events-none absolute inset-[13px] z-10 rounded-[6px] border border-black/45"
 						></div>
 					{/if}
 					{#if selectedCount > 0}
 						<div
-							class={`absolute left-2 top-2 rounded px-2 py-0.5 text-xs font-bold text-white ${
-								selectedCount >= 2 ? 'bg-success-500' : 'bg-primary-500'
+							class={`absolute left-2 top-2 z-20 rounded px-2 py-0.5 text-xs font-bold text-white ${
+								selectedCount >= 2
+									? 'bg-success-500 shadow-[0_0_0_2px_rgba(255,255,255,0.3)]'
+									: 'bg-primary-500 shadow-[0_0_0_1px_rgba(255,255,255,0.25)]'
 							}`}
 						>
 							×{selectedCount}
@@ -273,3 +310,11 @@
 		</section>
 	</div>
 </StageShell>
+
+<style>
+	@media (min-width: 1024px) {
+		.voting-fit-grid {
+			grid-template-rows: repeat(var(--voting-desktop-rows, 2), minmax(0, 1fr));
+		}
+	}
+</style>
