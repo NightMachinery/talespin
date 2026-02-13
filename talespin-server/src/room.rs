@@ -2023,6 +2023,20 @@ impl Room {
                     return Ok(());
                 }
 
+                if !matches!(state.stage, RoomStage::ActiveChooses | RoomStage::PlayersChoose) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Votes per guesser can only be changed before voting begins"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
                 state.votes_per_guesser = votes;
                 self.clamp_votes_per_guesser(&mut state);
                 self.clamp_vote_submission_lengths(&mut state);
@@ -2091,6 +2105,20 @@ impl Room {
                 }
 
                 if matches!(state.stage, RoomStage::End) {
+                    return Ok(());
+                }
+
+                if !matches!(state.stage, RoomStage::ActiveChooses | RoomStage::PlayersChoose) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Nominations per guesser can only be changed before voting begins"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
                     return Ok(());
                 }
 
@@ -3808,6 +3836,7 @@ mod tests {
             add_player(&mut state, "p3", 0);
             add_player(&mut state, "p4", 0);
             add_player(&mut state, "p5", 0);
+            state.stage = RoomStage::ActiveChooses;
             state.moderators.insert("host".to_string());
             setup_connected_member(&mut state, "host", "t-host", 11);
         }
@@ -3824,6 +3853,48 @@ mod tests {
         assert_eq!(
             state.votes_per_guesser, 3,
             "votes per guesser should be clamped to current upper bound"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn votes_and_nominations_cannot_change_after_voting_begins() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            add_player(&mut state, "p2", 0);
+            add_player(&mut state, "p3", 0);
+            add_player(&mut state, "p4", 0);
+            state.stage = RoomStage::Voting;
+            state.votes_per_guesser = 2;
+            state.nominations_per_guesser = 1;
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 111);
+        }
+
+        room.handle_client_msg(
+            "host",
+            111,
+            to_ws(ClientMsg::SetVotesPerGuesser { votes: 1 }),
+        )
+        .await?;
+        room.handle_client_msg(
+            "host",
+            111,
+            to_ws(ClientMsg::SetNominationsPerGuesser { cards: 2 }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert_eq!(
+            state.votes_per_guesser, 2,
+            "votes per guesser should remain unchanged once voting has begun"
+        );
+        assert_eq!(
+            state.nominations_per_guesser, 1,
+            "nominations per guesser should remain unchanged once voting has begun"
         );
 
         Ok(())

@@ -39,6 +39,7 @@
 	$: canBecomeObserver =
 		!isSelfObserver && stage !== 'Joining' && stage !== 'End' && !selfObserveBlocked;
 	$: canChangeCardsPerHand = stage === 'ActiveChooses';
+	$: canChangePreVotingSettings = stage === 'ActiveChooses' || stage === 'PlayersChoose';
 	$: selfJoinPending =
 		!!selfObserverInfo && (selfObserverInfo.join_requested || selfObserverInfo.auto_join_on_next_round);
 	$: selfJoinBackLabel =
@@ -315,12 +316,15 @@
 							step="1"
 							value={votesPerGuesser}
 							on:change={updateVotesPerGuesser}
-							disabled={!isModerator}
+							disabled={!isModerator || !canChangePreVotingSettings}
 						/>
 						<span class="text-xs opacity-75"
 							>Range: {votesPerGuesserMin}–{votesPerGuesserMax}</span
 						>
 					</div>
+					{#if !canChangePreVotingSettings}
+						<p class="mt-1 text-xs opacity-70">Can only be changed before voting begins.</p>
+					{/if}
 				</div>
 				<div class="mt-3 rounded border border-white/20 px-2 py-2">
 					<p class="block text-sm font-semibold">Cards per hand</p>
@@ -354,12 +358,15 @@
 							step="1"
 							value={nominationsPerGuesser}
 							on:change={updateNominationsPerGuesser}
-							disabled={!isModerator}
+							disabled={!isModerator || !canChangePreVotingSettings}
 						/>
 						<span class="text-xs opacity-75"
 							>Range: {nominationsPerGuesserMin}–{nominationsPerGuesserMax}</span
 						>
 					</div>
+					{#if !canChangePreVotingSettings}
+						<p class="mt-1 text-xs opacity-70">Can only be changed before voting begins.</p>
+					{/if}
 				</div>
 			{/if}
 		</details>
