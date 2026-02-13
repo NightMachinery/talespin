@@ -62,8 +62,8 @@
 		? 'pointer-events-none aspect-[2/3] w-full rounded-lg object-cover object-center transition-all duration-150 ease-out lg:h-full'
 		: 'pointer-events-none aspect-[2/3] w-full rounded-lg object-cover object-center transition-all duration-150 ease-out';
 	$: tableButtonClass = tableDesktopFitEnabled
-		? 'group relative block w-full overflow-visible rounded-lg focus-visible:outline-none lg:h-full'
-		: 'group relative block w-full overflow-visible rounded-lg focus-visible:outline-none';
+		? 'card-hover-source group relative block w-full overflow-visible rounded-lg focus-visible:outline-none lg:h-full'
+		: 'card-hover-source group relative block w-full overflow-visible rounded-lg focus-visible:outline-none';
 	$: tableDesktopFitStyle = tableDesktopFitEnabled
 		? `--voting-desktop-rows: ${tableDesktopRowCount};`
 		: '';
@@ -95,7 +95,7 @@
 		if (selectedCount === 1) {
 			return 'brightness-105 ring-[3px] ring-white shadow-[0_0_0_1px_rgba(255,255,255,0.55),0_16px_30px_rgba(0,0,0,0.45)]';
 		}
-		return 'cursor-pointer lg:group-hover:ring-2 lg:group-hover:ring-white/85 lg:group-hover:brightness-105 lg:group-hover:shadow-[0_0_0_2px_rgba(255,255,255,0.22),0_16px_30px_rgba(0,0,0,0.38)] group-focus-visible:ring-2 group-focus-visible:ring-white/85 group-focus-visible:shadow-[0_0_0_2px_rgba(255,255,255,0.22),0_16px_30px_rgba(0,0,0,0.38)]';
+		return 'card-hover-target cursor-pointer group-focus-visible:ring-2 group-focus-visible:ring-white/85 group-focus-visible:shadow-[0_0_0_2px_rgba(255,255,255,0.22),0_16px_30px_rgba(0,0,0,0.38)]';
 	}
 
 	function cycleCardVote(card: string) {

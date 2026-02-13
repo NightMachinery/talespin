@@ -59,8 +59,8 @@
 		? 'pointer-events-none w-full rounded-lg object-cover object-center aspect-[2/3] lg:h-full transition-all duration-150 ease-out'
 		: 'pointer-events-none w-full rounded-lg object-cover object-center aspect-[2/3] transition-all duration-150 ease-out';
 	$: handButtonClass = handDesktopFitEnabled
-		? 'group relative block w-full overflow-visible rounded-lg focus-visible:outline-none lg:h-full'
-		: 'group relative block w-full overflow-visible rounded-lg focus-visible:outline-none';
+		? 'card-hover-source group relative block w-full overflow-visible rounded-lg focus-visible:outline-none lg:h-full'
+		: 'card-hover-source group relative block w-full overflow-visible rounded-lg focus-visible:outline-none';
 	$: handDesktopFitStyle = handDesktopFitEnabled
 		? `--hand-desktop-rows: ${handDesktopRowCount};`
 		: '';
@@ -215,7 +215,7 @@
 						class={`${handImageClass} ${
 							selectedCards.includes(image)
 								? 'brightness-105 ring-4 ring-white shadow-xlg'
-								: 'cursor-pointer lg:group-hover:ring-2 lg:group-hover:ring-white/85 lg:group-hover:brightness-105'
+								: 'card-hover-target cursor-pointer group-focus-visible:ring-2 group-focus-visible:ring-white/85 group-focus-visible:shadow-[0_0_0_2px_rgba(255,255,255,0.22),0_16px_30px_rgba(0,0,0,0.38)]'
 						}`}
 						src={`${http_host}/cards/${image}`}
 						alt={CARD_IMAGE_ALT_TEXT}

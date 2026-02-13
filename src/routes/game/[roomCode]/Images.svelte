@@ -44,7 +44,7 @@
 			{@const isDisabled = disabledImageSet.has(image)}
 			<button
 				type="button"
-				class={`group relative block w-full overflow-visible rounded-lg focus-visible:outline-none ${handButtonSizeClass} ${
+				class={`card-hover-source group relative block w-full overflow-visible rounded-lg focus-visible:outline-none ${handButtonSizeClass} ${
 					selectedImage !== '' && selectedImage !== image ? nonSelectedCardDimClass : ''
 				} ${isDisabled ? 'cursor-not-allowed' : ''}`}
 				disabled={isDisabled}
@@ -60,7 +60,7 @@
 							? 'cursor-not-allowed ring-[3px] ring-gray-400'
 							: selectedImage === image
 								? 'brightness-105 ring-4 ring-white shadow-xlg'
-								: 'cursor-pointer lg:group-hover:ring-2 lg:group-hover:ring-white/85 lg:group-hover:brightness-105 lg:group-hover:shadow-[0_0_0_2px_rgba(255,255,255,0.22),0_16px_30px_rgba(0,0,0,0.38)] group-focus-visible:ring-2 group-focus-visible:ring-white/85 group-focus-visible:shadow-[0_0_0_2px_rgba(255,255,255,0.22),0_16px_30px_rgba(0,0,0,0.38)]'
+								: 'card-hover-target cursor-pointer group-focus-visible:ring-2 group-focus-visible:ring-white/85 group-focus-visible:shadow-[0_0_0_2px_rgba(255,255,255,0.22),0_16px_30px_rgba(0,0,0,0.38)]'
 					}`}
 					src={`${http_host}/cards/${image}`}
 					alt={CARD_IMAGE_ALT_TEXT}
