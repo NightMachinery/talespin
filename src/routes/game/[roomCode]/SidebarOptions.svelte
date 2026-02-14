@@ -208,8 +208,8 @@
 				<p class="text-xs font-semibold uppercase tracking-wide opacity-70">Manage players</p>
 				{#each sortedPlayerEntries as [playerName]}
 					<div class="rounded border border-white/20 px-2 py-1.5">
-						<div class="flex items-center justify-between gap-2">
-							<div class="font-semibold">
+						<div class="flex items-start justify-between gap-2">
+							<div class="min-w-0 break-words font-semibold">
 								{playerName}
 								{#if playerName === creator}
 									<span class="ml-1 text-xs font-normal opacity-70">(creator)</span>
@@ -217,10 +217,10 @@
 									<span class="ml-1 text-xs font-normal opacity-70">(mod)</span>
 								{/if}
 							</div>
-							<div class="flex items-center gap-1.5">
+							<div class="flex flex-wrap justify-end gap-1.5">
 								{#if isModerator && playerName !== name}
 									<button
-										class="btn variant-filled px-2 py-0.5 text-xs"
+										class="btn variant-filled shrink-0 px-2 py-0.5 text-xs"
 										on:click={() => kickPlayer(playerName)}
 									>
 										Kick
@@ -229,14 +229,14 @@
 								{#if playerName !== creator}
 									{#if isCreator && isPlayerModerator(playerName)}
 										<button
-											class="btn variant-filled px-2 py-0.5 text-xs"
+											class="btn variant-filled shrink-0 px-2 py-0.5 text-xs"
 											on:click={() => setModerator(playerName, false)}
 										>
 											Demote
 										</button>
 									{:else if (isCreator || isModerator) && !isPlayerModerator(playerName)}
 										<button
-											class="btn variant-filled px-2 py-0.5 text-xs"
+											class="btn variant-filled shrink-0 px-2 py-0.5 text-xs"
 											on:click={() => setModerator(playerName, true)}
 										>
 											Make Mod
@@ -245,7 +245,7 @@
 								{/if}
 								{#if isModerator || playerName === name}
 									<button
-										class="btn variant-filled px-2 py-0.5 text-xs"
+										class="btn variant-filled shrink-0 px-2 py-0.5 text-xs"
 										on:click={() => setObserver(playerName, true)}
 									>
 										Observer
@@ -257,18 +257,18 @@
 				{/each}
 				{#each sortedObserverEntries as [observerName, info]}
 					<div class="rounded border border-white/20 px-2 py-1.5 opacity-85">
-						<div class="flex items-center justify-between gap-2">
-							<div class="font-semibold">
+						<div class="flex items-start justify-between gap-2">
+							<div class="min-w-0 break-words font-semibold">
 								{observerName}
 								<span class="ml-1 text-xs font-normal opacity-70">(observer)</span>
 								{#if !info.connected}
 									<span class="ml-1 text-xs font-normal opacity-70">({OFFLINE_STATUS_LABEL})</span>
 								{/if}
 							</div>
-							<div class="flex items-center gap-1.5">
+							<div class="flex flex-wrap justify-end gap-1.5">
 								{#if isModerator || observerName === name}
 									<button
-										class="btn variant-filled px-2 py-0.5 text-xs"
+										class="btn variant-filled shrink-0 px-2 py-0.5 text-xs"
 										on:click={() => setObserver(observerName, false)}
 									>
 										{observerJoinActionLabel(info)}
@@ -276,7 +276,7 @@
 								{/if}
 								{#if isModerator}
 									<button
-										class="btn variant-filled px-2 py-0.5 text-xs"
+										class="btn variant-filled shrink-0 px-2 py-0.5 text-xs"
 										on:click={() => kickPlayer(observerName)}
 									>
 										Kick
