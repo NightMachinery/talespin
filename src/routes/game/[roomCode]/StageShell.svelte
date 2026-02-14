@@ -3,6 +3,7 @@
 	import type GameServer from '$lib/gameServer';
 	import Leaderboard from './Leaderboard.svelte';
 	import SidebarOptions from './SidebarOptions.svelte';
+	import ScoreCheatsheet from './ScoreCheatsheet.svelte';
 	import type { ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
 
 	export let players: { [key: string]: PlayerInfo } = {};
@@ -154,6 +155,16 @@
 							<slot name="sidebarBottom" />
 						</div>
 					{/if}
+
+					<div>
+						<ScoreCheatsheet
+							{players}
+							{activePlayer}
+							{storytellerLossComplement}
+							{votesPerGuesser}
+							{votesPerGuesserMax}
+						/>
+					</div>
 				</div>
 			</aside>
 		</div>

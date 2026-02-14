@@ -48,8 +48,6 @@
 	let isVoter = false;
 	$: isObserver = !!observers[name];
 	$: isVoter = activePlayer !== name && !isObserver;
-	$: guesserCount = Math.max(0, Object.keys(players).length - 1);
-	$: effectiveLossThreshold = Math.max(0, guesserCount - storytellerLossComplement);
 	$: effectiveVotesPerGuesser = Math.max(
 		1,
 		Math.min(votesPerGuesser, Math.max(votesPerGuesserMax, 1))
@@ -217,36 +215,6 @@
 				{/if}
 			</div>
 		{/if}
-	</svelte:fragment>
-
-	<svelte:fragment slot="sidebarBottom">
-		<div class="card light p-4">
-			<h2 class="mb-2 text-lg font-semibold">How points work</h2>
-			<p class="mb-2 text-xs opacity-80">
-				There are <span class="font-semibold">{guesserCount}</span> guessers. With C=<span
-					class="font-semibold">{storytellerLossComplement}</span
-				>, storyteller-loss threshold is
-				<span class="font-semibold">{effectiveLossThreshold}</span>.
-			</p>
-			<ul class="ml-5 list-disc space-y-1 text-sm">
-				<li>
-					Loss scenario triggers when right guesses ≥ {effectiveLossThreshold} or wrong guesses ≥
-					{effectiveLossThreshold}.
-				</li>
-				<li>
-					Loss scenario points: <span class="font-semibold">{activePlayer}</span> +0, each guesser +2.
-				</li>
-				<li>
-					Otherwise points: <span class="font-semibold">{activePlayer}</span> +3, each guesser with at
-					least one correct vote +3.
-				</li>
-				<li>
-					Double-correct bonus: +1 if 2+ of your {effectiveVotesPerGuesser} vote
-					{effectiveVotesPerGuesser === 1 ? '' : 's'} hit storyteller card.
-				</li>
-				<li>Decoy bonus: +1 per vote token on your card (max +3, non-storyteller only).</li>
-			</ul>
-		</div>
 	</svelte:fragment>
 
 	<svelte:fragment slot="mobileActions">

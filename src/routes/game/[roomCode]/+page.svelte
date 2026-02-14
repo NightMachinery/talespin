@@ -16,6 +16,7 @@
 	import Results from './Results.svelte';
 	import Paused from './Paused.svelte';
 	import End from './End.svelte';
+	import ScoreCheatsheet from './ScoreCheatsheet.svelte';
 
 	// connection information
 	let name = '';
@@ -367,6 +368,17 @@
 	{:else if stage === 'End'}
 		<div class="pt-10">
 			<End {players} />
+		</div>
+	{/if}
+	{#if stage === 'Joining' || stage === 'End'}
+		<div class="mx-auto mt-4 max-w-[680px] px-3 pb-6 lg:px-6">
+			<ScoreCheatsheet
+				{players}
+				{activePlayer}
+				{storytellerLossComplement}
+				{votesPerGuesser}
+				{votesPerGuesserMax}
+			/>
 		</div>
 	{/if}
 </div>
