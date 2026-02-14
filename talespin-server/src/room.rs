@@ -596,6 +596,15 @@ impl Room {
         Ok(())
     }
 
+    fn mark_member_disconnected(&self, state: &mut RwLockWriteGuard<'_, RoomState>, name: &str) {
+        if let Some(player) = state.players.get_mut(name) {
+            player.connected = false;
+        }
+        if let Some(observer) = state.observers.get_mut(name) {
+            observer.connected = false;
+        }
+    }
+
     fn can_join_midgame(&self, state: &RwLockWriteGuard<RoomState>) -> bool {
         state.allow_new_players_midgame
     }
@@ -1797,10 +1806,32 @@ impl Room {
                         return Ok(());
                     }
 
-                    if state.players.len() < 3 {
+                    let connected_players = state
+                        .players
+                        .values()
+                        .filter(|player| player.connected)
+                        .count();
+                    if connected_players < 3 {
                         if let Some(tx) = state.player_to_socket.get(name) {
                             tx.send(
-                                ServerMsg::ErrorMsg("Need at least 3 players".to_string()).into(),
+                                ServerMsg::ErrorMsg(
+                                    "Need at least 3 connected players".to_string(),
+                                )
+                                .into(),
+                            )
+                            .await?;
+                        }
+                        return Ok(());
+                    }
+
+                    if connected_players != state.players.len() {
+                        if let Some(tx) = state.player_to_socket.get(name) {
+                            tx.send(
+                                ServerMsg::ErrorMsg(
+                                    "All lobby players must be connected before starting"
+                                        .to_string(),
+                                )
+                                .into(),
                             )
                             .await?;
                         }
@@ -1857,10 +1888,31 @@ impl Room {
                     return Ok(());
                 }
 
-                if state.players.len() < 3 {
+                let connected_players = state
+                    .players
+                    .values()
+                    .filter(|player| player.connected)
+                    .count();
+                if connected_players < 3 {
                     if let Some(tx) = state.player_to_socket.get(name) {
-                        tx.send(ServerMsg::ErrorMsg("Need at least 3 players".to_string()).into())
-                            .await?;
+                        tx.send(
+                            ServerMsg::ErrorMsg("Need at least 3 connected players".to_string())
+                                .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if connected_players != state.players.len() {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "All lobby players must be connected before starting".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
                     }
                     return Ok(());
                 }
@@ -2670,20 +2722,8 @@ impl Room {
 
         if state.removed_players.remove(name) {
             // already removed explicitly (leave/kick)
-        } else if matches!(state.stage, RoomStage::Joining) {
-            state.players.remove(name);
-            state.observers.remove(name);
-            state.observer_since_round.remove(name);
-            state.moderators.remove(name);
-            state.name_tokens.remove(name);
-            state.connection_generation.remove(name);
         } else {
-            if let Some(player) = state.players.get_mut(name) {
-                player.connected = false;
-            }
-            if let Some(observer) = state.observers.get_mut(name) {
-                observer.connected = false;
-            }
+            self.mark_member_disconnected(&mut state, name);
         }
 
         state.player_to_socket.remove(name);
