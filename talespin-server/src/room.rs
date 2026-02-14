@@ -602,6 +602,19 @@ impl Room {
         usize::from(state.cards_per_hand.clamp(min_cards, max_cards))
     }
 
+    fn clamp_hand_to_target(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+        hand: &mut Vec<String>,
+    ) {
+        let target = self.target_cards_per_hand(state);
+        while hand.len() > target {
+            if let Some(card) = hand.pop() {
+                state.discard_pile.push(card);
+            }
+        }
+    }
+
     fn top_up_player_hand_to_target(
         &self,
         state: &mut RwLockWriteGuard<'_, RoomState>,
@@ -808,7 +821,8 @@ impl Room {
                         ready: false,
                     },
                 );
-                let restored_hand = state.observer_hand.remove(&name).unwrap_or_default();
+                let mut restored_hand = state.observer_hand.remove(&name).unwrap_or_default();
+                self.clamp_hand_to_target(state, &mut restored_hand);
                 state.player_hand.insert(name.clone(), restored_hand);
                 promoted += 1;
             }
@@ -855,10 +869,11 @@ impl Room {
                 ready,
             },
         );
-        let restored_hand = state
+        let mut restored_hand = state
             .observer_hand
             .remove(observer_name)
             .unwrap_or_default();
+        self.clamp_hand_to_target(state, &mut restored_hand);
         state
             .player_hand
             .insert(observer_name.to_string(), restored_hand);
@@ -2094,14 +2109,11 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(
-                    state.stage,
-                    RoomStage::ActiveChooses | RoomStage::PlayersChoose
-                ) {
+                if !matches!(state.stage, RoomStage::ActiveChooses) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
-                                "Votes per guesser can only be changed before voting begins"
+                                "Votes per guesser can only be changed during storyteller choosing stage"
                                     .to_string(),
                             )
                             .into(),
@@ -2182,14 +2194,11 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(
-                    state.stage,
-                    RoomStage::ActiveChooses | RoomStage::PlayersChoose
-                ) {
+                if !matches!(state.stage, RoomStage::ActiveChooses) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
-                                "Nominations per guesser can only be changed before voting begins"
+                                "Nominations per guesser can only be changed during storyteller choosing stage"
                                     .to_string(),
                             )
                             .into(),
@@ -3283,6 +3292,60 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn observer_rejoin_clamps_restored_hand_to_current_target() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            add_player(&mut state, "p2", 0);
+            add_player(&mut state, "p3", 0);
+            add_player(&mut state, "p4", 0);
+            state.player_order = vec!["host".into(), "p2".into(), "p3".into(), "p4".into()];
+            state.active_player = 0;
+            state.round = 4;
+            state.stage = RoomStage::ActiveChooses;
+            state.cards_per_hand = 6;
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 601);
+            setup_connected_member(&mut state, "p4", "t-p4", 602);
+        }
+
+        room.handle_client_msg(
+            "p4",
+            602,
+            to_ws(ClientMsg::SetObserver {
+                player: "p4".to_string(),
+                enabled: true,
+            }),
+        )
+        .await?;
+
+        room.handle_client_msg("host", 601, to_ws(ClientMsg::SetCardsPerHand { cards: 4 }))
+            .await?;
+
+        room.handle_client_msg("p4", 602, to_ws(ClientMsg::RequestJoinFromObserver {}))
+            .await?;
+
+        let state = room.state.read().await;
+        assert_eq!(
+            state.player_hand.get("p4").map(|hand| hand.len()),
+            Some(4),
+            "restored observer hand should be clamped to current cards_per_hand"
+        );
+        assert!(
+            !state.observer_hand.contains_key("p4"),
+            "observer cache should be cleared after rejoin"
+        );
+        assert_eq!(
+            state.discard_pile.len(),
+            2,
+            "clamped cards should be returned to discard pile"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn observer_request_join_during_voting_waits_for_next_round() -> Result<()> {
         let room = test_room();
         {
@@ -4147,6 +4210,48 @@ mod tests {
         assert_eq!(
             state.nominations_per_guesser, 1,
             "nominations per guesser should remain unchanged once voting has begun"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn votes_and_nominations_cannot_change_in_players_choose() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            add_player(&mut state, "p2", 0);
+            add_player(&mut state, "p3", 0);
+            add_player(&mut state, "p4", 0);
+            state.stage = RoomStage::PlayersChoose;
+            state.votes_per_guesser = 2;
+            state.nominations_per_guesser = 1;
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 112);
+        }
+
+        room.handle_client_msg(
+            "host",
+            112,
+            to_ws(ClientMsg::SetVotesPerGuesser { votes: 1 }),
+        )
+        .await?;
+        room.handle_client_msg(
+            "host",
+            112,
+            to_ws(ClientMsg::SetNominationsPerGuesser { cards: 2 }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert_eq!(
+            state.votes_per_guesser, 2,
+            "votes per guesser should remain unchanged in PlayersChoose stage"
+        );
+        assert_eq!(
+            state.nominations_per_guesser, 1,
+            "nominations per guesser should remain unchanged in PlayersChoose stage"
         );
 
         Ok(())
