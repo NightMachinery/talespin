@@ -32,7 +32,7 @@ mod avif;
 mod room;
 
 use rand::distributions::{Distribution, Uniform};
-use room::{get_time_s, Room, ServerMsg, WinCondition};
+use room::{get_time_s, hash_room_password, Room, ServerMsg, WinCondition};
 
 const GARBAGE_COLLECT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60 * 20); // 20 minutes
 const ROOM_MAINTENANCE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
@@ -897,12 +897,14 @@ fn load_cards(
 struct CreateRoomRequest {
     win_condition: Option<WinCondition>,
     creator_name: Option<String>,
+    password: Option<String>,
 }
 
 #[derive(Debug)]
 struct CreateRoomConfig {
     win_condition: WinCondition,
     creator_name: Option<String>,
+    password: Option<String>,
 }
 
 fn validate_win_condition(win_condition: WinCondition) -> Result<WinCondition> {
@@ -931,6 +933,7 @@ fn parse_create_room_win_condition(
         return Ok(CreateRoomConfig {
             win_condition: WinCondition::CardsFinish,
             creator_name: None,
+            password: None,
         });
     }
 
@@ -938,9 +941,19 @@ fn parse_create_room_win_condition(
         serde_json::from_slice(body).context("Failed to parse create-room request payload")?;
     let requested = request.win_condition.unwrap_or(WinCondition::CardsFinish);
     let creator_name = request.creator_name.map(|name| name.trim().to_string());
+    let password = request.password.map(|password| password.trim().to_string());
+    let password = password.filter(|password| !password.is_empty());
+    if password
+        .as_ref()
+        .map(|password| password.len() > 200)
+        .unwrap_or(false)
+    {
+        return Err(anyhow!("room password too long"));
+    }
     Ok(CreateRoomConfig {
         win_condition: validate_win_condition(requested)?,
         creator_name: creator_name.filter(|name| !name.is_empty()),
+        password,
     })
 }
 
@@ -1011,6 +1024,7 @@ impl ServerState {
         &self,
         win_condition: WinCondition,
         creator_name: Option<String>,
+        room_password: Option<String>,
     ) -> Result<ServerMsg> {
         let mut room_id = generate_room_id(4);
 
@@ -1018,12 +1032,16 @@ impl ServerState {
             room_id = generate_room_id(4);
         }
 
+        let room_password_hash = room_password
+            .as_ref()
+            .map(|password| hash_room_password(&room_id, password));
         let room = Room::new(
             &room_id,
             self.base_deck.clone(),
             win_condition,
             creator_name,
             self.max_members,
+            room_password_hash,
         );
         let msg = room.get_room_state().await;
         self.rooms.insert(room_id.clone(), Arc::new(room));
@@ -1036,9 +1054,10 @@ impl ServerState {
         socket: &mut WebSocket,
         name: &str,
         token: &str,
+        room_password: Option<&str>,
     ) -> Result<()> {
         if let Some(room) = self.get_room(room_id) {
-            room.on_connection(socket, name, token).await;
+            room.on_connection(socket, name, token, room_password).await;
         } else {
             socket.send(ServerMsg::InvalidRoomId {}.into()).await?;
             return Ok(());
@@ -1188,7 +1207,11 @@ async fn create_room_handler(State(state): State<Arc<ServerState>>, body: Bytes)
     };
 
     let room = state
-        .create_room(room_config.win_condition, room_config.creator_name)
+        .create_room(
+            room_config.win_condition,
+            room_config.creator_name,
+            room_config.password,
+        )
         .await;
 
     match room {
@@ -1249,6 +1272,7 @@ async fn initialize_socket(socket: &mut WebSocket, state: Arc<ServerState>) -> R
                 room_id,
                 name,
                 token,
+                room_password,
             } = msg
             {
                 if name.len() > 30 {
@@ -1263,8 +1287,31 @@ async fn initialize_socket(socket: &mut WebSocket, state: Arc<ServerState>) -> R
                         .await?;
                     return Err(anyhow!("Token too long"));
                 }
+
+                let room_password = room_password
+                    .map(|password| password.trim().to_string())
+                    .filter(|password| !password.is_empty());
+                if room_password
+                    .as_ref()
+                    .map(|password| password.len() > 200)
+                    .unwrap_or(false)
+                {
+                    socket
+                        .send(
+                            room::ServerMsg::ErrorMsg("Room password too long".to_string()).into(),
+                        )
+                        .await?;
+                    return Err(anyhow!("Room password too long"));
+                }
+
                 state
-                    .join_room(&room_id.to_lowercase(), socket, &name, &token)
+                    .join_room(
+                        &room_id.to_lowercase(),
+                        socket,
+                        &name,
+                        &token,
+                        room_password.as_deref(),
+                    )
                     .await?
             }
         }

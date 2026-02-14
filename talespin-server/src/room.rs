@@ -140,6 +140,7 @@ pub enum ClientMsg {
         room_id: String,
         name: String,
         token: String,
+        room_password: Option<String>,
     },
     CreateRoom {
         name: String,
@@ -220,6 +221,8 @@ struct RoomState {
     // active connection generation for each member
     connection_generation: HashMap<String, u64>,
     next_generation: u64,
+    // optional room password hash (never broadcast)
+    room_password_hash: Option<String>,
     // moderators can toggle this after the game starts
     allow_new_players_midgame: bool,
     // user-facing pause reason for RoomStage::Paused
@@ -294,6 +297,14 @@ pub fn get_time_s() -> u64 {
         .as_secs()
 }
 
+pub fn hash_room_password(room_id: &str, password: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(room_id.as_bytes());
+    hasher.update([0]);
+    hasher.update(password.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
 impl Room {
     pub fn new(
         room_id: &str,
@@ -301,6 +312,7 @@ impl Room {
         win_condition: WinCondition,
         creator: Option<String>,
         max_members: usize,
+        room_password_hash: Option<String>,
     ) -> Self {
         let state = RoomState {
             room_id: room_id.to_string(),
@@ -313,6 +325,7 @@ impl Room {
             name_tokens: HashMap::new(),
             connection_generation: HashMap::new(),
             next_generation: 0,
+            room_password_hash,
             allow_new_players_midgame: true,
             paused_reason: None,
             storyteller_loss_complement: 0,
@@ -2625,15 +2638,22 @@ impl Room {
         }
     }
 
-    pub async fn on_connection(&self, socket: &mut WebSocket, name: &str, token: &str) {
+    pub async fn on_connection(
+        &self,
+        socket: &mut WebSocket,
+        name: &str,
+        token: &str,
+        room_password: Option<&str>,
+    ) {
         // public funciton
-        let connection_generation = match self.attempt_join(socket, name, token).await {
-            Ok(generation) => generation,
-            Err(e) => {
-                println!("Error in attempt_join: {:?}", e);
-                return;
-            }
-        };
+        let connection_generation =
+            match self.attempt_join(socket, name, token, room_password).await {
+                Ok(generation) => generation,
+                Err(e) => {
+                    println!("Error in attempt_join: {:?}", e);
+                    return;
+                }
+            };
 
         let res = self.run_ws_loop(socket, name, connection_generation).await;
         println!("Player {} has left", name);
@@ -2679,7 +2699,13 @@ impl Room {
         }
     }
 
-    async fn attempt_join(&self, socket: &mut WebSocket, name: &str, token: &str) -> Result<u64> {
+    async fn attempt_join(
+        &self,
+        socket: &mut WebSocket,
+        name: &str,
+        token: &str,
+        room_password: Option<&str>,
+    ) -> Result<u64> {
         if name.is_empty() {
             socket
                 .send(ServerMsg::ErrorMsg("Name cannot be empty".to_string()).into())
@@ -2705,6 +2731,20 @@ impl Room {
         }
 
         let is_known_member = self.member_exists(&state, name);
+
+        if !is_known_member {
+            if let Some(expected_hash) = state.room_password_hash.as_ref() {
+                let submitted = room_password.unwrap_or("").trim();
+                if submitted.is_empty()
+                    || hash_room_password(&state.room_id, submitted) != *expected_hash
+                {
+                    socket
+                        .send(ServerMsg::ErrorMsg("Incorrect room password".to_string()).into())
+                        .await?;
+                    return Err(anyhow!("Incorrect room password"));
+                }
+            }
+        }
 
         if let Some(player) = state.players.get_mut(name) {
             player.connected = true;
@@ -2992,6 +3032,7 @@ mod tests {
             WinCondition::Points { target_points: 10 },
             Some("host".to_string()),
             64,
+            None,
         )
     }
 
