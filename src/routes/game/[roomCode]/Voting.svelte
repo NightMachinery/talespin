@@ -32,6 +32,8 @@
 	export let nominationsPerGuesserMax = 1;
 	export let bonusCorrectGuessOnThresholdCorrectLoss = false;
 	export let bonusDoubleVoteOnThresholdCorrectLoss = false;
+	export let showVotingCardNumbers = false;
+	export let roundStartDiscardCount = 0;
 	export let stage = '';
 	export let pointChange: { [key: string]: number } = {};
 	export let roundNum = 0;
@@ -164,6 +166,8 @@
 	{nominationsPerGuesserMax}
 	{bonusCorrectGuessOnThresholdCorrectLoss}
 	{bonusDoubleVoteOnThresholdCorrectLoss}
+	{showVotingCardNumbers}
+	{roundStartDiscardCount}
 	{pointChange}
 	{activePlayer}
 	{roundNum}
@@ -232,7 +236,7 @@
 	<div class="flex h-full min-h-0 flex-col">
 		<h2 class="mb-2 hidden text-lg font-semibold lg:block">Cards on table</h2>
 		<section class={tableSectionClass} style={tableDesktopFitStyle}>
-			{#each displayImages as image}
+			{#each displayImages as image, cardIndex}
 				{@const selectedCount = selectedVoteCounts[image] ?? 0}
 				{@const isDisabled = disabledCards.includes(image)}
 				<button
@@ -246,6 +250,13 @@
 						src={`${http_host}/cards/${image}`}
 						alt={CARD_IMAGE_ALT_TEXT}
 					/>
+					{#if showVotingCardNumbers}
+						<div
+							class="absolute right-2 top-2 z-20 rounded bg-black/70 px-2 py-0.5 text-xs font-bold text-white shadow"
+						>
+							#{cardIndex + 1}
+						</div>
+					{/if}
 					{#if selectedCount > 0}
 						<div
 							class={`absolute left-2 top-2 z-20 rounded px-2 py-0.5 text-xs font-bold text-white ${

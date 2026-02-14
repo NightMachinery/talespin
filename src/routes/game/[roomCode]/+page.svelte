@@ -48,6 +48,8 @@
 	let nominationsPerGuesserMax = 1;
 	let bonusCorrectGuessOnThresholdCorrectLoss = false;
 	let bonusDoubleVoteOnThresholdCorrectLoss = false;
+	let showVotingCardNumbers = false;
+	let roundStartDiscardCount = 0;
 	let activePlayer = '';
 	let description = '';
 	let roundNum = 0;
@@ -132,6 +134,8 @@
 					data.RoomState.bonus_correct_guess_on_threshold_correct_loss ?? false;
 				bonusDoubleVoteOnThresholdCorrectLoss =
 					data.RoomState.bonus_double_vote_on_threshold_correct_loss ?? false;
+				showVotingCardNumbers = data.RoomState.show_voting_card_numbers ?? false;
+				roundStartDiscardCount = data.RoomState.round_start_discard_count ?? 0;
 				activePlayer = data.RoomState.active_player || '';
 				roundNum = data.RoomState.round;
 				cardsRemaining = data.RoomState.cards_remaining || 0;
@@ -251,6 +255,8 @@
 			{nominationsPerGuesserMax}
 			{bonusCorrectGuessOnThresholdCorrectLoss}
 			{bonusDoubleVoteOnThresholdCorrectLoss}
+			{showVotingCardNumbers}
+			{roundStartDiscardCount}
 			{stage}
 			{pointChange}
 			{roundNum}
@@ -284,6 +290,8 @@
 			{nominationsPerGuesserMax}
 			{bonusCorrectGuessOnThresholdCorrectLoss}
 			{bonusDoubleVoteOnThresholdCorrectLoss}
+			{showVotingCardNumbers}
+			{roundStartDiscardCount}
 			{stage}
 			{pointChange}
 			{roundNum}
@@ -317,6 +325,8 @@
 			{nominationsPerGuesserMax}
 			{bonusCorrectGuessOnThresholdCorrectLoss}
 			{bonusDoubleVoteOnThresholdCorrectLoss}
+			{showVotingCardNumbers}
+			{roundStartDiscardCount}
 			{stage}
 			{pointChange}
 			{roundNum}
@@ -353,6 +363,8 @@
 			{nominationsPerGuesserMax}
 			{bonusCorrectGuessOnThresholdCorrectLoss}
 			{bonusDoubleVoteOnThresholdCorrectLoss}
+			{showVotingCardNumbers}
+			{roundStartDiscardCount}
 			{stage}
 			{pointChange}
 			{roundNum}
@@ -383,6 +395,8 @@
 			{nominationsPerGuesserMax}
 			{bonusCorrectGuessOnThresholdCorrectLoss}
 			{bonusDoubleVoteOnThresholdCorrectLoss}
+			{showVotingCardNumbers}
+			{roundStartDiscardCount}
 			{roundNum}
 			{cardsRemaining}
 			{deckRefillFlashToken}

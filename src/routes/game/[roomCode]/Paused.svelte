@@ -25,6 +25,8 @@
 	export let nominationsPerGuesserMax = 1;
 	export let bonusCorrectGuessOnThresholdCorrectLoss = false;
 	export let bonusDoubleVoteOnThresholdCorrectLoss = false;
+	export let showVotingCardNumbers = false;
+	export let roundStartDiscardCount = 0;
 	export let roundNum = 0;
 	export let cardsRemaining = 0;
 	export let deckRefillFlashToken = 0;
@@ -62,6 +64,8 @@
 	{nominationsPerGuesserMax}
 	{bonusCorrectGuessOnThresholdCorrectLoss}
 	{bonusDoubleVoteOnThresholdCorrectLoss}
+	{showVotingCardNumbers}
+	{roundStartDiscardCount}
 	activePlayer=""
 	pointChange={{}}
 	{roundNum}

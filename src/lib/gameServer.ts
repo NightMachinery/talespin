@@ -199,6 +199,34 @@ class GameServer {
 		});
 	}
 
+	setShowVotingCardNumbers(enabled: boolean) {
+		this.send({
+			SetShowVotingCardNumbers: {
+				enabled
+			}
+		});
+	}
+
+	setRoundStartDiscardCount(count: number) {
+		this.send({
+			SetRoundStartDiscardCount: {
+				count
+			}
+		});
+	}
+
+	forceStartNextRound() {
+		this.send({
+			ForceStartNextRound: {}
+		});
+	}
+
+	refreshHands() {
+		this.send({
+			RefreshHands: {}
+		});
+	}
+
 	resumeGame() {
 		this.send({
 			ResumeGame: {}

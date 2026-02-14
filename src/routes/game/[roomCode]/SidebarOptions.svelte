@@ -29,6 +29,8 @@
 	export let nominationsPerGuesserMax = 1;
 	export let bonusCorrectGuessOnThresholdCorrectLoss = false;
 	export let bonusDoubleVoteOnThresholdCorrectLoss = false;
+	export let showVotingCardNumbers = false;
+	export let roundStartDiscardCount = 0;
 	export let gameServer: GameServer;
 
 	$: moderatorSet = new Set(moderators);
@@ -45,6 +47,9 @@
 		!isSelfObserver && stage !== 'Joining' && stage !== 'End' && !selfObserveBlocked;
 	$: canChangeCardsPerHand = stage === 'ActiveChooses';
 	$: canChangePreVotingSettings = stage === 'ActiveChooses';
+	$: canRefreshHands = stage === 'ActiveChooses';
+	$: canForceStartNextRound = stage === 'Results';
+	$: roundStartDiscardCountMax = Math.max(0, cardsPerHand - 1);
 	$: selfJoinPending =
 		!!selfObserverInfo &&
 		(selfObserverInfo.join_requested || selfObserverInfo.auto_join_on_next_round);
@@ -170,6 +175,39 @@
 			return;
 		}
 		gameServer.setBonusDoubleVoteOnThresholdCorrectLoss(input.checked);
+	}
+
+	function updateShowVotingCardNumbers(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		if (!isModerator || !canChangePreVotingSettings) {
+			input.checked = showVotingCardNumbers;
+			return;
+		}
+		gameServer.setShowVotingCardNumbers(input.checked);
+	}
+
+	function updateRoundStartDiscardCount(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const parsed = Number(input.value);
+		if (!Number.isInteger(parsed) || parsed < 0 || parsed > roundStartDiscardCountMax) {
+			input.value = `${roundStartDiscardCount}`;
+			return;
+		}
+		if (parsed !== roundStartDiscardCount) {
+			gameServer.setRoundStartDiscardCount(parsed);
+		}
+	}
+
+	function forceStartNextRound() {
+		if (!isModerator || !canForceStartNextRound) return;
+		gameServer.forceStartNextRound();
+	}
+
+	function refreshHands() {
+		if (!isModerator || !canRefreshHands) return;
+		if (!browser || window.confirm('Discard and redraw all active player hands now?')) {
+			gameServer.refreshHands();
+		}
 	}
 </script>
 
@@ -300,6 +338,31 @@
 					</label>
 				</div>
 				<div class="mt-3 rounded border border-white/20 px-2 py-2">
+					<p class="block text-sm font-semibold">Round controls</p>
+					<div class="mt-2 space-y-2">
+						<button
+							class="btn variant-filled w-full"
+							on:click={refreshHands}
+							disabled={!isModerator || !canRefreshHands}
+						>
+							Refresh active player hands
+						</button>
+						{#if !canRefreshHands}
+							<p class="text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
+						{/if}
+						<button
+							class="btn variant-filled w-full"
+							on:click={forceStartNextRound}
+							disabled={!isModerator || !canForceStartNextRound}
+						>
+							Force start next round
+						</button>
+						{#if !canForceStartNextRound}
+							<p class="text-xs opacity-70">Available in results stage.</p>
+						{/if}
+					</div>
+				</div>
+				<div class="mt-3 rounded border border-white/20 px-2 py-2">
 					<p class="block text-sm font-semibold">Storyteller loss complement (C)</p>
 					<p class="mt-1 text-xs opacity-75">
 						Loss triggers when at least (guessers − C) are right or wrong.
@@ -377,6 +440,43 @@
 						<span class="text-xs opacity-75"
 							>Range: {nominationsPerGuesserMin}–{nominationsPerGuesserMax}</span
 						>
+					</div>
+					{#if !canChangePreVotingSettings}
+						<p class="mt-1 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
+					{/if}
+				</div>
+				<div class="mt-3 rounded border border-white/20 px-2 py-2">
+					<label class="flex items-start gap-3 text-sm">
+						<input
+							type="checkbox"
+							class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
+							checked={showVotingCardNumbers}
+							on:change={updateShowVotingCardNumbers}
+							disabled={!isModerator || !canChangePreVotingSettings}
+						/>
+						<span>Show card numbers in voting stage</span>
+					</label>
+					{#if !canChangePreVotingSettings}
+						<p class="mt-1 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
+					{/if}
+				</div>
+				<div class="mt-3 rounded border border-white/20 px-2 py-2">
+					<p class="block text-sm font-semibold">Round-start random discards</p>
+					<p class="mt-1 text-xs opacity-75">
+						Discard N random cards from each active hand at round start, then top up.
+					</p>
+					<div class="mt-2 flex items-center gap-2">
+						<input
+							type="number"
+							class="w-24 rounded border px-2 py-1 text-gray-700 shadow"
+							min="0"
+							max={roundStartDiscardCountMax}
+							step="1"
+							value={roundStartDiscardCount}
+							on:change={updateRoundStartDiscardCount}
+							disabled={!isModerator || !canChangePreVotingSettings}
+						/>
+						<span class="text-xs opacity-75">Range: 0–{roundStartDiscardCountMax}</span>
 					</div>
 					{#if !canChangePreVotingSettings}
 						<p class="mt-1 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>

@@ -31,6 +31,8 @@
 	export let nominationsPerGuesserMax = 1;
 	export let bonusCorrectGuessOnThresholdCorrectLoss = false;
 	export let bonusDoubleVoteOnThresholdCorrectLoss = false;
+	export let showVotingCardNumbers = false;
+	export let roundStartDiscardCount = 0;
 	export let stage = '';
 	export let pointChange: { [key: string]: number } = {};
 	export let roundNum = 0;
@@ -132,6 +134,8 @@
 	{nominationsPerGuesserMax}
 	{bonusCorrectGuessOnThresholdCorrectLoss}
 	{bonusDoubleVoteOnThresholdCorrectLoss}
+	{showVotingCardNumbers}
+	{roundStartDiscardCount}
 	{pointChange}
 	{activePlayer}
 	{roundNum}
