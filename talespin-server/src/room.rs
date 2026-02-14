@@ -1894,32 +1894,10 @@ impl Room {
                         return Ok(());
                     }
 
-                    let connected_players = state
-                        .players
-                        .values()
-                        .filter(|player| player.connected)
-                        .count();
-                    if connected_players < 3 {
+                    if state.players.len() < 3 {
                         if let Some(tx) = state.player_to_socket.get(name) {
                             tx.send(
-                                ServerMsg::ErrorMsg(
-                                    "Need at least 3 connected players".to_string(),
-                                )
-                                .into(),
-                            )
-                            .await?;
-                        }
-                        return Ok(());
-                    }
-
-                    if connected_players != state.players.len() {
-                        if let Some(tx) = state.player_to_socket.get(name) {
-                            tx.send(
-                                ServerMsg::ErrorMsg(
-                                    "All lobby players must be connected before starting"
-                                        .to_string(),
-                                )
-                                .into(),
+                                ServerMsg::ErrorMsg("Need at least 3 players".to_string()).into(),
                             )
                             .await?;
                         }
@@ -1976,29 +1954,10 @@ impl Room {
                     return Ok(());
                 }
 
-                let connected_players = state
-                    .players
-                    .values()
-                    .filter(|player| player.connected)
-                    .count();
-                if connected_players < 3 {
+                if state.players.len() < 3 {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
-                            ServerMsg::ErrorMsg("Need at least 3 connected players".to_string())
-                                .into(),
-                        )
-                        .await?;
-                    }
-                    return Ok(());
-                }
-
-                if connected_players != state.players.len() {
-                    if let Some(tx) = state.player_to_socket.get(name) {
-                        tx.send(
-                            ServerMsg::ErrorMsg(
-                                "All lobby players must be connected before starting".to_string(),
-                            )
-                            .into(),
+                            ServerMsg::ErrorMsg("Need at least 3 players".to_string()).into(),
                         )
                         .await?;
                     }
