@@ -58,6 +58,8 @@ pub enum ServerMsg {
         nominations_per_guesser_max: u16,
         bonus_correct_guess_on_threshold_correct_loss: bool,
         bonus_double_vote_on_threshold_correct_loss: bool,
+        show_voting_card_numbers: bool,
+        round_start_discard_count: u16,
     },
     StartRound {
         hand: Vec<String>,
@@ -134,6 +136,14 @@ pub enum ClientMsg {
     SetBonusDoubleVoteOnThresholdCorrectLoss {
         enabled: bool,
     },
+    SetShowVotingCardNumbers {
+        enabled: bool,
+    },
+    SetRoundStartDiscardCount {
+        count: u16,
+    },
+    ForceStartNextRound {},
+    RefreshHands {},
     ResumeGame {},
     RequestJoinFromObserver {},
     JoinRoom {
@@ -239,6 +249,10 @@ struct RoomState {
     bonus_correct_guess_on_threshold_correct_loss: bool,
     // apply double-correct bonus in threshold-correct storyteller-loss rounds
     bonus_double_vote_on_threshold_correct_loss: bool,
+    // show deterministic numbers on voting cards
+    show_voting_card_numbers: bool,
+    // random cards discarded from each active hand at round start (then topped up)
+    round_start_discard_count: u16,
     // store general stats about each player
     players: HashMap<String, PlayerInfo>,
     // store 6 cards in hand per player
@@ -334,6 +348,8 @@ impl Room {
             nominations_per_guesser: DEFAULT_NOMINATIONS_PER_GUESSER,
             bonus_correct_guess_on_threshold_correct_loss: false,
             bonus_double_vote_on_threshold_correct_loss: false,
+            show_voting_card_numbers: false,
+            round_start_discard_count: 0,
             players: HashMap::new(),
             deck: base_deck.to_vec(),
             stage: RoomStage::Joining,
@@ -489,6 +505,12 @@ impl Room {
         (1, cards_per_hand.max(1))
     }
 
+    fn round_start_discard_count_bounds(&self, state: &RwLockWriteGuard<RoomState>) -> (u16, u16) {
+        let (_, cards_per_hand_max) = self.cards_per_hand_bounds(state);
+        let cards_per_hand = state.cards_per_hand.clamp(1, cards_per_hand_max);
+        (0, cards_per_hand.saturating_sub(1))
+    }
+
     fn clamp_storyteller_loss_complement(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
         let (min_complement, max_complement) = self.storyteller_loss_complement_bounds(state);
         state.storyteller_loss_complement = state
@@ -504,6 +526,13 @@ impl Room {
     fn clamp_cards_per_hand(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
         let (min_cards, max_cards) = self.cards_per_hand_bounds(state);
         state.cards_per_hand = state.cards_per_hand.clamp(min_cards, max_cards);
+        self.clamp_round_start_discard_count(state);
+    }
+
+    fn clamp_round_start_discard_count(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
+        let (min_count, max_count) = self.round_start_discard_count_bounds(state);
+        state.round_start_discard_count =
+            state.round_start_discard_count.clamp(min_count, max_count);
     }
 
     fn clamp_nominations_per_guesser(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
@@ -675,6 +704,58 @@ impl Room {
                 hand.push(next_card);
             }
         }
+    }
+
+    fn discard_random_cards_from_hand(
+        &self,
+        hand: &mut Vec<String>,
+        discard_count: usize,
+        discard_pile: &mut Vec<String>,
+    ) {
+        if discard_count == 0 || hand.is_empty() {
+            return;
+        }
+
+        let mut rng = rand::thread_rng();
+        let mut remaining = discard_count.min(hand.len());
+        while remaining > 0 && !hand.is_empty() {
+            let idx = rng.gen_range(0..hand.len());
+            let card = hand.swap_remove(idx);
+            discard_pile.push(card);
+            remaining -= 1;
+        }
+    }
+
+    async fn refresh_active_player_hands(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+    ) -> Result<bool> {
+        let active_players = state.players.keys().cloned().collect::<Vec<_>>();
+        let target_cards_per_hand = self.target_cards_per_hand(state);
+        let required_draws = target_cards_per_hand.saturating_mul(active_players.len());
+
+        if !self.ensure_deck_size(state, required_draws) {
+            return Ok(false);
+        }
+
+        for player in active_players.iter() {
+            let discarded = state.player_hand.remove(player).unwrap_or_default();
+            state.discard_pile.extend(discarded);
+            state.player_hand.insert(player.clone(), Vec::new());
+        }
+
+        for player in active_players.iter() {
+            self.top_up_player_hand_to_target(state, player);
+        }
+
+        for player in state.player_order.clone().iter() {
+            let player_name = player.as_str();
+            let _ = self
+                .send_msg(state, player_name, self.get_msg(Some(player_name), state)?)
+                .await;
+        }
+
+        Ok(true)
     }
 
     fn apply_cards_per_hand_change(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
@@ -1603,7 +1684,7 @@ impl Room {
 
     fn ensure_deck_size(&self, state: &mut RwLockWriteGuard<'_, RoomState>, needed: usize) -> bool {
         if state.deck.len() >= needed {
-            return false;
+            return true;
         }
 
         while state.deck.len() < needed {
@@ -1695,6 +1776,17 @@ impl Room {
 
         let mut player_hand = state.player_hand.clone();
         player_hand.retain(|name, _| state.players.contains_key(name));
+        for player in state.players.keys() {
+            player_hand.entry(player.clone()).or_default();
+        }
+
+        let discard_count = usize::from(state.round_start_discard_count);
+        if discard_count > 0 {
+            for hand in player_hand.values_mut() {
+                self.discard_random_cards_from_hand(hand, discard_count, &mut state.discard_pile);
+            }
+        }
+
         let target_hand_size = usize::from(state.cards_per_hand);
         let required_draws = state
             .players
@@ -1709,10 +1801,6 @@ impl Room {
 
         let mut deck = state.deck.clone();
         for player in state.players.keys() {
-            if !player_hand.contains_key(player) {
-                player_hand.insert(player.clone(), Vec::new());
-            }
-
             while player_hand.get(player).unwrap().len() < target_hand_size {
                 let next_card = match deck.pop() {
                     Some(card) => card,
@@ -2362,6 +2450,136 @@ impl Room {
                 }
 
                 state.bonus_double_vote_on_threshold_correct_loss = enabled;
+                self.broadcast_msg(self.room_state(&state))?;
+            }
+            ClientMsg::SetShowVotingCardNumbers { enabled } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change voting card numbering".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if matches!(state.stage, RoomStage::End) {
+                    return Ok(());
+                }
+
+                if !matches!(state.stage, RoomStage::ActiveChooses) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Voting card numbering can only be changed during storyteller choosing stage"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                state.show_voting_card_numbers = enabled;
+                self.broadcast_msg(self.room_state(&state))?;
+            }
+            ClientMsg::SetRoundStartDiscardCount { count } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change round-start discard count".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if matches!(state.stage, RoomStage::End) {
+                    return Ok(());
+                }
+
+                if !matches!(state.stage, RoomStage::ActiveChooses) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Round-start discard count can only be changed during storyteller choosing stage"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                state.round_start_discard_count = count;
+                self.clamp_round_start_discard_count(&mut state);
+                self.broadcast_msg(self.room_state(&state))?;
+            }
+            ClientMsg::ForceStartNextRound {} => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can force start next round".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if !matches!(state.stage, RoomStage::Results) {
+                    return Ok(());
+                }
+
+                if self.should_end_game(&state) {
+                    state.stage = RoomStage::End;
+                    state.paused_reason = None;
+                    self.broadcast_msg(ServerMsg::EndGame {})?;
+                    self.broadcast_msg(self.room_state(&state))?;
+                    return Ok(());
+                }
+
+                self.init_round(&mut state).await?;
+            }
+            ClientMsg::RefreshHands {} => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg("Only moderators can refresh hands".to_string())
+                                .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if !matches!(state.stage, RoomStage::ActiveChooses) {
+                    return Ok(());
+                }
+
+                let refreshed = self.refresh_active_player_hands(&mut state).await?;
+                if !refreshed {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Not enough cards in the deck to refresh hands".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
                 self.broadcast_msg(self.room_state(&state))?;
             }
             ClientMsg::ResumeGame {} => {
@@ -3024,6 +3242,10 @@ impl Room {
         let nominations_per_guesser = state
             .nominations_per_guesser
             .clamp(nominations_min, nominations_max);
+        let (round_discard_min, round_discard_max) = self.round_start_discard_count_bounds(state);
+        let round_start_discard_count = state
+            .round_start_discard_count
+            .clamp(round_discard_min, round_discard_max);
 
         ServerMsg::RoomState {
             room_id: state.room_id.clone(),
@@ -3056,6 +3278,8 @@ impl Room {
                 .bonus_correct_guess_on_threshold_correct_loss,
             bonus_double_vote_on_threshold_correct_loss: state
                 .bonus_double_vote_on_threshold_correct_loss,
+            show_voting_card_numbers: state.show_voting_card_numbers,
+            round_start_discard_count,
         }
     }
 }
@@ -3064,16 +3288,20 @@ impl Room {
 mod tests {
     use super::*;
 
-    fn test_room() -> Room {
+    fn test_room_with_condition(win_condition: WinCondition) -> Room {
         let deck = (0..512).map(|i| format!("card-{}", i)).collect::<Vec<_>>();
         Room::new(
             "test",
             Arc::new(deck),
-            WinCondition::Points { target_points: 10 },
+            win_condition,
             Some("host".to_string()),
             64,
             None,
         )
+    }
+
+    fn test_room() -> Room {
+        test_room_with_condition(WinCondition::Points { target_points: 10 })
     }
 
     fn add_player(state: &mut RwLockWriteGuard<'_, RoomState>, name: &str, points: u16) {
@@ -4358,6 +4586,8 @@ mod tests {
             ServerMsg::RoomState {
                 bonus_correct_guess_on_threshold_correct_loss,
                 bonus_double_vote_on_threshold_correct_loss,
+                show_voting_card_numbers,
+                round_start_discard_count,
                 ..
             } => {
                 assert!(
@@ -4367,6 +4597,14 @@ mod tests {
                 assert!(
                     !bonus_double_vote_on_threshold_correct_loss,
                     "double-vote threshold bonus should default to off"
+                );
+                assert!(
+                    !show_voting_card_numbers,
+                    "voting card numbering should default to off"
+                );
+                assert_eq!(
+                    round_start_discard_count, 0,
+                    "round-start discard count should default to 0"
                 );
             }
             _ => return Err(anyhow!("Expected RoomState")),
@@ -4632,6 +4870,348 @@ mod tests {
         );
 
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn voting_numbering_and_round_discard_change_only_in_storyteller_stage() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            add_player(&mut state, "p2", 0);
+            add_player(&mut state, "p3", 0);
+            add_player(&mut state, "p4", 0);
+            state.stage = RoomStage::PlayersChoose;
+            state.cards_per_hand = 6;
+            state.round_start_discard_count = 0;
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 114);
+        }
+
+        room.handle_client_msg(
+            "host",
+            114,
+            to_ws(ClientMsg::SetShowVotingCardNumbers { enabled: true }),
+        )
+        .await?;
+        room.handle_client_msg(
+            "host",
+            114,
+            to_ws(ClientMsg::SetRoundStartDiscardCount { count: 99 }),
+        )
+        .await?;
+
+        {
+            let state = room.state.read().await;
+            assert!(
+                !state.show_voting_card_numbers,
+                "voting card numbering should stay unchanged outside ActiveChooses"
+            );
+            assert_eq!(
+                state.round_start_discard_count, 0,
+                "round-start discard count should stay unchanged outside ActiveChooses"
+            );
+        }
+
+        {
+            let mut state = room.state.write().await;
+            state.stage = RoomStage::ActiveChooses;
+        }
+
+        room.handle_client_msg(
+            "host",
+            114,
+            to_ws(ClientMsg::SetShowVotingCardNumbers { enabled: true }),
+        )
+        .await?;
+        room.handle_client_msg(
+            "host",
+            114,
+            to_ws(ClientMsg::SetRoundStartDiscardCount { count: 99 }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert!(
+            state.show_voting_card_numbers,
+            "voting card numbering should update in ActiveChooses"
+        );
+        assert_eq!(
+            state.round_start_discard_count, 5,
+            "round-start discard count should clamp to cards_per_hand - 1"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn moderator_force_start_next_round_skips_results_ready_wait() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            add_player(&mut state, "p2", 0);
+            add_player(&mut state, "p3", 0);
+            add_player(&mut state, "p4", 0);
+            state.stage = RoomStage::Results;
+            state.round = 2;
+            state.player_order = vec!["host".into(), "p2".into(), "p3".into(), "p4".into()];
+            state.active_player = 1;
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 115);
+        }
+
+        room.handle_client_msg("host", 115, to_ws(ClientMsg::ForceStartNextRound {}))
+            .await?;
+
+        let state = room.state.read().await;
+        assert!(
+            matches!(state.stage, RoomStage::ActiveChooses),
+            "force-start should move directly to next round"
+        );
+        assert_eq!(
+            state.round, 3,
+            "force-start should advance round even if not everyone is ready"
+        );
+        assert_eq!(
+            state.active_player, 2,
+            "force-start should pass storyteller to next player"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn refresh_hands_discards_and_redraws_active_players_only() -> Result<()> {
+        let room = test_room();
+
+        let host_before = vec!["h1".to_string(), "h2".to_string(), "h3".to_string()];
+        let p2_before = vec!["p21".to_string(), "p22".to_string(), "p23".to_string()];
+        let p3_before = vec!["p31".to_string(), "p32".to_string(), "p33".to_string()];
+        let observer_hand = vec!["o1".to_string(), "o2".to_string(), "o3".to_string()];
+
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            add_player(&mut state, "p2", 0);
+            add_player(&mut state, "p3", 0);
+            state.player_order = vec!["host".into(), "p2".into(), "p3".into()];
+            state.stage = RoomStage::ActiveChooses;
+            state.cards_per_hand = 3;
+            state
+                .player_hand
+                .insert("host".to_string(), host_before.clone());
+            state
+                .player_hand
+                .insert("p2".to_string(), p2_before.clone());
+            state
+                .player_hand
+                .insert("p3".to_string(), p3_before.clone());
+            state.observers.insert(
+                "obs".to_string(),
+                ObserverInfo {
+                    connected: true,
+                    points: 0,
+                    join_requested: false,
+                    auto_join_on_next_round: false,
+                },
+            );
+            state
+                .observer_hand
+                .insert("obs".to_string(), observer_hand.clone());
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 116);
+        }
+
+        room.handle_client_msg("host", 116, to_ws(ClientMsg::RefreshHands {}))
+            .await?;
+
+        let state = room.state.read().await;
+        assert!(
+            matches!(state.stage, RoomStage::ActiveChooses),
+            "refresh should not change stage"
+        );
+
+        for card in host_before
+            .iter()
+            .chain(p2_before.iter())
+            .chain(p3_before.iter())
+        {
+            assert!(
+                state.discard_pile.contains(card),
+                "all previous active-player cards should move to discard"
+            );
+        }
+
+        assert_eq!(
+            state.observer_hand.get("obs"),
+            Some(&observer_hand),
+            "observer preserved hand should not be refreshed"
+        );
+
+        for player in ["host", "p2", "p3"] {
+            assert_eq!(
+                state.player_hand.get(player).map(|hand| hand.len()),
+                Some(3),
+                "refreshed hand should be topped up to cards-per-hand"
+            );
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn refresh_hands_is_rejected_in_cards_finish_when_deck_is_short() -> Result<()> {
+        let room = test_room_with_condition(WinCondition::CardsFinish);
+
+        let host_before = vec!["h1".to_string(), "h2".to_string(), "h3".to_string()];
+        let p2_before = vec!["p21".to_string(), "p22".to_string(), "p23".to_string()];
+        let p3_before = vec!["p31".to_string(), "p32".to_string(), "p33".to_string()];
+        let discard_before = vec!["dx".to_string(), "dy".to_string(), "dz".to_string()];
+
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            add_player(&mut state, "p2", 0);
+            add_player(&mut state, "p3", 0);
+            state.player_order = vec!["host".into(), "p2".into(), "p3".into()];
+            state.stage = RoomStage::ActiveChooses;
+            state.cards_per_hand = 3;
+            state
+                .player_hand
+                .insert("host".to_string(), host_before.clone());
+            state
+                .player_hand
+                .insert("p2".to_string(), p2_before.clone());
+            state
+                .player_hand
+                .insert("p3".to_string(), p3_before.clone());
+            state.deck = vec!["draw1".to_string(), "draw2".to_string()];
+            state.discard_pile = discard_before.clone();
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 117);
+        }
+
+        room.handle_client_msg("host", 117, to_ws(ClientMsg::RefreshHands {}))
+            .await?;
+
+        let state = room.state.read().await;
+        assert_eq!(
+            state.player_hand.get("host"),
+            Some(&host_before),
+            "refresh should not discard host hand when cards-finish deck is insufficient"
+        );
+        assert_eq!(
+            state.player_hand.get("p2"),
+            Some(&p2_before),
+            "refresh should not discard p2 hand when cards-finish deck is insufficient"
+        );
+        assert_eq!(
+            state.player_hand.get("p3"),
+            Some(&p3_before),
+            "refresh should not discard p3 hand when cards-finish deck is insufficient"
+        );
+        assert_eq!(
+            state.discard_pile, discard_before,
+            "cards-finish refresh rejection should not mutate discard pile"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn round_start_discard_count_discards_from_each_hand_on_round_init() -> Result<()> {
+        let room = test_room();
+
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "a", 0);
+            add_player(&mut state, "b", 0);
+            add_player(&mut state, "c", 0);
+            state.player_order = vec!["a".into(), "b".into(), "c".into()];
+            state.active_player = 0;
+            state.round = 1;
+            state.stage = RoomStage::Results;
+            state.cards_per_hand = 4;
+            state.round_start_discard_count = 2;
+            state.player_hand.insert(
+                "a".to_string(),
+                vec!["a1".into(), "a2".into(), "a3".into(), "a4".into()],
+            );
+            state.player_hand.insert(
+                "b".to_string(),
+                vec!["b1".into(), "b2".into(), "b3".into(), "b4".into()],
+            );
+            state.player_hand.insert(
+                "c".to_string(),
+                vec!["c1".into(), "c2".into(), "c3".into(), "c4".into()],
+            );
+            state.deck = (0..200).map(|i| format!("draw-{}", i)).collect();
+            state.discard_pile.clear();
+        }
+
+        {
+            let mut state = room.state.write().await;
+            room.init_round(&mut state).await?;
+        }
+
+        let state = room.state.read().await;
+        assert!(
+            matches!(state.stage, RoomStage::ActiveChooses),
+            "round init should move to storyteller choosing"
+        );
+        assert_eq!(
+            state.discard_pile.len(),
+            6,
+            "round-start discard should remove N cards per active player"
+        );
+        for player in ["a", "b", "c"] {
+            assert_eq!(
+                state.player_hand.get(player).map(|hand| hand.len()),
+                Some(4),
+                "round-start discard must be followed by top-up"
+            );
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn mark_member_disconnected_keeps_lobby_members_and_moderators() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        add_player(&mut state, "host", 0);
+        state.stage = RoomStage::Joining;
+        state.moderators.insert("host".to_string());
+
+        room.mark_member_disconnected(&mut state, "host");
+
+        assert!(state.players.contains_key("host"));
+        assert_eq!(
+            state.players.get("host").map(|player| player.connected),
+            Some(false),
+            "lobby member should remain and be marked offline"
+        );
+        assert!(
+            state.moderators.contains("host"),
+            "moderator role should remain while disconnected"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn room_password_hash_is_room_scoped() {
+        let a = hash_room_password("room-a", "secret");
+        let b = hash_room_password("room-b", "secret");
+        let a_again = hash_room_password("room-a", "secret");
+
+        assert_eq!(
+            a, a_again,
+            "same room+password should hash deterministically"
+        );
+        assert_ne!(a, b, "room id should scope password hash");
     }
 
     #[tokio::test]
