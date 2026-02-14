@@ -24,6 +24,7 @@
 	let roomCode = '';
 	let gameServer: GameServer;
 	let rejoin = false;
+	let roomPassword = '';
 
 	// game state
 	let players: { [key: string]: PlayerInfo } = {};
@@ -83,6 +84,9 @@
 
 	onMount(() => {
 		roomCode = $page.params.roomCode;
+		if (typeof window !== 'undefined') {
+			roomPassword = window.sessionStorage.getItem(`room_password_${roomCode}`) || '';
+		}
 
 		if (name === '') {
 			goto(`/?room=${roomCode}`);
@@ -90,7 +94,7 @@
 		}
 
 		gameServer = new GameServer();
-		gameServer.joinRoom(roomCode, name, token);
+		gameServer.joinRoom(roomCode, name, token, roomPassword);
 		gameServer.onclose(() => {
 			if (rejoin) {
 				gameServer.joinRoom(roomCode, name, token);
@@ -100,6 +104,10 @@
 			console.log(data);
 
 			if (data.RoomState) {
+				if (!hasReceivedRoomState && roomPassword !== '' && typeof window !== 'undefined') {
+					window.sessionStorage.removeItem(`room_password_${roomCode}`);
+					roomPassword = '';
+				}
 				const previousDeckRefillCount = deckRefillCount;
 				players = data.RoomState.players;
 				observers = data.RoomState.observers || {};

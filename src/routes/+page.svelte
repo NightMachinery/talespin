@@ -13,6 +13,7 @@
 
 	let name = get(nameStore) || '';
 	let roomCode = '';
+	let roomPassword = '';
 	let joinGameClicked = false;
 	let lockedRoomCode = false;
 	let toastStore = getToastStore();
@@ -84,6 +85,7 @@
 			return joinGame();
 		}
 
+		const trimmedPassword = roomPassword.trim();
 		let res = await fetch(`${http_host}/create`, {
 			method: 'POST',
 			headers: {
@@ -91,13 +93,18 @@
 			},
 			body: JSON.stringify({
 				win_condition: getWinConditionPayload(),
-				creator_name: name.trim()
+				creator_name: name.trim(),
+				...(trimmedPassword !== '' ? { password: trimmedPassword } : {})
 			})
 		});
 		res = await res.json();
 
 		if ((<any>res).RoomState) {
-			goto(`/game/${(<any>res).RoomState.room_id}`);
+			const createdRoomId = (<any>res).RoomState.room_id;
+			if (trimmedPassword !== '' && typeof window !== 'undefined') {
+				window.sessionStorage.setItem(`room_password_${createdRoomId}`, trimmedPassword);
+			}
+			goto(`/game/${createdRoomId}`);
 		}
 	}
 
@@ -113,6 +120,14 @@
 			res = await res.json();
 
 			if (res) {
+				const trimmedPassword = roomPassword.trim();
+				if (typeof window !== 'undefined') {
+					if (trimmedPassword !== '') {
+						window.sessionStorage.setItem(`room_password_${roomCode}`, trimmedPassword);
+					} else {
+						window.sessionStorage.removeItem(`room_password_${roomCode}`);
+					}
+				}
 				goto(`/game/${roomCode}`);
 			} else {
 				toastStore.trigger({
@@ -158,6 +173,16 @@
 				/>
 			</div>
 		{/if}
+
+		<div class="mb-4">
+			<label for="roomPassword">Room Password (optional):</label>
+			<input
+				type="password"
+				id="roomPassword"
+				bind:value={roomPassword}
+				class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+			/>
+		</div>
 
 		<div class="mb-4 space-y-3">
 			<label for="winMode">Win Condition:</label>

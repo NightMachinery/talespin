@@ -81,12 +81,14 @@ class GameServer {
 		});
 	}
 
-	joinRoom(room_id: string, name: string, token: string) {
+	joinRoom(room_id: string, name: string, token: string, roomPassword?: string) {
+		const trimmedPassword = roomPassword?.trim();
 		this.send({
 			JoinRoom: {
 				name,
 				room_id,
-				token
+				token,
+				...(trimmedPassword ? { room_password: trimmedPassword } : {})
 			}
 		});
 	}
