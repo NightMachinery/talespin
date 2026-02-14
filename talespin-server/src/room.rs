@@ -56,6 +56,8 @@ pub enum ServerMsg {
         nominations_per_guesser: u16,
         nominations_per_guesser_min: u16,
         nominations_per_guesser_max: u16,
+        bonus_correct_guess_on_threshold_correct_loss: bool,
+        bonus_double_vote_on_threshold_correct_loss: bool,
     },
     StartRound {
         hand: Vec<String>,
@@ -125,6 +127,12 @@ pub enum ClientMsg {
     },
     SetNominationsPerGuesser {
         cards: u16,
+    },
+    SetBonusCorrectGuessOnThresholdCorrectLoss {
+        enabled: bool,
+    },
+    SetBonusDoubleVoteOnThresholdCorrectLoss {
+        enabled: bool,
     },
     ResumeGame {},
     RequestJoinFromObserver {},
@@ -224,6 +232,10 @@ struct RoomState {
     cards_per_hand: u16,
     // number of cards each non-storyteller can submit in PlayersChoose
     nominations_per_guesser: u16,
+    // apply correct-guess base bonus in threshold-correct storyteller-loss rounds
+    bonus_correct_guess_on_threshold_correct_loss: bool,
+    // apply double-correct bonus in threshold-correct storyteller-loss rounds
+    bonus_double_vote_on_threshold_correct_loss: bool,
     // store general stats about each player
     players: HashMap<String, PlayerInfo>,
     // store 6 cards in hand per player
@@ -307,6 +319,8 @@ impl Room {
             votes_per_guesser: 1,
             cards_per_hand: DEFAULT_CARDS_PER_HAND,
             nominations_per_guesser: DEFAULT_NOMINATIONS_PER_GUESSER,
+            bonus_correct_guess_on_threshold_correct_loss: false,
+            bonus_double_vote_on_threshold_correct_loss: false,
             players: HashMap::new(),
             deck: base_deck.to_vec(),
             stage: RoomStage::Joining,
@@ -2213,6 +2227,78 @@ impl Room {
                 self.clamp_player_nominations_lengths(&mut state);
                 self.broadcast_msg(self.room_state(&state))?;
             }
+            ClientMsg::SetBonusCorrectGuessOnThresholdCorrectLoss { enabled } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change threshold-correct scoring bonuses"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if matches!(state.stage, RoomStage::End) {
+                    return Ok(());
+                }
+
+                if !matches!(state.stage, RoomStage::ActiveChooses) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Threshold-correct scoring bonuses can only be changed during storyteller choosing stage"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                state.bonus_correct_guess_on_threshold_correct_loss = enabled;
+                self.broadcast_msg(self.room_state(&state))?;
+            }
+            ClientMsg::SetBonusDoubleVoteOnThresholdCorrectLoss { enabled } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change threshold-correct scoring bonuses"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if matches!(state.stage, RoomStage::End) {
+                    return Ok(());
+                }
+
+                if !matches!(state.stage, RoomStage::ActiveChooses) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Threshold-correct scoring bonuses can only be changed during storyteller choosing stage"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                state.bonus_double_vote_on_threshold_correct_loss = enabled;
+                self.broadcast_msg(self.room_state(&state))?;
+            }
             ClientMsg::ResumeGame {} => {
                 if !matches!(state.stage, RoomStage::Paused) {
                     return Ok(());
@@ -2431,14 +2517,30 @@ impl Room {
             .clamp(min_complement, max_complement);
         let threshold = guesser_count.saturating_sub(complement);
         let wrong_guesses = guesser_count.saturating_sub(correct_guessers);
-        let storyteller_loses = correct_guessers >= threshold || wrong_guesses >= threshold;
+        let too_many_correct = correct_guessers >= threshold;
+        let too_many_wrong = wrong_guesses >= threshold;
+        let storyteller_loses = too_many_correct || too_many_wrong;
 
         if storyteller_loses {
             for player in state.players.keys() {
                 if player == &active_player {
                     continue;
                 }
-                point_change.insert(player.to_string(), 2);
+                let has_correct_vote = state
+                    .player_to_votes
+                    .get(player)
+                    .map(|votes| votes.iter().any(|card| card == &active_card))
+                    .unwrap_or(false);
+
+                let mut player_points = 2;
+                if too_many_correct
+                    && state.bonus_correct_guess_on_threshold_correct_loss
+                    && has_correct_vote
+                {
+                    player_points = 3;
+                }
+
+                point_change.insert(player.to_string(), player_points);
             }
             point_change.insert(active_player.clone(), 0);
         } else {
@@ -2461,9 +2563,16 @@ impl Room {
         }
 
         // +1 extra point for correct double-vote on storyteller card.
-        for player in double_correct_guessers.iter() {
-            let entry = point_change.entry(player.to_string()).or_insert(0);
-            *entry += 1;
+        let allow_double_correct_bonus = if too_many_correct && storyteller_loses {
+            state.bonus_double_vote_on_threshold_correct_loss
+        } else {
+            true
+        };
+        if allow_double_correct_bonus {
+            for player in double_correct_guessers.iter() {
+                let entry = point_change.entry(player.to_string()).or_insert(0);
+                *entry += 1;
+            }
         }
 
         // decoy bonus is always applied for non-storyteller cards, capped at 3 per round
@@ -2863,6 +2972,10 @@ impl Room {
             nominations_per_guesser,
             nominations_per_guesser_min: nominations_min,
             nominations_per_guesser_max: nominations_max,
+            bonus_correct_guess_on_threshold_correct_loss: state
+                .bonus_correct_guess_on_threshold_correct_loss,
+            bonus_double_vote_on_threshold_correct_loss: state
+                .bonus_double_vote_on_threshold_correct_loss,
         }
     }
 }
@@ -4069,6 +4182,119 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn threshold_correct_loss_bonus_toggles_adjust_correct_and_double_rewards() -> Result<()>
+    {
+        let setup_threshold_correct_state =
+            |state: &mut RwLockWriteGuard<'_, RoomState>,
+             correct_bonus_enabled: bool,
+             double_bonus_enabled: bool| {
+                add_player(state, "a", 0);
+                add_player(state, "b", 0);
+                add_player(state, "c", 0);
+                add_player(state, "d", 0);
+                state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into()];
+                state.active_player = 0;
+                state.storyteller_loss_complement = 1;
+                state.votes_per_guesser = 2;
+                state.bonus_correct_guess_on_threshold_correct_loss = correct_bonus_enabled;
+                state.bonus_double_vote_on_threshold_correct_loss = double_bonus_enabled;
+
+                state
+                    .player_to_current_cards
+                    .insert("a".into(), vec!["ca".into()]);
+                state
+                    .player_to_current_cards
+                    .insert("b".into(), vec!["cb".into()]);
+                state
+                    .player_to_current_cards
+                    .insert("c".into(), vec!["cc".into()]);
+                state
+                    .player_to_current_cards
+                    .insert("d".into(), vec!["cd".into()]);
+
+                // All guessers include the storyteller card, so this is a threshold-correct storyteller-loss round.
+                state
+                    .player_to_votes
+                    .insert("b".into(), vec!["ca".into(), "ca".into()]);
+                state
+                    .player_to_votes
+                    .insert("c".into(), vec!["ca".into(), "ca".into()]);
+                state
+                    .player_to_votes
+                    .insert("d".into(), vec!["ca".into(), "ca".into()]);
+            };
+
+        {
+            let room = test_room();
+            let mut state = room.state.write().await;
+            setup_threshold_correct_state(&mut state, false, false);
+            let point_change = room.compute_results(&state);
+            assert_eq!(
+                point_change.get("a").copied(),
+                Some(0),
+                "storyteller should lose in threshold-correct loss branch"
+            );
+            assert_eq!(
+                point_change.get("b").copied(),
+                Some(2),
+                "with both toggles off, correct and double-correct should stay at base +2"
+            );
+        }
+
+        {
+            let room = test_room();
+            let mut state = room.state.write().await;
+            setup_threshold_correct_state(&mut state, true, false);
+            let point_change = room.compute_results(&state);
+            assert_eq!(
+                point_change.get("b").copied(),
+                Some(3),
+                "correct-guess bonus toggle should raise correct guesser base to +3"
+            );
+        }
+
+        {
+            let room = test_room();
+            let mut state = room.state.write().await;
+            setup_threshold_correct_state(&mut state, true, true);
+            let point_change = room.compute_results(&state);
+            assert_eq!(
+                point_change.get("b").copied(),
+                Some(4),
+                "with both toggles on, double-correct bonus should stack on +3 correct base"
+            );
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn room_state_includes_threshold_correct_bonus_toggle_defaults() -> Result<()> {
+        let room = test_room();
+        let state = room.state.write().await;
+
+        match room.room_state(&state) {
+            ServerMsg::RoomState {
+                bonus_correct_guess_on_threshold_correct_loss,
+                bonus_double_vote_on_threshold_correct_loss,
+                ..
+            } => {
+                assert!(
+                    !bonus_correct_guess_on_threshold_correct_loss,
+                    "correct-guess threshold bonus should default to off"
+                );
+                assert!(
+                    !bonus_double_vote_on_threshold_correct_loss,
+                    "double-vote threshold bonus should default to off"
+                );
+            }
+            _ => return Err(anyhow!("Expected RoomState")),
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn moderator_complement_update_is_clamped_to_current_bounds() -> Result<()> {
         let room = test_room();
         {
@@ -4252,6 +4478,76 @@ mod tests {
         assert_eq!(
             state.nominations_per_guesser, 1,
             "nominations per guesser should remain unchanged in PlayersChoose stage"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn threshold_correct_bonus_toggles_change_only_in_storyteller_stage() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            add_player(&mut state, "p2", 0);
+            add_player(&mut state, "p3", 0);
+            add_player(&mut state, "p4", 0);
+            state.stage = RoomStage::PlayersChoose;
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 113);
+        }
+
+        room.handle_client_msg(
+            "host",
+            113,
+            to_ws(ClientMsg::SetBonusCorrectGuessOnThresholdCorrectLoss { enabled: true }),
+        )
+        .await?;
+        room.handle_client_msg(
+            "host",
+            113,
+            to_ws(ClientMsg::SetBonusDoubleVoteOnThresholdCorrectLoss { enabled: true }),
+        )
+        .await?;
+
+        {
+            let state = room.state.read().await;
+            assert!(
+                !state.bonus_correct_guess_on_threshold_correct_loss,
+                "correct-guess bonus toggle should remain unchanged outside ActiveChooses"
+            );
+            assert!(
+                !state.bonus_double_vote_on_threshold_correct_loss,
+                "double-vote bonus toggle should remain unchanged outside ActiveChooses"
+            );
+        }
+
+        {
+            let mut state = room.state.write().await;
+            state.stage = RoomStage::ActiveChooses;
+        }
+
+        room.handle_client_msg(
+            "host",
+            113,
+            to_ws(ClientMsg::SetBonusCorrectGuessOnThresholdCorrectLoss { enabled: true }),
+        )
+        .await?;
+        room.handle_client_msg(
+            "host",
+            113,
+            to_ws(ClientMsg::SetBonusDoubleVoteOnThresholdCorrectLoss { enabled: true }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert!(
+            state.bonus_correct_guess_on_threshold_correct_loss,
+            "correct-guess bonus toggle should update in ActiveChooses"
+        );
+        assert!(
+            state.bonus_double_vote_on_threshold_correct_loss,
+            "double-vote bonus toggle should update in ActiveChooses"
         );
 
         Ok(())

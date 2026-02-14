@@ -181,6 +181,22 @@ class GameServer {
 		});
 	}
 
+	setBonusCorrectGuessOnThresholdCorrectLoss(enabled: boolean) {
+		this.send({
+			SetBonusCorrectGuessOnThresholdCorrectLoss: {
+				enabled
+			}
+		});
+	}
+
+	setBonusDoubleVoteOnThresholdCorrectLoss(enabled: boolean) {
+		this.send({
+			SetBonusDoubleVoteOnThresholdCorrectLoss: {
+				enabled
+			}
+		});
+	}
+
 	resumeGame() {
 		this.send({
 			ResumeGame: {}

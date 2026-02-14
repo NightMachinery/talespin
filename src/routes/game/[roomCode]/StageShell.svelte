@@ -26,6 +26,8 @@
 	export let nominationsPerGuesser = 1;
 	export let nominationsPerGuesserMin = 1;
 	export let nominationsPerGuesserMax = 1;
+	export let bonusCorrectGuessOnThresholdCorrectLoss = false;
+	export let bonusDoubleVoteOnThresholdCorrectLoss = false;
 	export let activePlayer = '';
 	export let pointChange: { [key: string]: number } = {};
 	export let roundNum = 0;
@@ -119,6 +121,8 @@
 								{nominationsPerGuesser}
 								{nominationsPerGuesserMin}
 								{nominationsPerGuesserMax}
+								{bonusCorrectGuessOnThresholdCorrectLoss}
+								{bonusDoubleVoteOnThresholdCorrectLoss}
 								{activePlayer}
 							/>
 						</div>
@@ -146,6 +150,8 @@
 							{nominationsPerGuesser}
 							{nominationsPerGuesserMin}
 							{nominationsPerGuesserMax}
+							{bonusCorrectGuessOnThresholdCorrectLoss}
+							{bonusDoubleVoteOnThresholdCorrectLoss}
 							{activePlayer}
 						/>
 					</div>
@@ -158,11 +164,11 @@
 
 					<div>
 						<ScoreCheatsheet
-							{players}
 							{activePlayer}
-							{storytellerLossComplement}
 							{votesPerGuesser}
 							{votesPerGuesserMax}
+							{bonusCorrectGuessOnThresholdCorrectLoss}
+							{bonusDoubleVoteOnThresholdCorrectLoss}
 						/>
 					</div>
 				</div>

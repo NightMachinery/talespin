@@ -27,6 +27,8 @@
 	export let nominationsPerGuesser = 1;
 	export let nominationsPerGuesserMin = 1;
 	export let nominationsPerGuesserMax = 1;
+	export let bonusCorrectGuessOnThresholdCorrectLoss = false;
+	export let bonusDoubleVoteOnThresholdCorrectLoss = false;
 	export let gameServer: GameServer;
 
 	$: moderatorSet = new Set(moderators);
@@ -150,6 +152,24 @@
 		if (parsed !== nominationsPerGuesser) {
 			gameServer.setNominationsPerGuesser(parsed);
 		}
+	}
+
+	function updateBonusCorrectGuessOnThresholdCorrectLoss(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		if (!isModerator || !canChangePreVotingSettings) {
+			input.checked = bonusCorrectGuessOnThresholdCorrectLoss;
+			return;
+		}
+		gameServer.setBonusCorrectGuessOnThresholdCorrectLoss(input.checked);
+	}
+
+	function updateBonusDoubleVoteOnThresholdCorrectLoss(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		if (!isModerator || !canChangePreVotingSettings) {
+			input.checked = bonusDoubleVoteOnThresholdCorrectLoss;
+			return;
+		}
+		gameServer.setBonusDoubleVoteOnThresholdCorrectLoss(input.checked);
 	}
 </script>
 
@@ -358,6 +378,36 @@
 							>Range: {nominationsPerGuesserMin}–{nominationsPerGuesserMax}</span
 						>
 					</div>
+					{#if !canChangePreVotingSettings}
+						<p class="mt-1 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
+					{/if}
+				</div>
+				<div class="mt-3 rounded border border-white/20 px-2 py-2">
+					<label class="flex items-start gap-3 text-sm">
+						<input
+							type="checkbox"
+							class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
+							checked={bonusCorrectGuessOnThresholdCorrectLoss}
+							on:change={updateBonusCorrectGuessOnThresholdCorrectLoss}
+							disabled={!isModerator || !canChangePreVotingSettings}
+						/>
+						<span> Give +3 correct-guess base in threshold-correct storyteller-loss rounds </span>
+					</label>
+					{#if !canChangePreVotingSettings}
+						<p class="mt-1 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
+					{/if}
+				</div>
+				<div class="mt-3 rounded border border-white/20 px-2 py-2">
+					<label class="flex items-start gap-3 text-sm">
+						<input
+							type="checkbox"
+							class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
+							checked={bonusDoubleVoteOnThresholdCorrectLoss}
+							on:change={updateBonusDoubleVoteOnThresholdCorrectLoss}
+							disabled={!isModerator || !canChangePreVotingSettings}
+						/>
+						<span> Give +1 double-vote bonus in threshold-correct storyteller-loss rounds </span>
+					</label>
 					{#if !canChangePreVotingSettings}
 						<p class="mt-1 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
 					{/if}

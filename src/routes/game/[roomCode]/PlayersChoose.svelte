@@ -29,6 +29,8 @@
 	export let nominationsPerGuesser = 1;
 	export let nominationsPerGuesserMin = 1;
 	export let nominationsPerGuesserMax = 1;
+	export let bonusCorrectGuessOnThresholdCorrectLoss = false;
+	export let bonusDoubleVoteOnThresholdCorrectLoss = false;
 	export let stage = '';
 	export let pointChange: { [key: string]: number } = {};
 	export let roundNum = 0;
@@ -72,9 +74,7 @@
 		}
 	}
 	$: if (selectedCards.length > effectiveNominationsPerGuesser) {
-		selectedCards = selectedCards.slice(
-			selectedCards.length - effectiveNominationsPerGuesser
-		);
+		selectedCards = selectedCards.slice(selectedCards.length - effectiveNominationsPerGuesser);
 	}
 
 	if (name !== activePlayer && !isObserver) {
@@ -130,6 +130,8 @@
 	{nominationsPerGuesser}
 	{nominationsPerGuesserMin}
 	{nominationsPerGuesserMax}
+	{bonusCorrectGuessOnThresholdCorrectLoss}
+	{bonusDoubleVoteOnThresholdCorrectLoss}
 	{pointChange}
 	{activePlayer}
 	{roundNum}
@@ -205,9 +207,7 @@
 			{#each displayImages as image}
 				<button
 					type="button"
-					class={`${handButtonClass} ${
-						!isChooser ? 'cursor-default' : ''
-					}`}
+					class={`${handButtonClass} ${!isChooser ? 'cursor-default' : ''}`}
 					disabled={!isChooser}
 					on:click={() => toggleCard(image)}
 				>

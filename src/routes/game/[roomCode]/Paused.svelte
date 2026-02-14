@@ -23,6 +23,8 @@
 	export let nominationsPerGuesser = 1;
 	export let nominationsPerGuesserMin = 1;
 	export let nominationsPerGuesserMax = 1;
+	export let bonusCorrectGuessOnThresholdCorrectLoss = false;
+	export let bonusDoubleVoteOnThresholdCorrectLoss = false;
 	export let roundNum = 0;
 	export let cardsRemaining = 0;
 	export let deckRefillFlashToken = 0;
@@ -58,6 +60,8 @@
 	{nominationsPerGuesser}
 	{nominationsPerGuesserMin}
 	{nominationsPerGuesserMax}
+	{bonusCorrectGuessOnThresholdCorrectLoss}
+	{bonusDoubleVoteOnThresholdCorrectLoss}
 	activePlayer=""
 	pointChange={{}}
 	{roundNum}

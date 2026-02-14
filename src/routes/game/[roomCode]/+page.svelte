@@ -45,6 +45,8 @@
 	let nominationsPerGuesser = 1;
 	let nominationsPerGuesserMin = 1;
 	let nominationsPerGuesserMax = 1;
+	let bonusCorrectGuessOnThresholdCorrectLoss = false;
+	let bonusDoubleVoteOnThresholdCorrectLoss = false;
 	let activePlayer = '';
 	let description = '';
 	let roundNum = 0;
@@ -118,6 +120,10 @@
 				nominationsPerGuesser = data.RoomState.nominations_per_guesser ?? 1;
 				nominationsPerGuesserMin = data.RoomState.nominations_per_guesser_min ?? 1;
 				nominationsPerGuesserMax = data.RoomState.nominations_per_guesser_max ?? 1;
+				bonusCorrectGuessOnThresholdCorrectLoss =
+					data.RoomState.bonus_correct_guess_on_threshold_correct_loss ?? false;
+				bonusDoubleVoteOnThresholdCorrectLoss =
+					data.RoomState.bonus_double_vote_on_threshold_correct_loss ?? false;
 				activePlayer = data.RoomState.active_player || '';
 				roundNum = data.RoomState.round;
 				cardsRemaining = data.RoomState.cards_remaining || 0;
@@ -235,6 +241,8 @@
 			{nominationsPerGuesser}
 			{nominationsPerGuesserMin}
 			{nominationsPerGuesserMax}
+			{bonusCorrectGuessOnThresholdCorrectLoss}
+			{bonusDoubleVoteOnThresholdCorrectLoss}
 			{stage}
 			{pointChange}
 			{roundNum}
@@ -266,6 +274,8 @@
 			{nominationsPerGuesser}
 			{nominationsPerGuesserMin}
 			{nominationsPerGuesserMax}
+			{bonusCorrectGuessOnThresholdCorrectLoss}
+			{bonusDoubleVoteOnThresholdCorrectLoss}
 			{stage}
 			{pointChange}
 			{roundNum}
@@ -297,6 +307,8 @@
 			{nominationsPerGuesser}
 			{nominationsPerGuesserMin}
 			{nominationsPerGuesserMax}
+			{bonusCorrectGuessOnThresholdCorrectLoss}
+			{bonusDoubleVoteOnThresholdCorrectLoss}
 			{stage}
 			{pointChange}
 			{roundNum}
@@ -331,6 +343,8 @@
 			{nominationsPerGuesser}
 			{nominationsPerGuesserMin}
 			{nominationsPerGuesserMax}
+			{bonusCorrectGuessOnThresholdCorrectLoss}
+			{bonusDoubleVoteOnThresholdCorrectLoss}
 			{stage}
 			{pointChange}
 			{roundNum}
@@ -359,6 +373,8 @@
 			{nominationsPerGuesser}
 			{nominationsPerGuesserMin}
 			{nominationsPerGuesserMax}
+			{bonusCorrectGuessOnThresholdCorrectLoss}
+			{bonusDoubleVoteOnThresholdCorrectLoss}
 			{roundNum}
 			{cardsRemaining}
 			{deckRefillFlashToken}
@@ -373,11 +389,11 @@
 	{#if stage === 'Joining' || stage === 'End'}
 		<div class="mx-auto mt-4 max-w-[680px] px-3 pb-6 lg:px-6">
 			<ScoreCheatsheet
-				{players}
 				{activePlayer}
-				{storytellerLossComplement}
 				{votesPerGuesser}
 				{votesPerGuesserMax}
+				{bonusCorrectGuessOnThresholdCorrectLoss}
+				{bonusDoubleVoteOnThresholdCorrectLoss}
 			/>
 		</div>
 	{/if}
