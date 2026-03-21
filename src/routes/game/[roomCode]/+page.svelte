@@ -65,6 +65,7 @@
 	// UI state
 	let displayImages: string[] = [];
 	let votingDisabledCards: string[] = [];
+	let storytellerChosenCard = '';
 
 	// results
 	let playerToCurrentCards: { [key: string]: string[] } = {};
@@ -158,16 +159,19 @@
 			} else if (data.StartRound) {
 				stage = 'ActiveChooses';
 				displayImages = data.StartRound.hand;
+				storytellerChosenCard = '';
 			} else if (data.PlayersChoose) {
 				stage = 'PlayersChoose';
 				displayImages = data.PlayersChoose.hand;
 				description = data.PlayersChoose.description;
+				storytellerChosenCard = data.PlayersChoose.chosen_card || '';
 			} else if (data.BeginVoting) {
 				stage = 'Voting';
 				displayImages = data.BeginVoting.center_cards;
 				description = data.BeginVoting.description;
 				votingDisabledCards = data.BeginVoting.disabled_cards || [];
 				votesPerGuesser = data.BeginVoting.votes_per_guesser ?? votesPerGuesser;
+				storytellerChosenCard = '';
 			} else if (data.Results) {
 				stage = 'Results';
 				playerToCurrentCards = data.Results.player_to_current_cards || {};
@@ -176,6 +180,7 @@
 				activeCard = data.Results.active_card;
 				pointChange = data.Results.point_change;
 				votingDisabledCards = [];
+				storytellerChosenCard = '';
 			} else if (data.ErrorMsg) {
 				toastStore.trigger({
 					message: '😭 ' + data.ErrorMsg,
@@ -211,6 +216,7 @@
 				goto('/');
 			} else if (data.EndGame) {
 				stage = 'End';
+				storytellerChosenCard = '';
 			}
 		});
 	});
@@ -298,6 +304,7 @@
 			{cardsRemaining}
 			{deckRefillFlashToken}
 			{winCondition}
+			chosenCard={storytellerChosenCard}
 		/>
 	{:else if stage === 'Voting'}
 		<Voting

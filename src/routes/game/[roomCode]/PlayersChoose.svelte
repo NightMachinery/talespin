@@ -15,6 +15,7 @@
 	export let activePlayer = '';
 	export let gameServer: GameServer;
 	export let description = '';
+	export let chosenCard = '';
 	export let players: { [key: string]: PlayerInfo } = {};
 	export let allowNewPlayersMidgame = true;
 	export let storytellerLossComplement = 0;
@@ -47,8 +48,10 @@
 	let selectedCards: string[] = [];
 	let isObserver = false;
 	let isChooser = false;
+	let isStoryteller = false;
 	$: isObserver = !!observers[name];
 	$: isChooser = activePlayer !== name && !isObserver;
+	$: isStoryteller = activePlayer === name && !isObserver;
 	$: effectiveNominationsPerGuesser = Math.max(
 		1,
 		Math.min(nominationsPerGuesser, Math.max(nominationsPerGuesserMax, 1))
@@ -109,6 +112,13 @@
 		}
 		selectedCards = next;
 	}
+
+	function handCardImageClass(image: string) {
+		if (selectedCards.includes(image) || (isStoryteller && chosenCard === image)) {
+			return `${handImageClass} brightness-105 ring-4 ring-white shadow-xlg`;
+		}
+		return `${handImageClass} card-hover-target cursor-pointer group-focus-visible:ring-2 group-focus-visible:ring-white/85 group-focus-visible:shadow-[0_0_0_2px_rgba(255,255,255,0.22),0_16px_30px_rgba(0,0,0,0.38)]`;
+	}
 </script>
 
 <StageShell
@@ -166,6 +176,9 @@
 			<div class="card light space-y-2 p-4">
 				<h1 class="text-2xl">Sit tight!</h1>
 				<p>Players are choosing cards that match "{description}"</p>
+				{#if isStoryteller && chosenCard}
+					<p class="opacity-80">Your chosen card is highlighted below.</p>
+				{/if}
 				{#if isObserver}
 					<p class="opacity-70">You are observing this round.</p>
 				{/if}
@@ -190,6 +203,9 @@
 			<div class="card light space-y-2 p-4">
 				<h1 class="text-2xl">Sit tight!</h1>
 				<p>Players are choosing cards that match "{description}"</p>
+				{#if isStoryteller && chosenCard}
+					<p class="opacity-80">Your chosen card is highlighted below.</p>
+				{/if}
 				{#if isObserver}
 					<p class="opacity-70">You are observing this round.</p>
 				{/if}
@@ -216,11 +232,7 @@
 					on:click={() => toggleCard(image)}
 				>
 					<img
-						class={`${handImageClass} ${
-							selectedCards.includes(image)
-								? 'brightness-105 ring-4 ring-white shadow-xlg'
-								: 'card-hover-target cursor-pointer group-focus-visible:ring-2 group-focus-visible:ring-white/85 group-focus-visible:shadow-[0_0_0_2px_rgba(255,255,255,0.22),0_16px_30px_rgba(0,0,0,0.38)]'
-						}`}
+						class={handCardImageClass(image)}
 						src={`${http_host}/cards/${image}`}
 						alt={CARD_IMAGE_ALT_TEXT}
 					/>
