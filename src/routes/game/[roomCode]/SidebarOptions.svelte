@@ -21,16 +21,16 @@
 	export let votesPerGuesser = 1;
 	export let votesPerGuesserMin = 1;
 	export let votesPerGuesserMax = 1;
-	export let cardsPerHand = 6;
+	export let cardsPerHand = 12;
 	export let cardsPerHandMin = 1;
-	export let cardsPerHandMax = 12;
+	export let cardsPerHandMax = 18;
 	export let nominationsPerGuesser = 1;
 	export let nominationsPerGuesserMin = 1;
 	export let nominationsPerGuesserMax = 1;
-	export let bonusCorrectGuessOnThresholdCorrectLoss = false;
-	export let bonusDoubleVoteOnThresholdCorrectLoss = false;
-	export let showVotingCardNumbers = false;
-	export let roundStartDiscardCount = 0;
+	export let bonusCorrectGuessOnThresholdCorrectLoss = true;
+	export let bonusDoubleVoteOnThresholdCorrectLoss = true;
+	export let showVotingCardNumbers = true;
+	export let roundStartDiscardCount = 3;
 	export let gameServer: GameServer;
 
 	$: moderatorSet = new Set(moderators);
@@ -454,7 +454,7 @@
 							on:change={updateShowVotingCardNumbers}
 							disabled={!isModerator || !canChangePreVotingSettings}
 						/>
-						<span>Show card numbers in voting stage</span>
+						<span>Show card numbers in voting/results stages</span>
 					</label>
 					{#if !canChangePreVotingSettings}
 						<p class="mt-1 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>

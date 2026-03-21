@@ -24,16 +24,16 @@
 	export let votesPerGuesser = 1;
 	export let votesPerGuesserMin = 1;
 	export let votesPerGuesserMax = 1;
-	export let cardsPerHand = 6;
+	export let cardsPerHand = 12;
 	export let cardsPerHandMin = 1;
-	export let cardsPerHandMax = 12;
+	export let cardsPerHandMax = 18;
 	export let nominationsPerGuesser = 1;
 	export let nominationsPerGuesserMin = 1;
 	export let nominationsPerGuesserMax = 1;
-	export let bonusCorrectGuessOnThresholdCorrectLoss = false;
-	export let bonusDoubleVoteOnThresholdCorrectLoss = false;
-	export let showVotingCardNumbers = false;
-	export let roundStartDiscardCount = 0;
+	export let bonusCorrectGuessOnThresholdCorrectLoss = true;
+	export let bonusDoubleVoteOnThresholdCorrectLoss = true;
+	export let showVotingCardNumbers = true;
+	export let roundStartDiscardCount = 3;
 	export let stage = '';
 	export let pointChange: { [key: string]: number } = {};
 	export let roundNum = 0;
@@ -146,13 +146,20 @@
 	<div class="flex h-full flex-col">
 		<h2 class="mb-2 hidden text-lg font-semibold lg:block">Round cards</h2>
 		<section class={resultsSectionClass}>
-			{#each displayImages as image}
+			{#each displayImages as image, cardIndex}
 				<div class={resultsCardClass(activeCard == image)}>
 					<img
 						src={`${http_host}/cards/${image}`}
 						alt={CARD_IMAGE_ALT_TEXT}
 						class={resultsImageClass}
 					/>
+					{#if showVotingCardNumbers}
+						<div
+							class="absolute left-2 top-2 z-20 rounded bg-black/70 px-2 py-0.5 text-xs font-bold text-white shadow"
+						>
+							#{cardIndex + 1}
+						</div>
+					{/if}
 					{#if cardToVoterCounts[image]}
 						<div class="absolute" style="top: 20px; right: 12px;">
 							<div class="flex flex-col gap-2">

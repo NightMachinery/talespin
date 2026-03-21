@@ -40,16 +40,16 @@
 	let votesPerGuesser = 1;
 	let votesPerGuesserMin = 1;
 	let votesPerGuesserMax = 1;
-	let cardsPerHand = 6;
+	let cardsPerHand = 12;
 	let cardsPerHandMin = 1;
-	let cardsPerHandMax = 12;
+	let cardsPerHandMax = 18;
 	let nominationsPerGuesser = 1;
 	let nominationsPerGuesserMin = 1;
 	let nominationsPerGuesserMax = 1;
-	let bonusCorrectGuessOnThresholdCorrectLoss = false;
-	let bonusDoubleVoteOnThresholdCorrectLoss = false;
-	let showVotingCardNumbers = false;
-	let roundStartDiscardCount = 0;
+	let bonusCorrectGuessOnThresholdCorrectLoss = true;
+	let bonusDoubleVoteOnThresholdCorrectLoss = true;
+	let showVotingCardNumbers = true;
+	let roundStartDiscardCount = 3;
 	let activePlayer = '';
 	let description = '';
 	let roundNum = 0;
@@ -125,18 +125,18 @@
 				votesPerGuesser = data.RoomState.votes_per_guesser ?? 1;
 				votesPerGuesserMin = data.RoomState.votes_per_guesser_min ?? 1;
 				votesPerGuesserMax = data.RoomState.votes_per_guesser_max ?? 1;
-				cardsPerHand = data.RoomState.cards_per_hand ?? 6;
+				cardsPerHand = data.RoomState.cards_per_hand ?? 12;
 				cardsPerHandMin = data.RoomState.cards_per_hand_min ?? 1;
-				cardsPerHandMax = data.RoomState.cards_per_hand_max ?? 12;
+				cardsPerHandMax = data.RoomState.cards_per_hand_max ?? 18;
 				nominationsPerGuesser = data.RoomState.nominations_per_guesser ?? 1;
 				nominationsPerGuesserMin = data.RoomState.nominations_per_guesser_min ?? 1;
 				nominationsPerGuesserMax = data.RoomState.nominations_per_guesser_max ?? 1;
 				bonusCorrectGuessOnThresholdCorrectLoss =
-					data.RoomState.bonus_correct_guess_on_threshold_correct_loss ?? false;
+					data.RoomState.bonus_correct_guess_on_threshold_correct_loss ?? true;
 				bonusDoubleVoteOnThresholdCorrectLoss =
-					data.RoomState.bonus_double_vote_on_threshold_correct_loss ?? false;
-				showVotingCardNumbers = data.RoomState.show_voting_card_numbers ?? false;
-				roundStartDiscardCount = data.RoomState.round_start_discard_count ?? 0;
+					data.RoomState.bonus_double_vote_on_threshold_correct_loss ?? true;
+				showVotingCardNumbers = data.RoomState.show_voting_card_numbers ?? true;
+				roundStartDiscardCount = data.RoomState.round_start_discard_count ?? 3;
 				activePlayer = data.RoomState.active_player || '';
 				roundNum = data.RoomState.round;
 				cardsRemaining = data.RoomState.cards_remaining || 0;
@@ -175,7 +175,7 @@
 			} else if (data.Results) {
 				stage = 'Results';
 				playerToCurrentCards = data.Results.player_to_current_cards || {};
-				displayImages = Object.values(playerToCurrentCards).flat();
+				displayImages = data.Results.center_cards || Object.values(playerToCurrentCards).flat();
 				playerToVotes = data.Results.player_to_votes || {};
 				activeCard = data.Results.active_card;
 				pointChange = data.Results.point_change;

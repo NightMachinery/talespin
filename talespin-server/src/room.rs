@@ -13,9 +13,8 @@ use std::{
 use tokio::sync::{broadcast, mpsc, RwLock, RwLockWriteGuard};
 
 const MODERATOR_ABSENCE_PROMOTION_DELAY_S: u64 = 5 * 60;
-const DEFAULT_CARDS_PER_HAND: u16 = 6;
-const THREE_PLAYER_CARDS_PER_HAND: u16 = 7;
-const MAX_CARDS_PER_HAND: u16 = 12;
+const DEFAULT_CARDS_PER_HAND: u16 = 12;
+const MAX_CARDS_PER_HAND: u16 = 18;
 const DEFAULT_NOMINATIONS_PER_GUESSER: u16 = 1;
 const THREE_PLAYER_NOMINATIONS_PER_GUESSER: u16 = 2;
 
@@ -76,6 +75,7 @@ pub enum ServerMsg {
         votes_per_guesser: u16,
     },
     Results {
+        center_cards: Vec<String>,
         player_to_votes: HashMap<String, Vec<String>>,
         player_to_current_cards: HashMap<String, Vec<String>>,
         active_card: String,
@@ -353,10 +353,10 @@ impl Room {
             votes_per_guesser: 1,
             cards_per_hand: DEFAULT_CARDS_PER_HAND,
             nominations_per_guesser: DEFAULT_NOMINATIONS_PER_GUESSER,
-            bonus_correct_guess_on_threshold_correct_loss: false,
-            bonus_double_vote_on_threshold_correct_loss: false,
-            show_voting_card_numbers: false,
-            round_start_discard_count: 0,
+            bonus_correct_guess_on_threshold_correct_loss: true,
+            bonus_double_vote_on_threshold_correct_loss: true,
+            show_voting_card_numbers: true,
+            round_start_discard_count: 3,
             players: HashMap::new(),
             deck: base_deck.to_vec(),
             stage: RoomStage::Joining,
@@ -592,14 +592,18 @@ impl Room {
             .clamp(min_complement, max_complement)
     }
 
+    fn default_votes_per_guesser_on_game_start(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+    ) -> u16 {
+        let default_votes = if state.players.len() >= 8 { 2 } else { 1 };
+        let (min_votes, max_votes) = self.votes_per_guesser_bounds(state);
+        default_votes.clamp(min_votes, max_votes)
+    }
+
     fn default_cards_per_hand_on_game_start(&self, state: &RwLockWriteGuard<'_, RoomState>) -> u16 {
-        let default_cards = if state.players.len() == 3 {
-            THREE_PLAYER_CARDS_PER_HAND
-        } else {
-            DEFAULT_CARDS_PER_HAND
-        };
         let (min_cards, max_cards) = self.cards_per_hand_bounds(state);
-        default_cards.clamp(min_cards, max_cards)
+        DEFAULT_CARDS_PER_HAND.clamp(min_cards, max_cards)
     }
 
     fn default_nominations_per_guesser_on_game_start(
@@ -1615,6 +1619,7 @@ impl Room {
                 },
             }),
             RoomStage::Results => Ok(ServerMsg::Results {
+                center_cards: self.get_center_cards(state),
                 player_to_votes: state.player_to_votes.clone(),
                 player_to_current_cards: state.player_to_current_cards.clone(),
                 active_card: state
@@ -1985,6 +1990,7 @@ impl Room {
             state.player_order.shuffle(&mut rand::thread_rng());
             state.storyteller_loss_complement =
                 self.default_storyteller_loss_complement_on_game_start(state);
+            state.votes_per_guesser = self.default_votes_per_guesser_on_game_start(state);
             state.cards_per_hand = self.default_cards_per_hand_on_game_start(state);
             state.nominations_per_guesser =
                 self.default_nominations_per_guesser_on_game_start(state);
@@ -3852,6 +3858,7 @@ mod tests {
             state.active_player = 0;
             state.round = 9;
             state.stage = RoomStage::ActiveChooses;
+            state.cards_per_hand = 6;
             setup_connected_member(&mut state, "c", "t-c", 501);
             original_hand = state
                 .player_hand
@@ -4126,6 +4133,54 @@ mod tests {
         assert_eq!(
             first, second,
             "voting card order should stay deterministic for a fixed round seed"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn results_reuse_the_same_center_card_order_as_voting() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        add_player(&mut state, "a", 0);
+        add_player(&mut state, "b", 0);
+        add_player(&mut state, "c", 0);
+        add_player(&mut state, "d", 0);
+        state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into()];
+        state.active_player = 0;
+        state.voting_order_seed = 4242;
+        state
+            .player_to_current_cards
+            .insert("a".into(), vec!["ca".into()]);
+        state
+            .player_to_current_cards
+            .insert("b".into(), vec!["cb".into()]);
+        state
+            .player_to_current_cards
+            .insert("c".into(), vec!["cc".into()]);
+        state
+            .player_to_current_cards
+            .insert("d".into(), vec!["cd".into()]);
+        state.player_to_votes.insert("b".into(), vec!["ca".into()]);
+        state.player_to_votes.insert("c".into(), vec!["cb".into()]);
+        state.player_to_votes.insert("d".into(), vec!["cc".into()]);
+
+        state.stage = RoomStage::Voting;
+        let voting_cards = match room.get_msg(Some("b"), &state)? {
+            ServerMsg::BeginVoting { center_cards, .. } => center_cards,
+            _ => return Err(anyhow!("Expected BeginVoting message")),
+        };
+
+        state.stage = RoomStage::Results;
+        let result_cards = match room.get_msg(None, &state)? {
+            ServerMsg::Results { center_cards, .. } => center_cards,
+            _ => return Err(anyhow!("Expected Results message")),
+        };
+
+        assert_eq!(
+            voting_cards, result_cards,
+            "results should preserve the same ordered center cards from voting"
         );
 
         Ok(())
@@ -4481,7 +4536,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn votes_per_guesser_defaults_to_one_and_clamps_with_player_count() -> Result<()> {
+    async fn votes_per_guesser_defaults_to_thresholds_and_clamps_with_player_count() -> Result<()> {
         let room = test_room();
         let mut state = room.state.write().await;
 
@@ -4508,6 +4563,21 @@ mod tests {
         assert_eq!(
             state.votes_per_guesser, 3,
             "after removing one player, max should clamp to active-2 = 3"
+        );
+
+        drop(state);
+
+        let room = test_room();
+        let mut state = room.state.write().await;
+        for i in 0..8 {
+            add_player(&mut state, &format!("p{}", i), 0);
+        }
+        state.stage = RoomStage::Joining;
+
+        room.init_round(&mut state).await?;
+        assert_eq!(
+            state.votes_per_guesser, 2,
+            "votes per guesser should default to 2 when the game starts with at least 8 players"
         );
 
         Ok(())
@@ -4855,27 +4925,31 @@ mod tests {
 
         match room.room_state(&state) {
             ServerMsg::RoomState {
+                cards_per_hand,
+                cards_per_hand_max,
                 bonus_correct_guess_on_threshold_correct_loss,
                 bonus_double_vote_on_threshold_correct_loss,
                 show_voting_card_numbers,
                 round_start_discard_count,
                 ..
             } => {
+                assert_eq!(cards_per_hand, 12, "cards per hand should default to 12");
+                assert_eq!(cards_per_hand_max, 18, "cards per hand max should be 18");
                 assert!(
-                    !bonus_correct_guess_on_threshold_correct_loss,
-                    "correct-guess threshold bonus should default to off"
+                    bonus_correct_guess_on_threshold_correct_loss,
+                    "correct-guess threshold bonus should default to on"
                 );
                 assert!(
-                    !bonus_double_vote_on_threshold_correct_loss,
-                    "double-vote threshold bonus should default to off"
+                    bonus_double_vote_on_threshold_correct_loss,
+                    "double-vote threshold bonus should default to on"
                 );
                 assert!(
-                    !show_voting_card_numbers,
-                    "voting card numbering should default to off"
+                    show_voting_card_numbers,
+                    "voting card numbering should default to on"
                 );
                 assert_eq!(
-                    round_start_discard_count, 0,
-                    "round-start discard count should default to 0"
+                    round_start_discard_count, 3,
+                    "round-start discard count should default to 3"
                 );
             }
             _ => return Err(anyhow!("Expected RoomState")),
@@ -4990,6 +5064,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn moderator_cards_per_hand_update_is_clamped_to_new_maximum() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            add_player(&mut state, "p2", 0);
+            add_player(&mut state, "p3", 0);
+            add_player(&mut state, "p4", 0);
+            state.stage = RoomStage::ActiveChooses;
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 11_001);
+        }
+
+        room.handle_client_msg(
+            "host",
+            11_001,
+            to_ws(ClientMsg::SetCardsPerHand { cards: 99 }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert_eq!(
+            state.cards_per_hand, 18,
+            "cards per hand should clamp to the new maximum of 18"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn votes_and_nominations_cannot_change_after_voting_begins() -> Result<()> {
         let room = test_room();
         {
@@ -5083,6 +5187,8 @@ mod tests {
             add_player(&mut state, "p3", 0);
             add_player(&mut state, "p4", 0);
             state.stage = RoomStage::PlayersChoose;
+            state.bonus_correct_guess_on_threshold_correct_loss = false;
+            state.bonus_double_vote_on_threshold_correct_loss = false;
             state.moderators.insert("host".to_string());
             setup_connected_member(&mut state, "host", "t-host", 113);
         }
@@ -5090,13 +5196,13 @@ mod tests {
         room.handle_client_msg(
             "host",
             113,
-            to_ws(ClientMsg::SetBonusCorrectGuessOnThresholdCorrectLoss { enabled: true }),
+            to_ws(ClientMsg::SetBonusCorrectGuessOnThresholdCorrectLoss { enabled: false }),
         )
         .await?;
         room.handle_client_msg(
             "host",
             113,
-            to_ws(ClientMsg::SetBonusDoubleVoteOnThresholdCorrectLoss { enabled: true }),
+            to_ws(ClientMsg::SetBonusDoubleVoteOnThresholdCorrectLoss { enabled: false }),
         )
         .await?;
 
@@ -5154,6 +5260,7 @@ mod tests {
             add_player(&mut state, "p4", 0);
             state.stage = RoomStage::PlayersChoose;
             state.cards_per_hand = 6;
+            state.show_voting_card_numbers = false;
             state.round_start_discard_count = 0;
             state.moderators.insert("host".to_string());
             setup_connected_member(&mut state, "host", "t-host", 114);
@@ -5162,7 +5269,7 @@ mod tests {
         room.handle_client_msg(
             "host",
             114,
-            to_ws(ClientMsg::SetShowVotingCardNumbers { enabled: true }),
+            to_ws(ClientMsg::SetShowVotingCardNumbers { enabled: false }),
         )
         .await?;
         room.handle_client_msg(

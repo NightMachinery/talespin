@@ -2,8 +2,8 @@
 	export let activePlayer = '';
 	export let votesPerGuesser = 1;
 	export let votesPerGuesserMax = 1;
-	export let bonusCorrectGuessOnThresholdCorrectLoss = false;
-	export let bonusDoubleVoteOnThresholdCorrectLoss = false;
+	export let bonusCorrectGuessOnThresholdCorrectLoss = true;
+	export let bonusDoubleVoteOnThresholdCorrectLoss = true;
 
 	$: effectiveVotesPerGuesser = Math.max(
 		1,
