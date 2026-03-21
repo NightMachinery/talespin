@@ -6,7 +6,12 @@ The lobby host can now choose one win mode at game creation:
 
 - `points`: game ends when at least one player reaches configured `target_points`
 - `cycles`: game ends after configured number of **full storyteller cycles**
-  - total rounds threshold = `target_cycles * player_count`
+  - each **active player** must have been the storyteller at least `target_cycles` times
+  - storyteller turns are counted when the storyteller submits their card + clue
+  - next storyteller is chosen randomly from the active players tied for the lowest storyteller count
+  - brand-new midgame joiners start at the current active-player minimum score and storyteller count
+  - returning observers keep the existing score floor rules and get the same upward-only floor rule for storyteller count
+  - observers do not block cycle completion
 - `cards_finish`: game ends when the server cannot fully deal a new round from the current deck
 
 Only one mode is active per room (single-mode selection).

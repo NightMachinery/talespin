@@ -226,6 +226,8 @@ struct RoomState {
     observers: HashMap<String, ObserverInfo>,
     // round number when a member became an observer
     observer_since_round: HashMap<String, u16>,
+    // number of times each member has successfully acted as storyteller
+    storyteller_counts: HashMap<String, u16>,
     // stable per-name token for reconnect/auth
     name_tokens: HashMap<String, String>,
     // active connection generation for each member
@@ -237,6 +239,8 @@ struct RoomState {
     allow_new_players_midgame: bool,
     // user-facing pause reason for RoomStage::Paused
     paused_reason: Option<String>,
+    // whether resuming should reselect storyteller from the lowest-count active players
+    paused_needs_storyteller_selection: bool,
     // storyteller-loss complement used in score computation (server-clamped)
     storyteller_loss_complement: u16,
     // number of vote tokens each guesser can cast in Voting
@@ -336,12 +340,14 @@ impl Room {
             removed_players: HashSet::new(),
             observers: HashMap::new(),
             observer_since_round: HashMap::new(),
+            storyteller_counts: HashMap::new(),
             name_tokens: HashMap::new(),
             connection_generation: HashMap::new(),
             next_generation: 0,
             room_password_hash,
             allow_new_players_midgame: true,
             paused_reason: None,
+            paused_needs_storyteller_selection: false,
             storyteller_loss_complement: 0,
             votes_per_guesser: 1,
             cards_per_hand: DEFAULT_CARDS_PER_HAND,
@@ -638,6 +644,76 @@ impl Room {
         state.allow_new_players_midgame
     }
 
+    fn add_new_member_for_current_stage(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+        name: &str,
+    ) -> Result<()> {
+        match state.stage {
+            RoomStage::Joining => {
+                if state.creator.is_none() {
+                    state.creator = Some(name.to_string());
+                }
+
+                state.storyteller_counts.insert(name.to_string(), 0);
+                state.players.insert(
+                    name.to_string(),
+                    PlayerInfo {
+                        connected: true,
+                        points: 0,
+                        ready: true,
+                    },
+                );
+            }
+            RoomStage::ActiveChooses | RoomStage::PlayersChoose | RoomStage::Paused => {
+                let points = self.midgame_join_score_floor(state);
+                let storyteller_count = self.midgame_join_storyteller_floor(state);
+                state
+                    .storyteller_counts
+                    .insert(name.to_string(), storyteller_count);
+                state.players.insert(
+                    name.to_string(),
+                    PlayerInfo {
+                        connected: true,
+                        points,
+                        ready: false,
+                    },
+                );
+                state.player_hand.insert(name.to_string(), Vec::new());
+                self.top_up_player_hand_to_target(state, name);
+
+                if !state.player_order.iter().any(|player| player == name) {
+                    state.player_order.push(name.to_string());
+                }
+            }
+            RoomStage::Voting | RoomStage::Results => {
+                let points = self.midgame_join_score_floor(state);
+                let storyteller_count = self.midgame_join_storyteller_floor(state);
+                state
+                    .storyteller_counts
+                    .insert(name.to_string(), storyteller_count);
+                let observer_since_round = state.round;
+                state.observers.insert(
+                    name.to_string(),
+                    ObserverInfo {
+                        connected: true,
+                        points,
+                        join_requested: false,
+                        auto_join_on_next_round: true,
+                    },
+                );
+                state
+                    .observer_since_round
+                    .insert(name.to_string(), observer_since_round);
+            }
+            RoomStage::End => {
+                return Err(anyhow!("Game has already ended"));
+            }
+        }
+
+        Ok(())
+    }
+
     fn has_valid_token_for_name(
         &self,
         state: &RwLockWriteGuard<RoomState>,
@@ -830,11 +906,21 @@ impl Room {
             return Ok(false);
         }
 
+        let paused_needs_storyteller_selection = matches!(state.stage, RoomStage::Results);
+        self.pause_for_low_player_count(state, paused_needs_storyteller_selection);
+        self.broadcast_msg(self.room_state(state))?;
+        Ok(true)
+    }
+
+    fn pause_for_low_player_count(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+        paused_needs_storyteller_selection: bool,
+    ) {
         self.reset_round_keep_hands(state);
         state.stage = RoomStage::Paused;
         state.paused_reason = Some(self.pause_reason());
-        self.broadcast_msg(self.room_state(state))?;
-        Ok(true)
+        state.paused_needs_storyteller_selection = paused_needs_storyteller_selection;
     }
 
     fn observer_floor_score(&self, state: &RwLockWriteGuard<'_, RoomState>) -> u16 {
@@ -849,6 +935,50 @@ impl Room {
             .chain(state.observers.values().map(|o| o.points))
             .collect::<Vec<u16>>();
         all_points.into_iter().min().unwrap_or(0)
+    }
+
+    fn storyteller_count_for_member(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+        member_name: &str,
+    ) -> u16 {
+        state
+            .storyteller_counts
+            .get(member_name)
+            .copied()
+            .unwrap_or(0)
+    }
+
+    fn observer_floor_storyteller_count(&self, state: &RwLockWriteGuard<'_, RoomState>) -> u16 {
+        if let Some(min_active) = state
+            .players
+            .keys()
+            .map(|name| self.storyteller_count_for_member(state, name))
+            .min()
+        {
+            return min_active;
+        }
+
+        state
+            .players
+            .keys()
+            .chain(state.observers.keys())
+            .map(|name| self.storyteller_count_for_member(state, name))
+            .min()
+            .unwrap_or(0)
+    }
+
+    fn midgame_join_score_floor(&self, state: &RwLockWriteGuard<'_, RoomState>) -> u16 {
+        state.players.values().map(|p| p.points).min().unwrap_or(0)
+    }
+
+    fn midgame_join_storyteller_floor(&self, state: &RwLockWriteGuard<'_, RoomState>) -> u16 {
+        state
+            .players
+            .keys()
+            .map(|name| self.storyteller_count_for_member(state, name))
+            .min()
+            .unwrap_or(0)
     }
 
     fn observer_is_floor_eligible(
@@ -882,6 +1012,29 @@ impl Room {
         } else if state.active_player >= state.player_order.len() {
             state.active_player = 0;
         }
+    }
+
+    fn choose_random_lowest_storyteller_index(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+    ) -> Option<usize> {
+        let min_storyteller_count = state
+            .player_order
+            .iter()
+            .map(|name| self.storyteller_count_for_member(state, name))
+            .min()?;
+
+        let candidate_indices = state
+            .player_order
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, name)| {
+                (self.storyteller_count_for_member(state, name) == min_storyteller_count)
+                    .then_some(idx)
+            })
+            .collect::<Vec<_>>();
+
+        candidate_indices.choose(&mut rand::thread_rng()).copied()
     }
 
     fn should_promote_observer(&self, observer: &ObserverInfo) -> bool {
@@ -920,6 +1073,7 @@ impl Room {
         }
 
         let floor = self.observer_floor_score(state);
+        let storyteller_floor = self.observer_floor_storyteller_count(state);
         let mut promoted = 0usize;
         for name in to_promote {
             let floor_eligible = self.observer_is_floor_eligible(state, &name);
@@ -930,6 +1084,12 @@ impl Room {
                 } else {
                     observer.points
                 };
+                let promoted_storyteller_count = if floor_eligible {
+                    self.storyteller_count_for_member(state, &name)
+                        .max(storyteller_floor)
+                } else {
+                    self.storyteller_count_for_member(state, &name)
+                };
                 state.players.insert(
                     name.clone(),
                     PlayerInfo {
@@ -938,6 +1098,9 @@ impl Room {
                         ready: false,
                     },
                 );
+                state
+                    .storyteller_counts
+                    .insert(name.clone(), promoted_storyteller_count);
                 let mut restored_hand = state.observer_hand.remove(&name).unwrap_or_default();
                 self.clamp_hand_to_target(state, &mut restored_hand);
                 state.player_hand.insert(name.clone(), restored_hand);
@@ -966,6 +1129,7 @@ impl Room {
         }
 
         let floor = self.observer_floor_score(state);
+        let storyteller_floor = self.observer_floor_storyteller_count(state);
         let floor_eligible = self.observer_is_floor_eligible(state, observer_name);
         let Some(observer) = state.observers.remove(observer_name) else {
             return Ok(false);
@@ -975,6 +1139,12 @@ impl Room {
             observer.points.max(floor)
         } else {
             observer.points
+        };
+        let promoted_storyteller_count = if floor_eligible {
+            self.storyteller_count_for_member(state, observer_name)
+                .max(storyteller_floor)
+        } else {
+            self.storyteller_count_for_member(state, observer_name)
         };
 
         let ready = matches!(state.stage, RoomStage::Joining);
@@ -986,6 +1156,9 @@ impl Room {
                 ready,
             },
         );
+        state
+            .storyteller_counts
+            .insert(observer_name.to_string(), promoted_storyteller_count);
         let mut restored_hand = state
             .observer_hand
             .remove(observer_name)
@@ -1024,6 +1197,15 @@ impl Room {
         if !state.players.contains_key(player_name) {
             return Ok(false);
         }
+
+        let was_preclue_storyteller = matches!(state.stage, RoomStage::ActiveChooses)
+            && self.active_player_name(state) == Some(player_name)
+            && state.current_description.trim().is_empty()
+            && state
+                .player_to_current_cards
+                .get(player_name)
+                .map(|cards| cards.is_empty())
+                .unwrap_or(true);
 
         let points = state
             .players
@@ -1069,6 +1251,13 @@ impl Room {
         state
             .observer_since_round
             .insert(player_name.to_string(), observer_since_round);
+
+        if was_preclue_storyteller {
+            state.active_player = self
+                .choose_random_lowest_storyteller_index(state)
+                .unwrap_or(0);
+        }
+
         self.clamp_storyteller_loss_complement(state);
         self.clamp_votes_per_guesser(state);
         self.clamp_cards_per_hand(state);
@@ -1100,6 +1289,7 @@ impl Room {
 
         state.observers.remove(name);
         state.observer_since_round.remove(name);
+        state.storyteller_counts.remove(name);
         state.moderators.remove(name);
         if state.creator.as_deref() == Some(name) {
             state.creator = None;
@@ -1133,6 +1323,15 @@ impl Room {
         if !state.players.contains_key(player_name) {
             return Ok(false);
         }
+
+        let was_preclue_storyteller = matches!(state.stage, RoomStage::ActiveChooses)
+            && self.active_player_name(state) == Some(player_name)
+            && state.current_description.trim().is_empty()
+            && state
+                .player_to_current_cards
+                .get(player_name)
+                .map(|cards| cards.is_empty())
+                .unwrap_or(true);
 
         let mut moved_cards = HashSet::new();
         if let Some(hand) = state.player_hand.remove(player_name) {
@@ -1169,6 +1368,7 @@ impl Room {
 
         state.players.remove(player_name);
         state.observer_since_round.remove(player_name);
+        state.storyteller_counts.remove(player_name);
         state.moderators.remove(player_name);
         if state.creator.as_deref() == Some(player_name) {
             state.creator = None;
@@ -1181,6 +1381,12 @@ impl Room {
             if let Some(msg) = personal_msg {
                 let _ = tx.send(msg.into()).await;
             }
+        }
+
+        if was_preclue_storyteller {
+            state.active_player = self
+                .choose_random_lowest_storyteller_index(state)
+                .unwrap_or(0);
         }
 
         self.clamp_storyteller_loss_complement(state);
@@ -1201,15 +1407,21 @@ impl Room {
             self.sync_player_order_with_players(state);
         }
         if state.player_order.is_empty() {
-            state.stage = RoomStage::Paused;
-            state.paused_reason = Some(self.pause_reason());
+            self.pause_for_low_player_count(state, false);
             self.broadcast_msg(self.room_state(state))?;
             return Ok(());
+        }
+
+        if state.paused_needs_storyteller_selection {
+            state.active_player = self
+                .choose_random_lowest_storyteller_index(state)
+                .ok_or_else(|| anyhow!("No players available to choose storyteller"))?;
         }
 
         self.reset_round_keep_hands(state);
         state.stage = RoomStage::ActiveChooses;
         state.paused_reason = None;
+        state.paused_needs_storyteller_selection = false;
 
         // Ensure all active players have a hand entry and top up to configured hand size when possible.
         let active_players = state.players.keys().cloned().collect::<HashSet<String>>();
@@ -1269,7 +1481,9 @@ impl Room {
                     .unwrap_or(false);
                 if !active_exists {
                     self.sync_player_order_with_players(state);
-                    state.active_player = 0;
+                    state.active_player = self
+                        .choose_random_lowest_storyteller_index(state)
+                        .unwrap_or(0);
                     self.restart_round_keep_hands(state).await?;
                 } else {
                     self.broadcast_msg(self.room_state(state))?;
@@ -1283,7 +1497,9 @@ impl Room {
                     .unwrap_or(false);
                 if !active_exists {
                     self.sync_player_order_with_players(state);
-                    state.active_player = 0;
+                    state.active_player = self
+                        .choose_random_lowest_storyteller_index(state)
+                        .unwrap_or(0);
                     self.restart_round_keep_hands(state).await?;
                     return Ok(());
                 }
@@ -1310,7 +1526,9 @@ impl Room {
                     .unwrap_or(false);
                 if !active_exists {
                     self.sync_player_order_with_players(state);
-                    state.active_player = 0;
+                    state.active_player = self
+                        .choose_random_lowest_storyteller_index(state)
+                        .unwrap_or(0);
                     self.restart_round_keep_hands(state).await?;
                     return Ok(());
                 }
@@ -1734,8 +1952,7 @@ impl Room {
         let _promoted = self.promote_requested_observers(state);
 
         if self.non_observer_player_count(state) < 3 {
-            state.stage = RoomStage::Paused;
-            state.paused_reason = Some(self.pause_reason());
+            self.pause_for_low_player_count(state, true);
             self.broadcast_msg(self.room_state(state))?;
             return Ok(());
         }
@@ -1746,11 +1963,6 @@ impl Room {
         }
 
         let is_first_round = state.round == 0;
-        let next_active_player = if is_first_round {
-            0
-        } else {
-            (state.active_player + 1) % state.player_order.len()
-        };
 
         if is_first_round {
             state.active_player = 0;
@@ -1767,12 +1979,17 @@ impl Room {
         self.clamp_cards_per_hand(state);
         self.clamp_nominations_per_guesser(state);
 
+        let next_active_player = self
+            .choose_random_lowest_storyteller_index(state)
+            .ok_or_else(|| anyhow!("No players available to choose storyteller"))?;
+
         state.deck.shuffle(&mut rand::thread_rng());
         state.voting_order_seed = 0;
         state.player_to_current_cards.clear();
         state.player_to_votes.clear();
         state.current_description.clear();
         state.paused_reason = None;
+        state.paused_needs_storyteller_selection = false;
 
         let mut player_hand = state.player_hand.clone();
         player_hand.retain(|name, _| state.players.contains_key(name));
@@ -1956,10 +2173,8 @@ impl Room {
 
                 if state.players.len() < 3 {
                     if let Some(tx) = state.player_to_socket.get(name) {
-                        tx.send(
-                            ServerMsg::ErrorMsg("Need at least 3 players".to_string()).into(),
-                        )
-                        .await?;
+                        tx.send(ServerMsg::ErrorMsg("Need at least 3 players".to_string()).into())
+                            .await?;
                     }
                     return Ok(());
                 }
@@ -2608,6 +2823,11 @@ impl Room {
                         return Ok(());
                     }
                     state.current_description = description.to_string();
+                    let storyteller_count = state
+                        .storyteller_counts
+                        .entry(name.to_string())
+                        .or_insert(0);
+                    *storyteller_count = storyteller_count.saturating_add(1);
                     state.stage = RoomStage::PlayersChoose;
 
                     // record choice
@@ -2846,22 +3066,14 @@ impl Room {
                 max_points >= target_points
             }
             WinCondition::Cycles { target_cycles } => {
-                if state.round == 0 {
+                if state.players.is_empty() {
                     return false;
                 }
 
-                let players_per_cycle = if !state.player_order.is_empty() {
-                    state.player_order.len()
-                } else {
-                    state.players.len()
-                };
-
-                if players_per_cycle == 0 {
-                    return false;
-                }
-
-                let required_rounds = u32::from(target_cycles) * players_per_cycle as u32;
-                u32::from(state.round) >= required_rounds
+                state
+                    .players
+                    .keys()
+                    .all(|player| self.storyteller_count_for_member(state, player) >= target_cycles)
             }
             WinCondition::CardsFinish => false,
         }
@@ -2987,58 +3199,11 @@ impl Room {
                 return Err(anyhow!("New players are disabled"));
             }
 
-            match state.stage {
-                RoomStage::Joining => {
-                    if state.creator.is_none() {
-                        state.creator = Some(name.to_string());
-                    }
-
-                    state.players.insert(
-                        name.to_string(),
-                        PlayerInfo {
-                            connected: true,
-                            points: 0,
-                            ready: true,
-                        },
-                    );
-                }
-                RoomStage::ActiveChooses | RoomStage::PlayersChoose | RoomStage::Paused => {
-                    state.players.insert(
-                        name.to_string(),
-                        PlayerInfo {
-                            connected: true,
-                            points: 0,
-                            ready: false,
-                        },
-                    );
-                    state.player_hand.insert(name.to_string(), Vec::new());
-                    self.top_up_player_hand_to_target(&mut state, name);
-
-                    if !state.player_order.iter().any(|player| player == name) {
-                        state.player_order.push(name.to_string());
-                    }
-                }
-                RoomStage::Voting | RoomStage::Results => {
-                    let observer_since_round = state.round;
-                    state.observers.insert(
-                        name.to_string(),
-                        ObserverInfo {
-                            connected: true,
-                            points: 0,
-                            join_requested: false,
-                            auto_join_on_next_round: true,
-                        },
-                    );
-                    state
-                        .observer_since_round
-                        .insert(name.to_string(), observer_since_round);
-                }
-                RoomStage::End => {
-                    socket
-                        .send(ServerMsg::ErrorMsg("Game has already ended".to_string()).into())
-                        .await?;
-                    return Err(anyhow!("Game has already ended"));
-                }
+            if let Err(err) = self.add_new_member_for_current_stage(&mut state, name) {
+                socket
+                    .send(ServerMsg::ErrorMsg("Game has already ended".to_string()).into())
+                    .await?;
+                return Err(err);
             }
         }
 
@@ -3283,9 +3448,20 @@ mod tests {
                 format!("{}-6", name),
             ],
         );
+        state.storyteller_counts.insert(name.to_string(), 0);
         if !state.player_order.iter().any(|player| player == name) {
             state.player_order.push(name.to_string());
         }
+    }
+
+    fn set_storyteller_count(
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+        name: &str,
+        storyteller_count: u16,
+    ) {
+        state
+            .storyteller_counts
+            .insert(name.to_string(), storyteller_count);
     }
 
     fn setup_connected_member(
@@ -3458,6 +3634,52 @@ mod tests {
         assert_eq!(
             state.active_player, 1,
             "resuming from midgame pause must not pass storyteller"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn resume_from_paused_results_reselects_lowest_storyteller() -> Result<()> {
+        let room = test_room();
+
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 2);
+            add_player(&mut state, "p2", 3);
+            add_player(&mut state, "p3", 4);
+            state.player_order = vec!["host".into(), "p2".into(), "p3".into()];
+            state.active_player = 0;
+            state.round = 7;
+            state.stage = RoomStage::Paused;
+            state.paused_reason = Some("Need at least 3 non-observer players".to_string());
+            state.paused_needs_storyteller_selection = true;
+            set_storyteller_count(&mut state, "host", 4);
+            set_storyteller_count(&mut state, "p2", 1);
+            set_storyteller_count(&mut state, "p3", 3);
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 14);
+        }
+
+        room.handle_client_msg("host", 14, to_ws(ClientMsg::ResumeGame {}))
+            .await?;
+
+        let state = room.state.read().await;
+        assert!(
+            matches!(state.stage, RoomStage::ActiveChooses),
+            "resume should restart into storyteller choosing"
+        );
+        assert_eq!(
+            state.round, 7,
+            "resuming should not advance the round number"
+        );
+        assert_eq!(
+            state.active_player, 1,
+            "resuming after paused results should reselect the unique lowest storyteller count"
+        );
+        assert!(
+            !state.paused_needs_storyteller_selection,
+            "resume should clear the paused storyteller reselection flag"
         );
 
         Ok(())
@@ -3957,6 +4179,10 @@ mod tests {
             state.stage = RoomStage::ActiveChooses;
             state.current_description.clear();
             state.player_to_current_cards.clear();
+            set_storyteller_count(&mut state, "a", 1);
+            set_storyteller_count(&mut state, "b", 0);
+            set_storyteller_count(&mut state, "c", 2);
+            set_storyteller_count(&mut state, "d", 2);
             setup_connected_member(&mut state, "a", "t-a", 21);
         }
 
@@ -3987,6 +4213,11 @@ mod tests {
             state.player_order[state.active_player], "b",
             "storyteller turn should pass to next player"
         );
+        assert_eq!(
+            state.storyteller_counts.get("a").copied(),
+            Some(1),
+            "pre-clue storyteller removal should not increment storyteller count"
+        );
         assert_eq!(state.round, 6, "round number must not advance");
 
         Ok(())
@@ -4006,6 +4237,10 @@ mod tests {
             state.stage = RoomStage::ActiveChooses;
             state.current_description.clear();
             state.player_to_current_cards.clear();
+            set_storyteller_count(&mut state, "a", 1);
+            set_storyteller_count(&mut state, "b", 0);
+            set_storyteller_count(&mut state, "c", 2);
+            set_storyteller_count(&mut state, "d", 2);
             state.moderators.insert("b".to_string());
             setup_connected_member(&mut state, "b", "t-b", 22);
         }
@@ -4084,12 +4319,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn observer_promotion_uses_floor_score_only() -> Result<()> {
+    async fn observer_promotion_uses_floor_score_and_storyteller_count() -> Result<()> {
         let room = test_room();
         let mut state = room.state.write().await;
 
         add_player(&mut state, "p1", 6);
         add_player(&mut state, "p2", 10);
+        set_storyteller_count(&mut state, "p1", 5);
+        set_storyteller_count(&mut state, "p2", 7);
         state.round = 5;
 
         state.observers.insert(
@@ -4102,6 +4339,7 @@ mod tests {
             },
         );
         state.observer_since_round.insert("low".to_string(), 3);
+        set_storyteller_count(&mut state, "low", 2);
         state.observers.insert(
             "high".to_string(),
             ObserverInfo {
@@ -4112,6 +4350,7 @@ mod tests {
             },
         );
         state.observer_since_round.insert("high".to_string(), 3);
+        set_storyteller_count(&mut state, "high", 11);
 
         let promoted = room.promote_requested_observers(&mut state);
         assert_eq!(promoted, 2, "expected both observers to be promoted");
@@ -4124,6 +4363,16 @@ mod tests {
             state.players.get("high").map(|p| p.points),
             Some(14),
             "higher observer score should be preserved"
+        );
+        assert_eq!(
+            state.storyteller_counts.get("low").copied(),
+            Some(5),
+            "low observer storyteller count should be floored to minimum active storyteller count"
+        );
+        assert_eq!(
+            state.storyteller_counts.get("high").copied(),
+            Some(11),
+            "higher observer storyteller count should be preserved"
         );
 
         Ok(())
@@ -4912,6 +5161,10 @@ mod tests {
             add_player(&mut state, "p2", 0);
             add_player(&mut state, "p3", 0);
             add_player(&mut state, "p4", 0);
+            set_storyteller_count(&mut state, "host", 3);
+            set_storyteller_count(&mut state, "p2", 4);
+            set_storyteller_count(&mut state, "p3", 1);
+            set_storyteller_count(&mut state, "p4", 2);
             state.stage = RoomStage::Results;
             state.round = 2;
             state.player_order = vec!["host".into(), "p2".into(), "p3".into(), "p4".into()];
@@ -4934,7 +5187,7 @@ mod tests {
         );
         assert_eq!(
             state.active_player, 2,
-            "force-start should pass storyteller to next player"
+            "force-start should choose the lowest-count storyteller for the next round"
         );
 
         Ok(())
@@ -5131,6 +5384,203 @@ mod tests {
                 "round-start discard must be followed by top-up"
             );
         }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn cycles_win_condition_uses_active_storyteller_counts_only() -> Result<()> {
+        let room = test_room_with_condition(WinCondition::Cycles { target_cycles: 2 });
+        let mut state = room.state.write().await;
+
+        add_player(&mut state, "a", 0);
+        add_player(&mut state, "b", 0);
+        add_player(&mut state, "c", 0);
+        set_storyteller_count(&mut state, "a", 2);
+        set_storyteller_count(&mut state, "b", 2);
+        set_storyteller_count(&mut state, "c", 1);
+
+        state.observers.insert(
+            "obs".to_string(),
+            ObserverInfo {
+                connected: true,
+                points: 0,
+                join_requested: false,
+                auto_join_on_next_round: false,
+            },
+        );
+        set_storyteller_count(&mut state, "obs", 0);
+
+        assert!(
+            !room.should_end_game(&state),
+            "game should continue until every active player reaches the target"
+        );
+
+        set_storyteller_count(&mut state, "c", 2);
+        assert!(
+            room.should_end_game(&state),
+            "observers should not block cycle completion"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn init_round_selects_unique_lowest_storyteller_count() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        add_player(&mut state, "a", 0);
+        add_player(&mut state, "b", 0);
+        add_player(&mut state, "c", 0);
+        add_player(&mut state, "d", 0);
+        state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into()];
+        state.active_player = 0;
+        state.round = 4;
+        state.stage = RoomStage::Results;
+        set_storyteller_count(&mut state, "a", 5);
+        set_storyteller_count(&mut state, "b", 1);
+        set_storyteller_count(&mut state, "c", 3);
+        set_storyteller_count(&mut state, "d", 4);
+
+        room.init_round(&mut state).await?;
+
+        assert_eq!(
+            state.player_order[state.active_player], "b",
+            "next storyteller should be the unique active player with the lowest storyteller count"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn storyteller_count_increments_when_clue_is_submitted() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "a", 0);
+            add_player(&mut state, "b", 0);
+            add_player(&mut state, "c", 0);
+            state.player_order = vec!["a".into(), "b".into(), "c".into()];
+            state.active_player = 0;
+            state.round = 3;
+            state.stage = RoomStage::ActiveChooses;
+            set_storyteller_count(&mut state, "a", 1);
+            setup_connected_member(&mut state, "a", "t-a", 501);
+        }
+
+        room.handle_client_msg(
+            "a",
+            501,
+            to_ws(ClientMsg::ActivePlayerChooseCard {
+                card: "a-1".to_string(),
+                description: "clue".to_string(),
+            }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert_eq!(
+            state.storyteller_counts.get("a").copied(),
+            Some(2),
+            "successful clue submission should increment storyteller count exactly once"
+        );
+        assert!(
+            matches!(state.stage, RoomStage::PlayersChoose),
+            "round should advance after storyteller submits card and clue"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn new_midgame_active_join_uses_active_minimums() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        add_player(&mut state, "a", 6);
+        add_player(&mut state, "b", 9);
+        add_player(&mut state, "c", 12);
+        state.stage = RoomStage::Paused;
+        state.round = 5;
+        set_storyteller_count(&mut state, "a", 4);
+        set_storyteller_count(&mut state, "b", 2);
+        set_storyteller_count(&mut state, "c", 7);
+
+        room.add_new_member_for_current_stage(&mut state, "newbie")?;
+
+        assert_eq!(
+            state.players.get("newbie").map(|player| player.points),
+            Some(6),
+            "new midgame player score should start at the minimum active score"
+        );
+        assert_eq!(
+            state.storyteller_counts.get("newbie").copied(),
+            Some(2),
+            "new midgame player storyteller count should start at the minimum active storyteller count"
+        );
+        assert!(
+            state.player_order.iter().any(|player| player == "newbie"),
+            "new active player should be added to storyteller selection order"
+        );
+        assert!(
+            state
+                .player_hand
+                .get("newbie")
+                .map(|hand| !hand.is_empty())
+                .unwrap_or(false),
+            "new active player should receive a hand immediately"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn new_midgame_voting_join_is_seeded_to_minimums_and_preserved_on_promotion() -> Result<()>
+    {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        add_player(&mut state, "a", 4);
+        add_player(&mut state, "b", 6);
+        add_player(&mut state, "c", 8);
+        state.stage = RoomStage::Voting;
+        state.round = 7;
+        set_storyteller_count(&mut state, "a", 3);
+        set_storyteller_count(&mut state, "b", 5);
+        set_storyteller_count(&mut state, "c", 4);
+
+        room.add_new_member_for_current_stage(&mut state, "newbie")?;
+
+        assert_eq!(
+            state
+                .observers
+                .get("newbie")
+                .map(|observer| observer.points),
+            Some(4),
+            "new voting-stage joiner should be seeded to the minimum active score"
+        );
+        assert_eq!(
+            state.storyteller_counts.get("newbie").copied(),
+            Some(3),
+            "new voting-stage joiner should be seeded to the minimum active storyteller count"
+        );
+
+        let promoted = room.promote_requested_observers(&mut state);
+        assert_eq!(
+            promoted, 1,
+            "observer should be promoted on next-round processing"
+        );
+        assert_eq!(
+            state.players.get("newbie").map(|player| player.points),
+            Some(4),
+            "new joiner should keep the seeded score when promoted"
+        );
+        assert_eq!(
+            state.storyteller_counts.get("newbie").copied(),
+            Some(3),
+            "new joiner should keep the seeded storyteller count when promoted"
+        );
 
         Ok(())
     }
