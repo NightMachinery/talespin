@@ -4,6 +4,18 @@
 	import type { ObserverInfo, PlayerInfo } from '$lib/types';
 	import { OFFLINE_STATUS_LABEL } from '$lib/presence';
 	import { cardsFitToHeight } from '$lib/viewOptions';
+	import {
+		DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION,
+		MAX_VOTING_WRONG_CARD_DISABLE_X,
+		VOTING_WRONG_CARD_DISABLE_PRESETS,
+		areVotingWrongCardDisableDistributionsEqual,
+		findVotingWrongCardDisablePresetId,
+		getVotingWrongCardDisablePreset,
+		normalizeVotingWrongCardDisableDistribution,
+		resizeVotingWrongCardDisableDistribution,
+		setVotingWrongCardDisableProbability,
+		type VotingWrongCardDisablePresetId
+	} from '$lib/votingWrongCardDisableDistribution';
 
 	const SETTINGS_EDIT_STAGE_HINT = 'Can only be changed during storyteller choosing stage.';
 
@@ -31,6 +43,9 @@
 	export let bonusDoubleVoteOnThresholdCorrectLoss = true;
 	export let showVotingCardNumbers = true;
 	export let roundStartDiscardCount = 3;
+	export let votingWrongCardDisableDistribution: number[] = [
+		...DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION
+	];
 	export let gameServer: GameServer;
 
 	$: moderatorSet = new Set(moderators);
@@ -50,6 +65,16 @@
 	$: canRefreshHands = stage === 'ActiveChooses';
 	$: canForceStartNextRound = stage === 'Results';
 	$: roundStartDiscardCountMax = Math.max(0, cardsPerHand - 1);
+	$: normalizedVotingWrongCardDisableDistribution = normalizeVotingWrongCardDisableDistribution(
+		votingWrongCardDisableDistribution
+	);
+	$: selectedVotingWrongCardDisablePresetId = findVotingWrongCardDisablePresetId(
+		normalizedVotingWrongCardDisableDistribution
+	);
+	$: votingWrongCardDisableMax = Math.max(
+		0,
+		normalizedVotingWrongCardDisableDistribution.length - 1
+	);
 	$: selfJoinPending =
 		!!selfObserverInfo &&
 		(selfObserverInfo.join_requested || selfObserverInfo.auto_join_on_next_round);
@@ -196,6 +221,90 @@
 		if (parsed !== roundStartDiscardCount) {
 			gameServer.setRoundStartDiscardCount(parsed);
 		}
+	}
+
+	function formatPercent(probability: number) {
+		return `${(probability * 100).toFixed(1).replace(/\\.0$/, '')}%`;
+	}
+
+	function updateVotingWrongCardDisablePreset(event: Event) {
+		const select = event.currentTarget as HTMLSelectElement;
+		if (!isModerator || !canChangePreVotingSettings) {
+			select.value = selectedVotingWrongCardDisablePresetId;
+			return;
+		}
+
+		const presetId = select.value as VotingWrongCardDisablePresetId;
+		if (presetId === 'custom') {
+			select.value = selectedVotingWrongCardDisablePresetId;
+			return;
+		}
+
+		const preset = getVotingWrongCardDisablePreset(presetId);
+		if (!preset) {
+			select.value = selectedVotingWrongCardDisablePresetId;
+			return;
+		}
+
+		if (
+			!areVotingWrongCardDisableDistributionsEqual(
+				preset.distribution,
+				normalizedVotingWrongCardDisableDistribution
+			)
+		) {
+			gameServer.setVotingWrongCardDisableDistribution(preset.distribution);
+		}
+	}
+
+	function updateVotingWrongCardDisableMax(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const parsed = Number(input.value);
+		if (!isModerator || !canChangePreVotingSettings) {
+			input.value = `${votingWrongCardDisableMax}`;
+			return;
+		}
+
+		if (!Number.isInteger(parsed) || parsed < 0 || parsed > MAX_VOTING_WRONG_CARD_DISABLE_X) {
+			input.value = `${votingWrongCardDisableMax}`;
+			return;
+		}
+
+		const nextDistribution = resizeVotingWrongCardDisableDistribution(
+			normalizedVotingWrongCardDisableDistribution,
+			parsed
+		);
+		if (
+			!areVotingWrongCardDisableDistributionsEqual(
+				nextDistribution,
+				normalizedVotingWrongCardDisableDistribution
+			)
+		) {
+			gameServer.setVotingWrongCardDisableDistribution(nextDistribution);
+		}
+	}
+
+	function updateVotingWrongCardDisableProbability(index: number, nextPercent: number) {
+		if (!isModerator || !canChangePreVotingSettings) return;
+
+		const sanitizedPercent = Math.min(100, Math.max(0, Math.round(nextPercent)));
+		const nextDistribution = setVotingWrongCardDisableProbability(
+			normalizedVotingWrongCardDisableDistribution,
+			index,
+			sanitizedPercent / 100
+		);
+		if (
+			!areVotingWrongCardDisableDistributionsEqual(
+				nextDistribution,
+				normalizedVotingWrongCardDisableDistribution
+			)
+		) {
+			gameServer.setVotingWrongCardDisableDistribution(nextDistribution);
+		}
+	}
+
+	function updateVotingWrongCardDisableProbabilityFromEvent(index: number, event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		updateVotingWrongCardDisableProbability(index, Number(input.value));
 	}
 
 	function forceStartNextRound() {
@@ -401,6 +510,96 @@
 						/>
 						<span class="text-xs opacity-75">Range: {votesPerGuesserMin}–{votesPerGuesserMax}</span>
 					</div>
+					{#if !canChangePreVotingSettings}
+						<p class="mt-1 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
+					{/if}
+				</div>
+				<div class="mt-3 rounded border border-white/20 px-2 py-2">
+					<p class="block text-sm font-semibold">Random wrong-card disabling</p>
+					<p class="mt-1 text-xs opacity-75">
+						During voting, each player may privately have extra wrong cards greyed out and
+						unvotable.
+					</p>
+					<div class="mt-2">
+						<label class="block text-sm font-medium" for="voting-wrong-card-disable-preset">
+							Preset
+						</label>
+						<select
+							id="voting-wrong-card-disable-preset"
+							class="mt-1 w-full rounded border px-3 py-2 text-gray-700 shadow"
+							value={selectedVotingWrongCardDisablePresetId}
+							on:change={updateVotingWrongCardDisablePreset}
+							disabled={!isModerator || !canChangePreVotingSettings}
+						>
+							{#each VOTING_WRONG_CARD_DISABLE_PRESETS as preset}
+								<option value={preset.id}>{preset.label}</option>
+							{/each}
+							<option value="custom">Custom</option>
+						</select>
+					</div>
+					<details class="mt-3 rounded border border-white/20 px-3 py-2">
+						<summary class="cursor-pointer text-sm font-semibold">Advanced editor</summary>
+						<div class="mt-3 space-y-3">
+							<div>
+								<label class="block text-sm font-medium" for="voting-wrong-card-disable-max">
+									Max X
+								</label>
+								<input
+									id="voting-wrong-card-disable-max"
+									type="number"
+									min="0"
+									max={MAX_VOTING_WRONG_CARD_DISABLE_X}
+									step="1"
+									class="mt-1 w-24 rounded border px-2 py-1 text-gray-700 shadow"
+									value={votingWrongCardDisableMax}
+									on:change={updateVotingWrongCardDisableMax}
+									disabled={!isModerator || !canChangePreVotingSettings}
+								/>
+								<p class="mt-1 text-xs opacity-70">Range: 0–{MAX_VOTING_WRONG_CARD_DISABLE_X}</p>
+							</div>
+							<p class="text-xs opacity-70">
+								Editing probabilities auto-normalizes the total to 100% and switches the setting to
+								Custom.
+							</p>
+							{#each normalizedVotingWrongCardDisableDistribution as probability, index}
+								<div class="rounded border border-white/15 px-2 py-2">
+									<div class="flex items-center justify-between gap-2">
+										<span class="text-sm font-semibold">X = {index}</span>
+										<span class="text-xs opacity-75">{formatPercent(probability)}</span>
+									</div>
+									<div class="mt-2 flex items-center gap-2">
+										<input
+											type="range"
+											min="0"
+											max="100"
+											step="1"
+											class="h-2 flex-1 cursor-pointer accent-primary-500"
+											value={Math.round(probability * 100)}
+											on:change={(event) =>
+												updateVotingWrongCardDisableProbabilityFromEvent(index, event)}
+											disabled={!isModerator ||
+												!canChangePreVotingSettings ||
+												normalizedVotingWrongCardDisableDistribution.length === 1}
+										/>
+										<input
+											type="number"
+											min="0"
+											max="100"
+											step="1"
+											class="w-20 rounded border px-2 py-1 text-gray-700 shadow"
+											value={Math.round(probability * 100)}
+											on:change={(event) =>
+												updateVotingWrongCardDisableProbabilityFromEvent(index, event)}
+											disabled={!isModerator ||
+												!canChangePreVotingSettings ||
+												normalizedVotingWrongCardDisableDistribution.length === 1}
+										/>
+										<span class="text-xs opacity-75">%</span>
+									</div>
+								</div>
+							{/each}
+						</div>
+					</details>
 					{#if !canChangePreVotingSettings}
 						<p class="mt-1 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
 					{/if}

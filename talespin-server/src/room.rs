@@ -17,6 +17,8 @@ const DEFAULT_CARDS_PER_HAND: u16 = 12;
 const MAX_CARDS_PER_HAND: u16 = 18;
 const DEFAULT_NOMINATIONS_PER_GUESSER: u16 = 1;
 const THREE_PLAYER_NOMINATIONS_PER_GUESSER: u16 = 2;
+const DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION: [f64; 1] = [1.0];
+const VOTING_WRONG_CARD_DISABLE_SUM_TOLERANCE: f64 = 1e-6;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
 #[serde(tag = "mode", rename_all = "snake_case")]
@@ -59,6 +61,7 @@ pub enum ServerMsg {
         bonus_double_vote_on_threshold_correct_loss: bool,
         show_voting_card_numbers: bool,
         round_start_discard_count: u16,
+        voting_wrong_card_disable_distribution: Vec<f64>,
     },
     StartRound {
         hand: Vec<String>,
@@ -142,6 +145,9 @@ pub enum ClientMsg {
     },
     SetRoundStartDiscardCount {
         count: u16,
+    },
+    SetVotingWrongCardDisableDistribution {
+        distribution: Vec<f64>,
     },
     ForceStartNextRound {},
     RefreshHands {},
@@ -258,6 +264,8 @@ struct RoomState {
     show_voting_card_numbers: bool,
     // random cards discarded from each active hand at round start (then topped up)
     round_start_discard_count: u16,
+    // probability distribution over additional wrong cards disabled per player during voting
+    voting_wrong_card_disable_distribution: Vec<f64>,
     // store general stats about each player
     players: HashMap<String, PlayerInfo>,
     // store 6 cards in hand per player
@@ -357,6 +365,8 @@ impl Room {
             bonus_double_vote_on_threshold_correct_loss: true,
             show_voting_card_numbers: true,
             round_start_discard_count: 3,
+            voting_wrong_card_disable_distribution: DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION
+                .to_vec(),
             players: HashMap::new(),
             deck: base_deck.to_vec(),
             stage: RoomStage::Joining,
@@ -545,6 +555,50 @@ impl Room {
     fn clamp_nominations_per_guesser(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
         let (min_cards, max_cards) = self.nominations_per_guesser_bounds(state);
         state.nominations_per_guesser = state.nominations_per_guesser.clamp(min_cards, max_cards);
+    }
+
+    fn max_voting_wrong_card_disable_x(&self) -> usize {
+        self.max_members
+            .saturating_sub(2)
+            .saturating_mul(usize::from(MAX_CARDS_PER_HAND))
+            .saturating_sub(2)
+    }
+
+    fn canonicalize_voting_wrong_card_disable_distribution(
+        &self,
+        distribution: &[f64],
+    ) -> Result<Vec<f64>> {
+        if distribution.is_empty() {
+            return Err(anyhow!(
+                "Voting wrong-card disable distribution must include X=0"
+            ));
+        }
+
+        if distribution
+            .iter()
+            .any(|probability| !probability.is_finite() || *probability < 0.0 || *probability > 1.0)
+        {
+            return Err(anyhow!(
+                "Voting wrong-card disable probabilities must be finite values in [0, 1]"
+            ));
+        }
+
+        let max_distribution_len = self.max_voting_wrong_card_disable_x().saturating_add(1);
+        if distribution.len() > max_distribution_len {
+            return Err(anyhow!(
+                "Voting wrong-card disable distribution supports X up to {}",
+                self.max_voting_wrong_card_disable_x()
+            ));
+        }
+
+        let total_probability = distribution.iter().sum::<f64>();
+        if (total_probability - 1.0).abs() > VOTING_WRONG_CARD_DISABLE_SUM_TOLERANCE {
+            return Err(anyhow!(
+                "Voting wrong-card disable probabilities must sum to 1"
+            ));
+        }
+
+        Ok(distribution.to_vec())
     }
 
     fn clamp_vote_submission_lengths(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
@@ -2719,6 +2773,52 @@ impl Room {
                 self.clamp_round_start_discard_count(&mut state);
                 self.broadcast_msg(self.room_state(&state))?;
             }
+            ClientMsg::SetVotingWrongCardDisableDistribution { distribution } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change voting wrong-card disabling"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if matches!(state.stage, RoomStage::End) {
+                    return Ok(());
+                }
+
+                if !matches!(state.stage, RoomStage::ActiveChooses) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Voting wrong-card disabling can only be changed during storyteller choosing stage"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                let canonical_distribution =
+                    match self.canonicalize_voting_wrong_card_disable_distribution(&distribution) {
+                        Ok(canonical_distribution) => canonical_distribution,
+                        Err(err) => {
+                            if let Some(tx) = state.player_to_socket.get(name) {
+                                tx.send(ServerMsg::ErrorMsg(err.to_string()).into()).await?;
+                            }
+                            return Ok(());
+                        }
+                    };
+                state.voting_wrong_card_disable_distribution = canonical_distribution;
+                self.broadcast_msg(self.room_state(&state))?;
+            }
             ClientMsg::ForceStartNextRound {} => {
                 if !self.is_moderator(&state, name) {
                     if let Some(tx) = state.player_to_socket.get(name) {
@@ -3392,6 +3492,11 @@ impl Room {
         let round_start_discard_count = state
             .round_start_discard_count
             .clamp(round_discard_min, round_discard_max);
+        let voting_wrong_card_disable_distribution = self
+            .canonicalize_voting_wrong_card_disable_distribution(
+                &state.voting_wrong_card_disable_distribution,
+            )
+            .unwrap_or_else(|_| DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION.to_vec());
 
         ServerMsg::RoomState {
             room_id: state.room_id.clone(),
@@ -3426,6 +3531,7 @@ impl Room {
                 .bonus_double_vote_on_threshold_correct_loss,
             show_voting_card_numbers: state.show_voting_card_numbers,
             round_start_discard_count,
+            voting_wrong_card_disable_distribution,
         }
     }
 }
@@ -4931,6 +5037,7 @@ mod tests {
                 bonus_double_vote_on_threshold_correct_loss,
                 show_voting_card_numbers,
                 round_start_discard_count,
+                voting_wrong_card_disable_distribution,
                 ..
             } => {
                 assert_eq!(cards_per_hand, 12, "cards per hand should default to 12");
@@ -4950,6 +5057,11 @@ mod tests {
                 assert_eq!(
                     round_start_discard_count, 3,
                     "round-start discard count should default to 3"
+                );
+                assert_eq!(
+                    voting_wrong_card_disable_distribution,
+                    vec![1.0],
+                    "wrong-card disable distribution should default to Off"
                 );
             }
             _ => return Err(anyhow!("Expected RoomState")),
@@ -5064,6 +5176,107 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn moderator_voting_wrong_card_disable_distribution_update_is_applied() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            add_player(&mut state, "p2", 0);
+            add_player(&mut state, "p3", 0);
+            add_player(&mut state, "p4", 0);
+            state.stage = RoomStage::ActiveChooses;
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 11_500);
+        }
+
+        room.handle_client_msg(
+            "host",
+            11_500,
+            to_ws(ClientMsg::SetVotingWrongCardDisableDistribution {
+                distribution: vec![0.3, 0.5, 0.2, 0.0],
+            }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert_eq!(
+            state.voting_wrong_card_disable_distribution,
+            vec![0.3, 0.5, 0.2, 0.0],
+            "distribution should preserve the configured max X from the client"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn invalid_voting_wrong_card_disable_distribution_is_rejected() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            add_player(&mut state, "p2", 0);
+            add_player(&mut state, "p3", 0);
+            add_player(&mut state, "p4", 0);
+            state.stage = RoomStage::ActiveChooses;
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 11_501);
+        }
+
+        room.handle_client_msg(
+            "host",
+            11_501,
+            to_ws(ClientMsg::SetVotingWrongCardDisableDistribution {
+                distribution: vec![0.2, 0.2],
+            }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert_eq!(
+            state.voting_wrong_card_disable_distribution,
+            vec![1.0],
+            "invalid probability totals should leave the existing setting unchanged"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn oversized_voting_wrong_card_disable_distribution_is_rejected() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            add_player(&mut state, "p2", 0);
+            add_player(&mut state, "p3", 0);
+            add_player(&mut state, "p4", 0);
+            state.stage = RoomStage::ActiveChooses;
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 11_502);
+        }
+
+        let oversized_len = room.max_voting_wrong_card_disable_x() + 2;
+        let oversized_probability = 1.0 / oversized_len as f64;
+        room.handle_client_msg(
+            "host",
+            11_502,
+            to_ws(ClientMsg::SetVotingWrongCardDisableDistribution {
+                distribution: vec![oversized_probability; oversized_len],
+            }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert_eq!(
+            state.voting_wrong_card_disable_distribution,
+            vec![1.0],
+            "oversized distributions should leave the existing setting unchanged"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn moderator_cards_per_hand_update_is_clamped_to_new_maximum() -> Result<()> {
         let room = test_room();
         {
@@ -5105,6 +5318,7 @@ mod tests {
             state.stage = RoomStage::Voting;
             state.votes_per_guesser = 2;
             state.nominations_per_guesser = 1;
+            state.voting_wrong_card_disable_distribution = vec![0.5, 0.5];
             state.moderators.insert("host".to_string());
             setup_connected_member(&mut state, "host", "t-host", 111);
         }
@@ -5121,6 +5335,14 @@ mod tests {
             to_ws(ClientMsg::SetNominationsPerGuesser { cards: 2 }),
         )
         .await?;
+        room.handle_client_msg(
+            "host",
+            111,
+            to_ws(ClientMsg::SetVotingWrongCardDisableDistribution {
+                distribution: vec![0.0, 1.0],
+            }),
+        )
+        .await?;
 
         let state = room.state.read().await;
         assert_eq!(
@@ -5130,6 +5352,11 @@ mod tests {
         assert_eq!(
             state.nominations_per_guesser, 1,
             "nominations per guesser should remain unchanged once voting has begun"
+        );
+        assert_eq!(
+            state.voting_wrong_card_disable_distribution,
+            vec![0.5, 0.5],
+            "voting wrong-card disabling should remain unchanged once voting has begun"
         );
 
         Ok(())
@@ -5147,6 +5374,7 @@ mod tests {
             state.stage = RoomStage::PlayersChoose;
             state.votes_per_guesser = 2;
             state.nominations_per_guesser = 1;
+            state.voting_wrong_card_disable_distribution = vec![0.5, 0.5];
             state.moderators.insert("host".to_string());
             setup_connected_member(&mut state, "host", "t-host", 112);
         }
@@ -5163,6 +5391,14 @@ mod tests {
             to_ws(ClientMsg::SetNominationsPerGuesser { cards: 2 }),
         )
         .await?;
+        room.handle_client_msg(
+            "host",
+            112,
+            to_ws(ClientMsg::SetVotingWrongCardDisableDistribution {
+                distribution: vec![0.0, 1.0],
+            }),
+        )
+        .await?;
 
         let state = room.state.read().await;
         assert_eq!(
@@ -5172,6 +5408,11 @@ mod tests {
         assert_eq!(
             state.nominations_per_guesser, 1,
             "nominations per guesser should remain unchanged in PlayersChoose stage"
+        );
+        assert_eq!(
+            state.voting_wrong_card_disable_distribution,
+            vec![0.5, 0.5],
+            "voting wrong-card disabling should remain unchanged in PlayersChoose stage"
         );
 
         Ok(())

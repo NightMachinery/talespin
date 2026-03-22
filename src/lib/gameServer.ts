@@ -215,6 +215,14 @@ class GameServer {
 		});
 	}
 
+	setVotingWrongCardDisableDistribution(distribution: number[]) {
+		this.send({
+			SetVotingWrongCardDisableDistribution: {
+				distribution
+			}
+		});
+	}
+
 	forceStartNextRound() {
 		this.send({
 			ForceStartNextRound: {}

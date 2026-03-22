@@ -30,6 +30,7 @@
 	export let bonusDoubleVoteOnThresholdCorrectLoss = true;
 	export let showVotingCardNumbers = true;
 	export let roundStartDiscardCount = 3;
+	export let votingWrongCardDisableDistribution: number[] = [1];
 	export let activePlayer = '';
 	export let pointChange: { [key: string]: number } = {};
 	export let roundNum = 0;
@@ -127,6 +128,7 @@
 								{bonusDoubleVoteOnThresholdCorrectLoss}
 								{showVotingCardNumbers}
 								{roundStartDiscardCount}
+								{votingWrongCardDisableDistribution}
 								{activePlayer}
 							/>
 						</div>
@@ -158,6 +160,7 @@
 							{bonusDoubleVoteOnThresholdCorrectLoss}
 							{showVotingCardNumbers}
 							{roundStartDiscardCount}
+							{votingWrongCardDisableDistribution}
 							{activePlayer}
 						/>
 					</div>

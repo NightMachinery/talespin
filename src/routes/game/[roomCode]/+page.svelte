@@ -8,6 +8,7 @@
 	import { nameStore, playerTokenStore } from '$lib/store';
 	import type { ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
 	import GameServer from '$lib/gameServer';
+	import { DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION } from '$lib/votingWrongCardDisableDistribution';
 
 	import Joining from './Joining.svelte';
 	import ActiveChooses from './ActiveChooses.svelte';
@@ -50,6 +51,7 @@
 	let bonusDoubleVoteOnThresholdCorrectLoss = true;
 	let showVotingCardNumbers = true;
 	let roundStartDiscardCount = 3;
+	let votingWrongCardDisableDistribution = [...DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION];
 	let activePlayer = '';
 	let description = '';
 	let roundNum = 0;
@@ -137,6 +139,10 @@
 					data.RoomState.bonus_double_vote_on_threshold_correct_loss ?? true;
 				showVotingCardNumbers = data.RoomState.show_voting_card_numbers ?? true;
 				roundStartDiscardCount = data.RoomState.round_start_discard_count ?? 3;
+				votingWrongCardDisableDistribution = data.RoomState
+					.voting_wrong_card_disable_distribution ?? [
+					...DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION
+				];
 				activePlayer = data.RoomState.active_player || '';
 				roundNum = data.RoomState.round;
 				cardsRemaining = data.RoomState.cards_remaining || 0;
@@ -263,6 +269,7 @@
 			{bonusDoubleVoteOnThresholdCorrectLoss}
 			{showVotingCardNumbers}
 			{roundStartDiscardCount}
+			{votingWrongCardDisableDistribution}
 			{stage}
 			{pointChange}
 			{roundNum}
@@ -298,6 +305,7 @@
 			{bonusDoubleVoteOnThresholdCorrectLoss}
 			{showVotingCardNumbers}
 			{roundStartDiscardCount}
+			{votingWrongCardDisableDistribution}
 			{stage}
 			{pointChange}
 			{roundNum}
@@ -334,6 +342,7 @@
 			{bonusDoubleVoteOnThresholdCorrectLoss}
 			{showVotingCardNumbers}
 			{roundStartDiscardCount}
+			{votingWrongCardDisableDistribution}
 			{stage}
 			{pointChange}
 			{roundNum}
@@ -372,6 +381,7 @@
 			{bonusDoubleVoteOnThresholdCorrectLoss}
 			{showVotingCardNumbers}
 			{roundStartDiscardCount}
+			{votingWrongCardDisableDistribution}
 			{stage}
 			{pointChange}
 			{roundNum}
@@ -404,6 +414,7 @@
 			{bonusDoubleVoteOnThresholdCorrectLoss}
 			{showVotingCardNumbers}
 			{roundStartDiscardCount}
+			{votingWrongCardDisableDistribution}
 			{roundNum}
 			{cardsRemaining}
 			{deckRefillFlashToken}

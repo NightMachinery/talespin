@@ -27,6 +27,7 @@
 	export let bonusDoubleVoteOnThresholdCorrectLoss = true;
 	export let showVotingCardNumbers = true;
 	export let roundStartDiscardCount = 3;
+	export let votingWrongCardDisableDistribution: number[] = [1];
 	export let roundNum = 0;
 	export let cardsRemaining = 0;
 	export let deckRefillFlashToken = 0;
@@ -66,6 +67,7 @@
 	{bonusDoubleVoteOnThresholdCorrectLoss}
 	{showVotingCardNumbers}
 	{roundStartDiscardCount}
+	{votingWrongCardDisableDistribution}
 	activePlayer=""
 	pointChange={{}}
 	{roundNum}
