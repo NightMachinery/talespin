@@ -18,7 +18,7 @@ const wh =
 
 class GameServer {
 	_ws: WebSocket;
-	onmessage_handler: ((data: object) => void)[] = [];
+	onmessage_handler: ((data: Record<string, unknown>) => void)[] = [];
 	message_queue: string[] = [];
 	onclosehandler = () => {};
 
@@ -50,7 +50,7 @@ class GameServer {
 			}
 		};
 		this._ws.onmessage = (event) => {
-			let data = JSON.parse(event.data.toString());
+			const data = JSON.parse(event.data.toString()) as Record<string, unknown>;
 			this.onmessage_handler.forEach((handler) => {
 				handler(data);
 			});
@@ -65,7 +65,7 @@ class GameServer {
 	}
 
 	send(data: object) {
-		let data_str = JSON.stringify(data);
+		const data_str = JSON.stringify(data);
 		if (this._ws.readyState === 1) {
 			this._ws.send(data_str);
 		} else {
@@ -266,7 +266,7 @@ class GameServer {
 		});
 	}
 
-	addMsgHandler(func: (data: object) => void) {
+	addMsgHandler(func: (data: Record<string, unknown>) => void) {
 		this.onmessage_handler.push(func);
 	}
 
