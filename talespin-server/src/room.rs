@@ -48,6 +48,7 @@ pub enum ServerMsg {
         storyteller_loss_complement: u16,
         storyteller_loss_complement_min: u16,
         storyteller_loss_complement_max: u16,
+        storyteller_loss_complement_auto: bool,
         votes_per_guesser: u16,
         votes_per_guesser_min: u16,
         votes_per_guesser_max: u16,
@@ -124,6 +125,9 @@ pub enum ClientMsg {
     },
     SetStorytellerLossComplement {
         complement: u16,
+    },
+    SetStorytellerLossComplementAuto {
+        enabled: bool,
     },
     SetVotesPerGuesser {
         votes: u16,
@@ -250,6 +254,8 @@ struct RoomState {
     paused_needs_storyteller_selection: bool,
     // storyteller-loss complement used in score computation (server-clamped)
     storyteller_loss_complement: u16,
+    // auto-derive complement from current/actual guesser count instead of using manual value
+    storyteller_loss_complement_auto: bool,
     // number of vote tokens each guesser can cast in Voting
     votes_per_guesser: u16,
     // hand size target for each active player
@@ -362,6 +368,7 @@ impl Room {
             paused_reason: None,
             paused_needs_storyteller_selection: false,
             storyteller_loss_complement: 0,
+            storyteller_loss_complement_auto: true,
             votes_per_guesser: 1,
             cards_per_hand: DEFAULT_CARDS_PER_HAND,
             nominations_per_guesser: DEFAULT_NOMINATIONS_PER_GUESSER,
@@ -499,13 +506,37 @@ impl Room {
         state.players.len().saturating_sub(1)
     }
 
+    fn scoring_guesser_count(&self, state: &RwLockWriteGuard<RoomState>) -> usize {
+        let active_player = state
+            .player_order
+            .get(state.active_player)
+            .map(String::as_str);
+        let guessers = state
+            .player_to_votes
+            .keys()
+            .filter(|player| {
+                active_player != Some(player.as_str())
+                    && state.players.contains_key(player.as_str())
+            })
+            .count();
+
+        if guessers > 0 {
+            guessers
+        } else {
+            self.guesser_count(state)
+        }
+    }
+
+    fn storyteller_loss_complement_bounds_for_guesser_count(guesser_count: usize) -> (u16, u16) {
+        let max_complement = guesser_count.saturating_sub(1).min(usize::from(u16::MAX)) as u16;
+        (0, max_complement)
+    }
+
     fn storyteller_loss_complement_bounds(
         &self,
         state: &RwLockWriteGuard<RoomState>,
     ) -> (u16, u16) {
-        let guessers = self.guesser_count(state);
-        let max_complement = guessers.saturating_sub(1).min(usize::from(u16::MAX)) as u16;
-        (0, max_complement)
+        Self::storyteller_loss_complement_bounds_for_guesser_count(self.guesser_count(state))
     }
 
     fn votes_per_guesser_bounds(&self, state: &RwLockWriteGuard<RoomState>) -> (u16, u16) {
@@ -737,21 +768,42 @@ impl Room {
         }
     }
 
-    fn default_storyteller_loss_complement_on_game_start(
-        &self,
-        state: &RwLockWriteGuard<'_, RoomState>,
-    ) -> u16 {
-        let guessers = self.guesser_count(state).max(1);
-        let default_threshold = if state.players.len() > 6 {
+    fn default_storyteller_loss_complement_for_guesser_count(&self, guessers: usize) -> u16 {
+        let guessers = guessers.max(1);
+        let default_threshold = if guessers + 1 > 6 {
             ((guessers as f64) * 0.8).round() as usize
         } else {
             guessers
         };
         let default_complement = guessers.saturating_sub(default_threshold);
 
-        let (min_complement, max_complement) = self.storyteller_loss_complement_bounds(state);
+        let (min_complement, max_complement) =
+            Self::storyteller_loss_complement_bounds_for_guesser_count(guessers);
         (default_complement.min(usize::from(max_complement)) as u16)
             .clamp(min_complement, max_complement)
+    }
+
+    fn default_storyteller_loss_complement_on_game_start(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+    ) -> u16 {
+        self.default_storyteller_loss_complement_for_guesser_count(self.guesser_count(state))
+    }
+
+    fn effective_storyteller_loss_complement_for_guesser_count(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+        guessers: usize,
+    ) -> u16 {
+        if state.storyteller_loss_complement_auto {
+            self.default_storyteller_loss_complement_for_guesser_count(guessers)
+        } else {
+            let (min_complement, max_complement) =
+                Self::storyteller_loss_complement_bounds_for_guesser_count(guessers);
+            state
+                .storyteller_loss_complement
+                .clamp(min_complement, max_complement)
+        }
     }
 
     fn default_votes_per_guesser_on_game_start(
@@ -2621,6 +2673,25 @@ impl Room {
                 self.clamp_storyteller_loss_complement(&mut state);
                 self.broadcast_msg(self.room_state(&state))?;
             }
+            ClientMsg::SetStorytellerLossComplementAuto { enabled } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change storyteller win-condition auto-tune"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                state.storyteller_loss_complement_auto = enabled;
+                self.clamp_storyteller_loss_complement(&mut state);
+                self.broadcast_msg(self.room_state(&state))?;
+            }
             ClientMsg::SetVotesPerGuesser { votes } => {
                 if !self.is_moderator(&state, name) {
                     if let Some(tx) = state.player_to_socket.get(name) {
@@ -3207,11 +3278,11 @@ impl Room {
             }
         }
 
-        let guesser_count = self.guesser_count(state) as u16;
-        let (min_complement, max_complement) = self.storyteller_loss_complement_bounds(state);
-        let complement = state
-            .storyteller_loss_complement
-            .clamp(min_complement, max_complement);
+        let guesser_count = self.scoring_guesser_count(state) as u16;
+        let complement = self.effective_storyteller_loss_complement_for_guesser_count(
+            state,
+            usize::from(guesser_count),
+        );
         let threshold = guesser_count.saturating_sub(complement);
         let wrong_guesses = guesser_count.saturating_sub(correct_guessers);
         let too_many_correct = correct_guessers >= threshold;
@@ -3590,9 +3661,15 @@ impl Room {
         let mut moderators = state.moderators.iter().cloned().collect::<Vec<_>>();
         moderators.sort();
         let (complement_min, complement_max) = self.storyteller_loss_complement_bounds(state);
-        let complement = state
-            .storyteller_loss_complement
-            .clamp(complement_min, complement_max);
+        let display_guesser_count = if state.storyteller_loss_complement_auto
+            && matches!(state.stage, RoomStage::Results)
+        {
+            self.scoring_guesser_count(state)
+        } else {
+            self.guesser_count(state)
+        };
+        let complement = self
+            .effective_storyteller_loss_complement_for_guesser_count(state, display_guesser_count);
         let (votes_min, votes_max) = self.votes_per_guesser_bounds(state);
         let votes_per_guesser = state.votes_per_guesser.clamp(votes_min, votes_max);
         let (cards_min, cards_max) = self.cards_per_hand_bounds(state);
@@ -3629,6 +3706,7 @@ impl Room {
             storyteller_loss_complement: complement,
             storyteller_loss_complement_min: complement_min,
             storyteller_loss_complement_max: complement_max,
+            storyteller_loss_complement_auto: state.storyteller_loss_complement_auto,
             votes_per_guesser,
             votes_per_guesser_min: votes_min,
             votes_per_guesser_max: votes_max,
@@ -4964,6 +5042,7 @@ mod tests {
         ];
         state.active_player = 0;
         state.storyteller_loss_complement = 0;
+        state.storyteller_loss_complement_auto = false;
 
         state
             .player_to_current_cards
@@ -5027,6 +5106,7 @@ mod tests {
         ];
         state.active_player = 0;
         state.storyteller_loss_complement = 2;
+        state.storyteller_loss_complement_auto = false;
 
         state
             .player_to_current_cards
@@ -5082,6 +5162,7 @@ mod tests {
         state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into(), "e".into()];
         state.active_player = 0;
         state.storyteller_loss_complement = 1;
+        state.storyteller_loss_complement_auto = false;
         state.votes_per_guesser = 2;
 
         state
@@ -5138,6 +5219,7 @@ mod tests {
         state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into(), "e".into()];
         state.active_player = 0;
         state.storyteller_loss_complement = 1;
+        state.storyteller_loss_complement_auto = false;
         state.votes_per_guesser = 2;
 
         state
@@ -5205,6 +5287,7 @@ mod tests {
                 state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into()];
                 state.active_player = 0;
                 state.storyteller_loss_complement = 1;
+                state.storyteller_loss_complement_auto = false;
                 state.votes_per_guesser = 2;
                 state.bonus_correct_guess_on_threshold_correct_loss = correct_bonus_enabled;
                 state.bonus_double_vote_on_threshold_correct_loss = double_bonus_enabled;
@@ -5287,6 +5370,7 @@ mod tests {
             ServerMsg::RoomState {
                 cards_per_hand,
                 cards_per_hand_max,
+                storyteller_loss_complement_auto,
                 bonus_correct_guess_on_threshold_correct_loss,
                 bonus_double_vote_on_threshold_correct_loss,
                 show_voting_card_numbers,
@@ -5296,6 +5380,10 @@ mod tests {
             } => {
                 assert_eq!(cards_per_hand, 12, "cards per hand should default to 12");
                 assert_eq!(cards_per_hand_max, 18, "cards per hand max should be 18");
+                assert!(
+                    storyteller_loss_complement_auto,
+                    "storyteller win-condition auto-tune should default to on"
+                );
                 assert!(
                     bonus_correct_guess_on_threshold_correct_loss,
                     "correct-guess threshold bonus should default to on"
@@ -5320,6 +5408,34 @@ mod tests {
             }
             _ => return Err(anyhow!("Expected RoomState")),
         }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn moderator_can_toggle_storyteller_complement_auto_tune() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            add_player(&mut state, "p2", 0);
+            add_player(&mut state, "p3", 0);
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 10);
+        }
+
+        room.handle_client_msg(
+            "host",
+            10,
+            to_ws(ClientMsg::SetStorytellerLossComplementAuto { enabled: false }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert!(
+            !state.storyteller_loss_complement_auto,
+            "moderator toggle should update storyteller auto-tune flag"
+        );
 
         Ok(())
     }
@@ -5356,6 +5472,78 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn auto_storyteller_complement_uses_actual_result_guessers() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        for player in ["a", "b", "c", "d", "e", "f", "g", "h"] {
+            add_player(&mut state, player, 0);
+        }
+        state.stage = RoomStage::Results;
+        state.storyteller_loss_complement_auto = true;
+        state.storyteller_loss_complement = 3;
+        state.player_order = vec![
+            "a".into(),
+            "b".into(),
+            "c".into(),
+            "d".into(),
+            "e".into(),
+            "f".into(),
+            "g".into(),
+            "h".into(),
+        ];
+        state.active_player = 0;
+
+        for (player, card) in [
+            ("a", "ca"),
+            ("b", "cb"),
+            ("c", "cc"),
+            ("d", "cd"),
+            ("e", "ce"),
+            ("f", "cf"),
+            ("g", "cg"),
+            ("h", "ch"),
+        ] {
+            state
+                .player_to_current_cards
+                .insert(player.into(), vec![card.into()]);
+        }
+
+        for player in ["b", "c", "d", "e", "f"] {
+            state
+                .player_to_votes
+                .insert(player.into(), vec!["ca".into()]);
+        }
+
+        let point_change = room.compute_results(&state);
+        assert_eq!(
+            point_change.get("a").copied(),
+            Some(0),
+            "auto-tune should use the 5 actual guessers in results, not the 7 eligible guessers"
+        );
+
+        match room.room_state(&state) {
+            ServerMsg::RoomState {
+                storyteller_loss_complement,
+                storyteller_loss_complement_auto,
+                ..
+            } => {
+                assert!(
+                    storyteller_loss_complement_auto,
+                    "room state should reflect that storyteller auto-tune is enabled"
+                );
+                assert_eq!(
+                    storyteller_loss_complement, 0,
+                    "room state should display the effective auto-tuned complement for 5 actual guessers"
+                );
+            }
+            _ => return Err(anyhow!("Expected RoomState")),
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn complement_max_edge_sets_effective_threshold_to_one() -> Result<()> {
         let room = test_room();
         let mut state = room.state.write().await;
@@ -5368,6 +5556,7 @@ mod tests {
         state.active_player = 0;
         // 3 guessers => max complement is 2 => effective threshold is 1
         state.storyteller_loss_complement = 2;
+        state.storyteller_loss_complement_auto = false;
 
         state
             .player_to_current_cards

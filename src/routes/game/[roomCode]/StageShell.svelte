@@ -17,6 +17,7 @@
 	export let storytellerLossComplement = 0;
 	export let storytellerLossComplementMin = 0;
 	export let storytellerLossComplementMax = 0;
+	export let storytellerLossComplementAuto = true;
 	export let votesPerGuesser = 1;
 	export let votesPerGuesserMin = 1;
 	export let votesPerGuesserMax = 1;
@@ -115,6 +116,7 @@
 								{storytellerLossComplement}
 								{storytellerLossComplementMin}
 								{storytellerLossComplementMax}
+								{storytellerLossComplementAuto}
 								{votesPerGuesser}
 								{votesPerGuesserMin}
 								{votesPerGuesserMax}
@@ -147,6 +149,7 @@
 							{storytellerLossComplement}
 							{storytellerLossComplementMin}
 							{storytellerLossComplementMax}
+							{storytellerLossComplementAuto}
 							{votesPerGuesser}
 							{votesPerGuesserMin}
 							{votesPerGuesserMax}

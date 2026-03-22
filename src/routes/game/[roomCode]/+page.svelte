@@ -38,6 +38,7 @@
 	let storytellerLossComplement = 0;
 	let storytellerLossComplementMin = 0;
 	let storytellerLossComplementMax = 0;
+	let storytellerLossComplementAuto = true;
 	let votesPerGuesser = 1;
 	let votesPerGuesserMin = 1;
 	let votesPerGuesserMax = 1;
@@ -124,6 +125,7 @@
 				storytellerLossComplement = data.RoomState.storyteller_loss_complement ?? 0;
 				storytellerLossComplementMin = data.RoomState.storyteller_loss_complement_min ?? 0;
 				storytellerLossComplementMax = data.RoomState.storyteller_loss_complement_max ?? 0;
+				storytellerLossComplementAuto = data.RoomState.storyteller_loss_complement_auto ?? true;
 				votesPerGuesser = data.RoomState.votes_per_guesser ?? 1;
 				votesPerGuesserMin = data.RoomState.votes_per_guesser_min ?? 1;
 				votesPerGuesserMax = data.RoomState.votes_per_guesser_max ?? 1;
@@ -256,6 +258,7 @@
 			{storytellerLossComplement}
 			{storytellerLossComplementMin}
 			{storytellerLossComplementMax}
+			{storytellerLossComplementAuto}
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}
@@ -292,6 +295,7 @@
 			{storytellerLossComplement}
 			{storytellerLossComplementMin}
 			{storytellerLossComplementMax}
+			{storytellerLossComplementAuto}
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}
@@ -329,6 +333,7 @@
 			{storytellerLossComplement}
 			{storytellerLossComplementMin}
 			{storytellerLossComplementMax}
+			{storytellerLossComplementAuto}
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}
@@ -368,6 +373,7 @@
 			{storytellerLossComplement}
 			{storytellerLossComplementMin}
 			{storytellerLossComplementMax}
+			{storytellerLossComplementAuto}
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}
@@ -401,6 +407,7 @@
 			{storytellerLossComplement}
 			{storytellerLossComplementMin}
 			{storytellerLossComplementMax}
+			{storytellerLossComplementAuto}
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}

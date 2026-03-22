@@ -159,6 +159,14 @@ class GameServer {
 		});
 	}
 
+	setStorytellerLossComplementAuto(enabled: boolean) {
+		this.send({
+			SetStorytellerLossComplementAuto: {
+				enabled
+			}
+		});
+	}
+
 	setVotesPerGuesser(votes: number) {
 		this.send({
 			SetVotesPerGuesser: {

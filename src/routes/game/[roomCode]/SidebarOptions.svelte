@@ -30,6 +30,7 @@
 	export let storytellerLossComplement = 0;
 	export let storytellerLossComplementMin = 0;
 	export let storytellerLossComplementMax = 0;
+	export let storytellerLossComplementAuto = true;
 	export let votesPerGuesser = 1;
 	export let votesPerGuesserMin = 1;
 	export let votesPerGuesserMax = 1;
@@ -64,6 +65,9 @@
 	$: canChangePreVotingSettings = stage === 'ActiveChooses';
 	$: canRefreshHands = stage === 'ActiveChooses';
 	$: canForceStartNextRound = stage === 'Results';
+	$: storytellerWinCondition = storytellerLossComplement + 1;
+	$: storytellerWinConditionMin = storytellerLossComplementMin + 1;
+	$: storytellerWinConditionMax = storytellerLossComplementMax + 1;
 	$: roundStartDiscardCountMax = Math.max(0, cardsPerHand - 1);
 	$: normalizedVotingWrongCardDisableDistribution = normalizeVotingWrongCardDisableDistribution(
 		votingWrongCardDisableDistribution
@@ -131,17 +135,31 @@
 	function updateStorytellerLossComplement(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
 		const parsed = Number(input.value);
-		if (
-			!Number.isInteger(parsed) ||
-			parsed < storytellerLossComplementMin ||
-			parsed > storytellerLossComplementMax
-		) {
-			input.value = `${storytellerLossComplement}`;
+		if (!isModerator || storytellerLossComplementAuto) {
+			input.value = `${storytellerWinCondition}`;
 			return;
 		}
-		if (parsed !== storytellerLossComplement) {
-			gameServer.setStorytellerLossComplement(parsed);
+		if (
+			!Number.isInteger(parsed) ||
+			parsed < storytellerWinConditionMin ||
+			parsed > storytellerWinConditionMax
+		) {
+			input.value = `${storytellerWinCondition}`;
+			return;
 		}
+		const complement = parsed - 1;
+		if (complement !== storytellerLossComplement) {
+			gameServer.setStorytellerLossComplement(complement);
+		}
+	}
+
+	function updateStorytellerLossComplementAuto(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		if (!isModerator) {
+			input.checked = storytellerLossComplementAuto;
+			return;
+		}
+		gameServer.setStorytellerLossComplementAuto(input.checked);
 	}
 
 	function updateVotesPerGuesser(event: Event) {
@@ -472,23 +490,34 @@
 					</div>
 				</div>
 				<div class="mt-3 rounded border border-white/20 px-2 py-2">
-					<p class="block text-sm font-semibold">Storyteller loss complement (C)</p>
+					<p class="block text-sm font-semibold">Storyteller win condition (W)</p>
 					<p class="mt-1 text-xs opacity-75">
-						Loss triggers when at least (guessers − C) are right or wrong.
+						Storyteller wins when at least W people are different from others (for example, right
+						when others are wrong).
 					</p>
+					<label class="mt-2 flex items-start gap-3 text-sm">
+						<input
+							type="checkbox"
+							class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
+							checked={storytellerLossComplementAuto}
+							on:change={updateStorytellerLossComplementAuto}
+							disabled={!isModerator}
+						/>
+						<span>Auto-tune W from the number of actual guessers after voting</span>
+					</label>
 					<div class="mt-2 flex items-center gap-2">
 						<input
 							type="number"
 							class="w-24 rounded border px-2 py-1 text-gray-700 shadow"
-							min={storytellerLossComplementMin}
-							max={storytellerLossComplementMax}
+							min={storytellerWinConditionMin}
+							max={storytellerWinConditionMax}
 							step="1"
-							value={storytellerLossComplement}
+							value={storytellerWinCondition}
 							on:change={updateStorytellerLossComplement}
-							disabled={!isModerator}
+							disabled={!isModerator || storytellerLossComplementAuto}
 						/>
 						<span class="text-xs opacity-75"
-							>Range: {storytellerLossComplementMin}–{storytellerLossComplementMax}</span
+							>Range: {storytellerWinConditionMin}–{storytellerWinConditionMax}</span
 						>
 					</div>
 				</div>
