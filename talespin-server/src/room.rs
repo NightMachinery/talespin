@@ -296,6 +296,10 @@ struct RoomState {
     // for each player, the card they voted for as being the active's card
     // they cannot vote for themselves; duplicates are allowed
     player_to_votes: HashMap<String, Vec<String>>,
+    // per-player cards that are visible but not votable during voting.
+    // This is frozen when voting starts; if the voter set changes mid-round, the original
+    // private information has already been revealed and cannot be cleanly recomputed.
+    player_to_disabled_voting_cards: HashMap<String, Vec<String>>,
     // configured win condition for this room
     win_condition: WinCondition,
     // increments whenever draw deck is refilled from base deck
@@ -380,6 +384,7 @@ impl Room {
             voting_order_seed: 0,
             player_to_current_cards: HashMap::new(),
             player_to_votes: HashMap::new(),
+            player_to_disabled_voting_cards: HashMap::new(),
             round: 0,
             win_condition,
             deck_refill_count: 0,
@@ -601,6 +606,109 @@ impl Room {
         Ok(distribution.to_vec())
     }
 
+    fn sample_voting_wrong_card_disable_count(&self, distribution: &[f64]) -> usize {
+        let roll = rand::thread_rng().gen::<f64>();
+        let mut cumulative = 0.0;
+        for (x, probability) in distribution.iter().enumerate() {
+            cumulative += *probability;
+            if roll <= cumulative || x == distribution.len().saturating_sub(1) {
+                return x;
+            }
+        }
+
+        0
+    }
+
+    fn effective_votes_per_guesser(&self, state: &RwLockWriteGuard<'_, RoomState>) -> usize {
+        let (_, max_votes) = self.votes_per_guesser_bounds(state);
+        usize::from(state.votes_per_guesser.clamp(1, max_votes))
+    }
+
+    fn compute_player_disabled_voting_cards(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+        player_name: &str,
+        active_player: &str,
+        center_cards: &[String],
+    ) -> Vec<String> {
+        if player_name == active_player {
+            return Vec::new();
+        }
+
+        let own_cards = state
+            .player_to_current_cards
+            .get(player_name)
+            .cloned()
+            .unwrap_or_default();
+        let storyteller_cards = state
+            .player_to_current_cards
+            .get(active_player)
+            .cloned()
+            .unwrap_or_default();
+
+        let storyteller_cards = storyteller_cards.into_iter().collect::<HashSet<_>>();
+        let mut disabled_cards = own_cards.iter().cloned().collect::<HashSet<_>>();
+        let candidate_wrong_cards = center_cards
+            .iter()
+            .filter(|card| {
+                !storyteller_cards.contains(card.as_str())
+                    && !disabled_cards.contains(card.as_str())
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+
+        let sampled_disable_count = self
+            .sample_voting_wrong_card_disable_count(&state.voting_wrong_card_disable_distribution);
+        let max_additional_disabled = candidate_wrong_cards
+            .len()
+            .saturating_sub(self.effective_votes_per_guesser(state).saturating_add(1));
+
+        let mut additional_wrong_cards = candidate_wrong_cards;
+        additional_wrong_cards.shuffle(&mut rand::thread_rng());
+        for card in additional_wrong_cards
+            .into_iter()
+            .take(sampled_disable_count.min(max_additional_disabled))
+        {
+            disabled_cards.insert(card);
+        }
+
+        center_cards
+            .iter()
+            .filter(|card| disabled_cards.contains(card.as_str()))
+            .cloned()
+            .collect()
+    }
+
+    fn rebuild_voting_disabled_cards(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+    ) -> HashMap<String, Vec<String>> {
+        if !matches!(state.stage, RoomStage::Voting) {
+            return HashMap::new();
+        }
+
+        let Some(active_player) = self.active_player_name(state).map(str::to_owned) else {
+            return HashMap::new();
+        };
+        let center_cards = self.get_center_cards(state);
+
+        state
+            .players
+            .keys()
+            .map(|player_name| {
+                (
+                    player_name.clone(),
+                    self.compute_player_disabled_voting_cards(
+                        state,
+                        player_name,
+                        &active_player,
+                        &center_cards,
+                    ),
+                )
+            })
+            .collect()
+    }
+
     fn clamp_vote_submission_lengths(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
         let (_, max_votes) = self.votes_per_guesser_bounds(state);
         let max_votes = usize::from(max_votes);
@@ -794,6 +902,7 @@ impl Room {
         state.voting_order_seed = 0;
         state.player_to_current_cards.clear();
         state.player_to_votes.clear();
+        state.player_to_disabled_voting_cards.clear();
         self.clear_ready(state);
     }
 
@@ -1596,6 +1705,11 @@ impl Room {
                 if ready_count >= state.players.len().saturating_sub(1) {
                     self.init_results(state)?;
                 } else {
+                    // Intentionally do not recompute player_to_disabled_voting_cards here.
+                    // Those per-player disabled cards are private info that has already been
+                    // shown during voting, so recalculating after a mid-round removal would not
+                    // "un-leak" the original state. A true fix would require restarting or
+                    // redealing the round with fresh private information.
                     self.broadcast_msg(self.room_state(state))?;
                 }
                 return Ok(());
@@ -1656,15 +1770,11 @@ impl Room {
                 description: state.current_description.clone(),
                 disabled_cards: name
                     .map(|player_name| {
-                        if player_name == state.player_order[state.active_player].as_str() {
-                            Vec::new()
-                        } else {
-                            state
-                                .player_to_current_cards
-                                .get(player_name)
-                                .cloned()
-                                .unwrap_or_default()
-                        }
+                        state
+                            .player_to_disabled_voting_cards
+                            .get(player_name)
+                            .cloned()
+                            .unwrap_or_default()
                     })
                     .unwrap_or_default(),
                 votes_per_guesser: {
@@ -1757,8 +1867,7 @@ impl Room {
             return Err(anyhow!("Active player cannot vote"));
         }
 
-        let (_, max_votes) = self.votes_per_guesser_bounds(state);
-        let max_votes = usize::from(state.votes_per_guesser.clamp(1, max_votes));
+        let max_votes = self.effective_votes_per_guesser(state);
         if cards.is_empty() {
             if let Some(socket) = state.player_to_socket.get(name) {
                 socket
@@ -1786,8 +1895,8 @@ impl Room {
             return Ok(());
         }
 
-        let own_cards = state
-            .player_to_current_cards
+        let disabled_cards = state
+            .player_to_disabled_voting_cards
             .get(name)
             .cloned()
             .unwrap_or_default();
@@ -1801,11 +1910,11 @@ impl Room {
                 return Err(anyhow!("Invalid card"));
             }
 
-            if own_cards.iter().any(|value| value == card) {
+            if disabled_cards.iter().any(|value| value == card) {
                 if let Some(socket) = state.player_to_socket.get(name) {
                     socket
                         .send(
-                            ServerMsg::ErrorMsg("You cannot vote for your own card".to_string())
+                            ServerMsg::ErrorMsg("You cannot vote for a disabled card".to_string())
                                 .into(),
                         )
                         .await?;
@@ -1882,6 +1991,7 @@ impl Room {
         }
 
         self.clear_ready(state);
+        state.player_to_disabled_voting_cards = self.rebuild_voting_disabled_cards(state);
 
         // remove cards from hand that were put in the center
         for (player, cards) in state.player_to_current_cards.clone().iter() {
@@ -1926,14 +2036,16 @@ impl Room {
                 continue;
             }
 
-            let own_cards = state
-                .player_to_current_cards
+            let disabled_cards = state
+                .player_to_disabled_voting_cards
                 .get(player)
                 .cloned()
-                .unwrap_or_default();
+                .unwrap_or_default()
+                .into_iter()
+                .collect::<HashSet<_>>();
             let valid_cards = center_cards
                 .iter()
-                .filter(|card| !own_cards.iter().any(|own| own == *card))
+                .filter(|card| !disabled_cards.contains(card.as_str()))
                 .cloned()
                 .collect::<Vec<_>>();
             if valid_cards.is_empty() {
@@ -1963,6 +2075,7 @@ impl Room {
         });
 
         self.clear_ready(state);
+        state.player_to_disabled_voting_cards.clear();
 
         // send results to everyone
         self.broadcast_msg(self.get_msg(None, &state)?)?;
@@ -4287,6 +4400,147 @@ mod tests {
         assert_eq!(
             voting_cards, result_cards,
             "results should preserve the same ordered center cards from voting"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn init_voting_disables_additional_wrong_cards_and_rejects_votes_for_them() -> Result<()>
+    {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        for player in ["a", "b", "c", "d", "e"] {
+            add_player(&mut state, player, 0);
+        }
+        state.stage = RoomStage::PlayersChoose;
+        state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into(), "e".into()];
+        state.active_player = 0;
+        state.current_description = "clue".to_string();
+        state.votes_per_guesser = 1;
+        state.nominations_per_guesser = 1;
+        state.voting_wrong_card_disable_distribution = vec![0.0, 0.0, 0.0, 1.0];
+        state
+            .player_to_current_cards
+            .insert("a".into(), vec!["ca".into()]);
+        state
+            .player_to_current_cards
+            .insert("b".into(), vec!["cb".into()]);
+        state
+            .player_to_current_cards
+            .insert("c".into(), vec!["cc".into()]);
+        state
+            .player_to_current_cards
+            .insert("d".into(), vec!["cd".into()]);
+        state
+            .player_to_current_cards
+            .insert("e".into(), vec!["ce".into()]);
+
+        room.init_voting(&mut state).await?;
+
+        let b_disabled = state
+            .player_to_disabled_voting_cards
+            .get("b")
+            .cloned()
+            .unwrap_or_default();
+        assert!(
+            b_disabled.iter().any(|card| card == "cb"),
+            "player should always have their own submitted card disabled"
+        );
+        assert_eq!(
+            b_disabled.len(),
+            2,
+            "sampled X=3 should clamp to one extra wrong-card disable plus own card"
+        );
+        assert!(
+            !b_disabled.iter().any(|card| card == "ca"),
+            "storyteller card must never be disabled"
+        );
+        let b_extra_disabled = b_disabled
+            .iter()
+            .find(|card| card.as_str() != "cb")
+            .cloned()
+            .ok_or_else(|| anyhow!("Expected one extra disabled card for b"))?;
+        assert!(
+            ["cc", "cd", "ce"].contains(&b_extra_disabled.as_str()),
+            "extra disabled card must come from another wrong card"
+        );
+
+        let b_msg = room.get_msg(Some("b"), &state)?;
+        match b_msg {
+            ServerMsg::BeginVoting { disabled_cards, .. } => {
+                assert_eq!(
+                    disabled_cards, b_disabled,
+                    "personalized BeginVoting payload should use stored disabled cards"
+                );
+            }
+            _ => return Err(anyhow!("Expected BeginVoting message for b")),
+        }
+
+        room.submit_votes(&mut state, "b", vec![b_extra_disabled])
+            .await?;
+        assert!(
+            !state.player_to_votes.contains_key("b"),
+            "server must reject votes for extra disabled cards"
+        );
+        assert!(
+            !state
+                .players
+                .get("b")
+                .map(|player| player.ready)
+                .unwrap_or(false),
+            "rejected disabled-card vote should not ready the player"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn init_results_autofills_votes_without_using_disabled_cards() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        for player in ["a", "b", "c", "d", "e"] {
+            add_player(&mut state, player, 0);
+        }
+        state.stage = RoomStage::Voting;
+        state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into(), "e".into()];
+        state.active_player = 0;
+        state.votes_per_guesser = 2;
+        state
+            .player_to_current_cards
+            .insert("a".into(), vec!["ca".into()]);
+        state
+            .player_to_current_cards
+            .insert("b".into(), vec!["cb".into()]);
+        state
+            .player_to_current_cards
+            .insert("c".into(), vec!["cc".into()]);
+        state
+            .player_to_current_cards
+            .insert("d".into(), vec!["cd".into()]);
+        state
+            .player_to_current_cards
+            .insert("e".into(), vec!["ce".into()]);
+        state
+            .player_to_disabled_voting_cards
+            .insert("b".into(), vec!["cb".into(), "cc".into(), "cd".into()]);
+
+        room.init_results(&mut state)?;
+
+        let b_votes = state
+            .player_to_votes
+            .get("b")
+            .cloned()
+            .ok_or_else(|| anyhow!("Expected autofilled votes for b"))?;
+        assert_eq!(b_votes.len(), 2, "missing votes should be backfilled");
+        assert!(
+            b_votes
+                .iter()
+                .all(|card| !["cb", "cc", "cd"].contains(&card.as_str())),
+            "autofill must avoid cards disabled for that player, got {:?}",
+            b_votes
         );
 
         Ok(())
