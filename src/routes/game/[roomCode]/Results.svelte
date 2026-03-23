@@ -35,6 +35,16 @@
 	export let bonusDoubleVoteOnThresholdCorrectLoss = true;
 	export let showVotingCardNumbers = true;
 	export let roundStartDiscardCount = 3;
+	export let hintChoosingTimerEnabled = true;
+	export let hintChoosingTimerDurationS = 60;
+	export let cardChoosingTimerEnabled = true;
+	export let cardChoosingTimerDurationS = 30;
+	export let votingTimerEnabled = true;
+	export let votingTimerDurationS = 180;
+	export let forceCardChoosingTimer = false;
+	export let forceVotingTimer = false;
+	export let serverTimeMs: number | null = null;
+	export let currentStageDeadlineS: number | null = null;
 	export let votingWrongCardDisableDistribution: number[] = [1];
 	export let stage = '';
 	export let pointChange: { [key: string]: number } = {};
@@ -107,6 +117,16 @@
 	{bonusDoubleVoteOnThresholdCorrectLoss}
 	{showVotingCardNumbers}
 	{roundStartDiscardCount}
+	{hintChoosingTimerEnabled}
+	{hintChoosingTimerDurationS}
+	{cardChoosingTimerEnabled}
+	{cardChoosingTimerDurationS}
+	{votingTimerEnabled}
+	{votingTimerDurationS}
+	{forceCardChoosingTimer}
+	{forceVotingTimer}
+	{serverTimeMs}
+	{currentStageDeadlineS}
 	{votingWrongCardDisableDistribution}
 	{pointChange}
 	{activePlayer}

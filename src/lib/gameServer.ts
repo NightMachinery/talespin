@@ -223,6 +223,70 @@ class GameServer {
 		});
 	}
 
+	setHintChoosingTimerEnabled(enabled: boolean) {
+		this.send({
+			SetHintChoosingTimerEnabled: {
+				enabled
+			}
+		});
+	}
+
+	setHintChoosingTimerDuration(seconds: number) {
+		this.send({
+			SetHintChoosingTimerDuration: {
+				seconds
+			}
+		});
+	}
+
+	setCardChoosingTimerEnabled(enabled: boolean) {
+		this.send({
+			SetCardChoosingTimerEnabled: {
+				enabled
+			}
+		});
+	}
+
+	setCardChoosingTimerDuration(seconds: number) {
+		this.send({
+			SetCardChoosingTimerDuration: {
+				seconds
+			}
+		});
+	}
+
+	setVotingTimerEnabled(enabled: boolean) {
+		this.send({
+			SetVotingTimerEnabled: {
+				enabled
+			}
+		});
+	}
+
+	setVotingTimerDuration(seconds: number) {
+		this.send({
+			SetVotingTimerDuration: {
+				seconds
+			}
+		});
+	}
+
+	setForceCardChoosingTimer(enabled: boolean) {
+		this.send({
+			SetForceCardChoosingTimer: {
+				enabled
+			}
+		});
+	}
+
+	setForceVotingTimer(enabled: boolean) {
+		this.send({
+			SetForceVotingTimer: {
+				enabled
+			}
+		});
+	}
+
 	setVotingWrongCardDisableDistribution(distribution: number[]) {
 		this.send({
 			SetVotingWrongCardDisableDistribution: {

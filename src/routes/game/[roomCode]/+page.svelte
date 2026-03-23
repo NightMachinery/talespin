@@ -52,6 +52,16 @@
 	let bonusDoubleVoteOnThresholdCorrectLoss = true;
 	let showVotingCardNumbers = true;
 	let roundStartDiscardCount = 3;
+	let hintChoosingTimerEnabled = true;
+	let hintChoosingTimerDurationS = 60;
+	let cardChoosingTimerEnabled = true;
+	let cardChoosingTimerDurationS = 30;
+	let votingTimerEnabled = true;
+	let votingTimerDurationS = 180;
+	let forceCardChoosingTimer = false;
+	let forceVotingTimer = false;
+	let serverTimeMs: number | null = null;
+	let currentStageDeadlineS: number | null = null;
 	let votingWrongCardDisableDistribution = [...DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION];
 	let activePlayer = '';
 	let description = '';
@@ -141,6 +151,16 @@
 					data.RoomState.bonus_double_vote_on_threshold_correct_loss ?? true;
 				showVotingCardNumbers = data.RoomState.show_voting_card_numbers ?? true;
 				roundStartDiscardCount = data.RoomState.round_start_discard_count ?? 3;
+				hintChoosingTimerEnabled = data.RoomState.hint_choosing_timer_enabled ?? true;
+				hintChoosingTimerDurationS = data.RoomState.hint_choosing_timer_duration_s ?? 60;
+				cardChoosingTimerEnabled = data.RoomState.card_choosing_timer_enabled ?? true;
+				cardChoosingTimerDurationS = data.RoomState.card_choosing_timer_duration_s ?? 30;
+				votingTimerEnabled = data.RoomState.voting_timer_enabled ?? true;
+				votingTimerDurationS = data.RoomState.voting_timer_duration_s ?? 180;
+				forceCardChoosingTimer = data.RoomState.force_card_choosing_timer ?? false;
+				forceVotingTimer = data.RoomState.force_voting_timer ?? false;
+				serverTimeMs = data.RoomState.server_time_ms ?? null;
+				currentStageDeadlineS = data.RoomState.current_stage_deadline_s ?? null;
 				votingWrongCardDisableDistribution = data.RoomState
 					.voting_wrong_card_disable_distribution ?? [
 					...DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION
@@ -182,6 +202,7 @@
 				storytellerChosenCard = '';
 			} else if (data.Results) {
 				stage = 'Results';
+				currentStageDeadlineS = null;
 				playerToCurrentCards = data.Results.player_to_current_cards || {};
 				displayImages = data.Results.center_cards || Object.values(playerToCurrentCards).flat();
 				playerToVotes = data.Results.player_to_votes || {};
@@ -224,6 +245,7 @@
 				goto('/');
 			} else if (data.EndGame) {
 				stage = 'End';
+				currentStageDeadlineS = null;
 				storytellerChosenCard = '';
 			}
 		});
@@ -272,6 +294,16 @@
 			{bonusDoubleVoteOnThresholdCorrectLoss}
 			{showVotingCardNumbers}
 			{roundStartDiscardCount}
+			{hintChoosingTimerEnabled}
+			{hintChoosingTimerDurationS}
+			{cardChoosingTimerEnabled}
+			{cardChoosingTimerDurationS}
+			{votingTimerEnabled}
+			{votingTimerDurationS}
+			{forceCardChoosingTimer}
+			{forceVotingTimer}
+			{serverTimeMs}
+			{currentStageDeadlineS}
 			{votingWrongCardDisableDistribution}
 			{stage}
 			{pointChange}
@@ -309,6 +341,16 @@
 			{bonusDoubleVoteOnThresholdCorrectLoss}
 			{showVotingCardNumbers}
 			{roundStartDiscardCount}
+			{hintChoosingTimerEnabled}
+			{hintChoosingTimerDurationS}
+			{cardChoosingTimerEnabled}
+			{cardChoosingTimerDurationS}
+			{votingTimerEnabled}
+			{votingTimerDurationS}
+			{forceCardChoosingTimer}
+			{forceVotingTimer}
+			{serverTimeMs}
+			{currentStageDeadlineS}
 			{votingWrongCardDisableDistribution}
 			{stage}
 			{pointChange}
@@ -347,6 +389,16 @@
 			{bonusDoubleVoteOnThresholdCorrectLoss}
 			{showVotingCardNumbers}
 			{roundStartDiscardCount}
+			{hintChoosingTimerEnabled}
+			{hintChoosingTimerDurationS}
+			{cardChoosingTimerEnabled}
+			{cardChoosingTimerDurationS}
+			{votingTimerEnabled}
+			{votingTimerDurationS}
+			{forceCardChoosingTimer}
+			{forceVotingTimer}
+			{serverTimeMs}
+			{currentStageDeadlineS}
 			{votingWrongCardDisableDistribution}
 			{stage}
 			{pointChange}
@@ -387,6 +439,16 @@
 			{bonusDoubleVoteOnThresholdCorrectLoss}
 			{showVotingCardNumbers}
 			{roundStartDiscardCount}
+			{hintChoosingTimerEnabled}
+			{hintChoosingTimerDurationS}
+			{cardChoosingTimerEnabled}
+			{cardChoosingTimerDurationS}
+			{votingTimerEnabled}
+			{votingTimerDurationS}
+			{forceCardChoosingTimer}
+			{forceVotingTimer}
+			{serverTimeMs}
+			{currentStageDeadlineS}
 			{votingWrongCardDisableDistribution}
 			{stage}
 			{pointChange}
@@ -421,6 +483,16 @@
 			{bonusDoubleVoteOnThresholdCorrectLoss}
 			{showVotingCardNumbers}
 			{roundStartDiscardCount}
+			{hintChoosingTimerEnabled}
+			{hintChoosingTimerDurationS}
+			{cardChoosingTimerEnabled}
+			{cardChoosingTimerDurationS}
+			{votingTimerEnabled}
+			{votingTimerDurationS}
+			{forceCardChoosingTimer}
+			{forceVotingTimer}
+			{serverTimeMs}
+			{currentStageDeadlineS}
 			{votingWrongCardDisableDistribution}
 			{roundNum}
 			{cardsRemaining}

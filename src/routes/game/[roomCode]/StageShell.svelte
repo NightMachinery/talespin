@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { cardsFitToHeight } from '$lib/viewOptions';
 	import type GameServer from '$lib/gameServer';
 	import Leaderboard from './Leaderboard.svelte';
@@ -31,6 +32,16 @@
 	export let bonusDoubleVoteOnThresholdCorrectLoss = true;
 	export let showVotingCardNumbers = true;
 	export let roundStartDiscardCount = 3;
+	export let hintChoosingTimerEnabled = true;
+	export let hintChoosingTimerDurationS = 60;
+	export let cardChoosingTimerEnabled = true;
+	export let cardChoosingTimerDurationS = 30;
+	export let votingTimerEnabled = true;
+	export let votingTimerDurationS = 180;
+	export let forceCardChoosingTimer = false;
+	export let forceVotingTimer = false;
+	export let serverTimeMs: number | null = null;
+	export let currentStageDeadlineS: number | null = null;
 	export let votingWrongCardDisableDistribution: number[] = [1];
 	export let activePlayer = '';
 	export let pointChange: { [key: string]: number } = {};
@@ -47,10 +58,57 @@
 	const hasMobileActions = !!$$slots.mobileActions;
 	const hasMobileBottom = !!$$slots.mobileBottom;
 	const hasSidebarBottom = !!$$slots.sidebarBottom;
+	let nowPerfMs = 0;
+	let timerInterval: number | undefined;
+	let lastServerTimeMs: number | null = null;
+	let syncedServerTimeMs: number | null = null;
+	let syncedAtPerfMs = 0;
+
+	onMount(() => {
+		nowPerfMs = performance.now();
+		timerInterval = window.setInterval(() => {
+			nowPerfMs = performance.now();
+		}, 250);
+
+		return () => {
+			if (timerInterval) {
+				window.clearInterval(timerInterval);
+			}
+		};
+	});
+
+	function formatCountdown(totalSeconds: number) {
+		const minutes = Math.floor(totalSeconds / 60);
+		const seconds = totalSeconds % 60;
+		return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+	}
+
 	$: showMobileOptions = true;
 	$: mainContentClass = `rounded-lg bg-black/10 p-2 sm:p-3 lg:p-4 ${
 		$cardsFitToHeight ? 'lg:h-full' : ''
 	}`;
+	$: if (serverTimeMs !== lastServerTimeMs) {
+		lastServerTimeMs = serverTimeMs;
+		syncedServerTimeMs = serverTimeMs;
+		syncedAtPerfMs = nowPerfMs;
+	}
+	$: hasStageTimer = currentStageDeadlineS !== null;
+	$: estimatedServerNowMs =
+		syncedServerTimeMs === null ? null : syncedServerTimeMs + (nowPerfMs - syncedAtPerfMs);
+	$: remainingStageTimerSeconds =
+		currentStageDeadlineS === null || estimatedServerNowMs === null
+			? 0
+			: Math.max(0, Math.ceil((currentStageDeadlineS * 1000 - estimatedServerNowMs) / 1000));
+	$: stageTimerLabel =
+		stage === 'ActiveChooses'
+			? 'Hint timer'
+			: stage === 'PlayersChoose'
+				? 'Card choosing timer'
+				: stage === 'Voting'
+					? 'Voting timer'
+					: 'Stage timer';
+	$: stageTimerDisplay = formatCountdown(remainingStageTimerSeconds);
+	$: stageTimerExpired = hasStageTimer && remainingStageTimerSeconds === 0;
 </script>
 
 <div class="w-full px-3 pt-3 lg:px-6 lg:pt-4">
@@ -58,6 +116,36 @@
 		{#if hasMobileTop}
 			<div class="mb-3 lg:hidden">
 				<slot name="mobileTop" />
+			</div>
+		{/if}
+
+		{#if hasStageTimer}
+			<div class="mb-3">
+				<div
+					class={`card flex items-center justify-between gap-3 px-4 py-3 ${
+						stageTimerExpired ? 'bg-warning-900/55 ring-1 ring-warning-400/45' : 'light'
+					}`}
+				>
+					<div>
+						<p class="text-xs font-semibold uppercase tracking-wide opacity-70">
+							{stageTimerLabel}
+						</p>
+						<p class="text-sm opacity-85">
+							{#if stageTimerExpired}
+								Time is up.
+							{:else}
+								Shared countdown for this stage.
+							{/if}
+						</p>
+					</div>
+					<div
+						class={`rounded px-3 py-1 text-2xl font-bold tabular-nums ${
+							stageTimerExpired ? 'bg-warning-500 text-black' : 'bg-black/30 text-white'
+						}`}
+					>
+						{stageTimerDisplay}
+					</div>
+				</div>
 			</div>
 		{/if}
 
@@ -130,6 +218,14 @@
 								{bonusDoubleVoteOnThresholdCorrectLoss}
 								{showVotingCardNumbers}
 								{roundStartDiscardCount}
+								{hintChoosingTimerEnabled}
+								{hintChoosingTimerDurationS}
+								{cardChoosingTimerEnabled}
+								{cardChoosingTimerDurationS}
+								{votingTimerEnabled}
+								{votingTimerDurationS}
+								{forceCardChoosingTimer}
+								{forceVotingTimer}
 								{votingWrongCardDisableDistribution}
 								{activePlayer}
 							/>
@@ -163,6 +259,14 @@
 							{bonusDoubleVoteOnThresholdCorrectLoss}
 							{showVotingCardNumbers}
 							{roundStartDiscardCount}
+							{hintChoosingTimerEnabled}
+							{hintChoosingTimerDurationS}
+							{cardChoosingTimerEnabled}
+							{cardChoosingTimerDurationS}
+							{votingTimerEnabled}
+							{votingTimerDurationS}
+							{forceCardChoosingTimer}
+							{forceVotingTimer}
 							{votingWrongCardDisableDistribution}
 							{activePlayer}
 						/>

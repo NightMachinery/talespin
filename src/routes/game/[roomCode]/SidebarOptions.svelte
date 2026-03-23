@@ -18,6 +18,8 @@
 	} from '$lib/votingWrongCardDisableDistribution';
 
 	const SETTINGS_EDIT_STAGE_HINT = 'Can only be changed during storyteller choosing stage.';
+	const STAGE_TIMER_DURATION_MIN_S = 1;
+	const STAGE_TIMER_DURATION_MAX_S = 60 * 60;
 
 	export let players: { [key: string]: PlayerInfo } = {};
 	export let observers: { [key: string]: ObserverInfo } = {};
@@ -44,6 +46,14 @@
 	export let bonusDoubleVoteOnThresholdCorrectLoss = true;
 	export let showVotingCardNumbers = true;
 	export let roundStartDiscardCount = 3;
+	export let hintChoosingTimerEnabled = true;
+	export let hintChoosingTimerDurationS = 60;
+	export let cardChoosingTimerEnabled = true;
+	export let cardChoosingTimerDurationS = 30;
+	export let votingTimerEnabled = true;
+	export let votingTimerDurationS = 180;
+	export let forceCardChoosingTimer = false;
+	export let forceVotingTimer = false;
 	export let votingWrongCardDisableDistribution: number[] = [
 		...DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION
 	];
@@ -239,6 +249,91 @@
 		if (parsed !== roundStartDiscardCount) {
 			gameServer.setRoundStartDiscardCount(parsed);
 		}
+	}
+
+	function updateStageTimerToggle(
+		event: Event,
+		currentValue: boolean,
+		setter: (enabled: boolean) => void
+	) {
+		const input = event.currentTarget as HTMLInputElement;
+		if (!isModerator || !canChangePreVotingSettings) {
+			input.checked = currentValue;
+			return;
+		}
+		setter(input.checked);
+	}
+
+	function updateStageTimerDuration(
+		event: Event,
+		currentValue: number,
+		setter: (seconds: number) => void
+	) {
+		const input = event.currentTarget as HTMLInputElement;
+		const parsed = Number(input.value);
+		if (!isModerator || !canChangePreVotingSettings) {
+			input.value = `${currentValue}`;
+			return;
+		}
+		if (
+			!Number.isInteger(parsed) ||
+			parsed < STAGE_TIMER_DURATION_MIN_S ||
+			parsed > STAGE_TIMER_DURATION_MAX_S
+		) {
+			input.value = `${currentValue}`;
+			return;
+		}
+		if (parsed !== currentValue) {
+			setter(parsed);
+		}
+	}
+
+	function updateHintChoosingTimerEnabled(event: Event) {
+		updateStageTimerToggle(event, hintChoosingTimerEnabled, (enabled) =>
+			gameServer.setHintChoosingTimerEnabled(enabled)
+		);
+	}
+
+	function updateHintChoosingTimerDuration(event: Event) {
+		updateStageTimerDuration(event, hintChoosingTimerDurationS, (seconds) =>
+			gameServer.setHintChoosingTimerDuration(seconds)
+		);
+	}
+
+	function updateCardChoosingTimerEnabled(event: Event) {
+		updateStageTimerToggle(event, cardChoosingTimerEnabled, (enabled) =>
+			gameServer.setCardChoosingTimerEnabled(enabled)
+		);
+	}
+
+	function updateCardChoosingTimerDuration(event: Event) {
+		updateStageTimerDuration(event, cardChoosingTimerDurationS, (seconds) =>
+			gameServer.setCardChoosingTimerDuration(seconds)
+		);
+	}
+
+	function updateVotingTimerEnabled(event: Event) {
+		updateStageTimerToggle(event, votingTimerEnabled, (enabled) =>
+			gameServer.setVotingTimerEnabled(enabled)
+		);
+	}
+
+	function updateVotingTimerDuration(event: Event) {
+		updateStageTimerDuration(event, votingTimerDurationS, (seconds) =>
+			gameServer.setVotingTimerDuration(seconds)
+		);
+	}
+
+	function updateForceCardChoosingTimer(event: Event) {
+		updateStageTimerToggle(event, forceCardChoosingTimer, (enabled) =>
+			gameServer.setForceCardChoosingTimer(enabled)
+		);
+	}
+
+	function updateForceVotingTimer(event: Event) {
+		updateStageTimerToggle(event, forceVotingTimer, (enabled) =>
+			gameServer.setForceVotingTimer(enabled)
+		);
 	}
 
 	function formatPercent(probability: number) {
@@ -541,6 +636,138 @@
 					</div>
 					{#if !canChangePreVotingSettings}
 						<p class="mt-1 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
+					{/if}
+				</div>
+				<div class="mt-3 rounded border border-white/20 px-2 py-2">
+					<p class="block text-sm font-semibold">Stage timers</p>
+					<p class="mt-1 text-xs opacity-75">
+						Show shared countdowns for each live stage. Results stays untimed.
+					</p>
+					<div class="mt-3 space-y-3">
+						<div class="rounded border border-white/15 px-2 py-2">
+							<div class="flex items-start justify-between gap-3">
+								<div>
+									<p class="font-medium">Hint / storyteller choosing</p>
+									<p class="text-xs opacity-70">Storyteller chooses a card and clue.</p>
+								</div>
+								<label class="flex items-center gap-2 text-sm">
+									<input
+										type="checkbox"
+										class="h-4 w-4 cursor-pointer accent-primary-500"
+										checked={hintChoosingTimerEnabled}
+										on:change={updateHintChoosingTimerEnabled}
+										disabled={!isModerator || !canChangePreVotingSettings}
+									/>
+									<span>Enabled</span>
+								</label>
+							</div>
+							<div class="mt-2 flex items-center gap-2">
+								<input
+									type="number"
+									class="w-24 rounded border px-2 py-1 text-gray-700 shadow"
+									min={STAGE_TIMER_DURATION_MIN_S}
+									max={STAGE_TIMER_DURATION_MAX_S}
+									step="1"
+									value={hintChoosingTimerDurationS}
+									on:change={updateHintChoosingTimerDuration}
+									disabled={!isModerator || !canChangePreVotingSettings}
+								/>
+								<span class="text-xs opacity-75"
+									>{STAGE_TIMER_DURATION_MIN_S}–{STAGE_TIMER_DURATION_MAX_S}s</span
+								>
+							</div>
+						</div>
+
+						<div class="rounded border border-white/15 px-2 py-2">
+							<div class="flex items-start justify-between gap-3">
+								<div>
+									<p class="font-medium">Card choosing</p>
+									<p class="text-xs opacity-70">Guessers choose matching cards.</p>
+								</div>
+								<label class="flex items-center gap-2 text-sm">
+									<input
+										type="checkbox"
+										class="h-4 w-4 cursor-pointer accent-primary-500"
+										checked={cardChoosingTimerEnabled}
+										on:change={updateCardChoosingTimerEnabled}
+										disabled={!isModerator || !canChangePreVotingSettings}
+									/>
+									<span>Enabled</span>
+								</label>
+							</div>
+							<div class="mt-2 flex items-center gap-2">
+								<input
+									type="number"
+									class="w-24 rounded border px-2 py-1 text-gray-700 shadow"
+									min={STAGE_TIMER_DURATION_MIN_S}
+									max={STAGE_TIMER_DURATION_MAX_S}
+									step="1"
+									value={cardChoosingTimerDurationS}
+									on:change={updateCardChoosingTimerDuration}
+									disabled={!isModerator || !canChangePreVotingSettings}
+								/>
+								<span class="text-xs opacity-75"
+									>{STAGE_TIMER_DURATION_MIN_S}–{STAGE_TIMER_DURATION_MAX_S}s</span
+								>
+							</div>
+							<label class="mt-2 flex items-start gap-3 text-sm">
+								<input
+									type="checkbox"
+									class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
+									checked={forceCardChoosingTimer}
+									on:change={updateForceCardChoosingTimer}
+									disabled={!isModerator || !canChangePreVotingSettings}
+								/>
+								<span>Force timeout by auto-choosing random cards</span>
+							</label>
+						</div>
+
+						<div class="rounded border border-white/15 px-2 py-2">
+							<div class="flex items-start justify-between gap-3">
+								<div>
+									<p class="font-medium">Voting</p>
+									<p class="text-xs opacity-70">Guessers vote on the storyteller's card.</p>
+								</div>
+								<label class="flex items-center gap-2 text-sm">
+									<input
+										type="checkbox"
+										class="h-4 w-4 cursor-pointer accent-primary-500"
+										checked={votingTimerEnabled}
+										on:change={updateVotingTimerEnabled}
+										disabled={!isModerator || !canChangePreVotingSettings}
+									/>
+									<span>Enabled</span>
+								</label>
+							</div>
+							<div class="mt-2 flex items-center gap-2">
+								<input
+									type="number"
+									class="w-24 rounded border px-2 py-1 text-gray-700 shadow"
+									min={STAGE_TIMER_DURATION_MIN_S}
+									max={STAGE_TIMER_DURATION_MAX_S}
+									step="1"
+									value={votingTimerDurationS}
+									on:change={updateVotingTimerDuration}
+									disabled={!isModerator || !canChangePreVotingSettings}
+								/>
+								<span class="text-xs opacity-75"
+									>{STAGE_TIMER_DURATION_MIN_S}–{STAGE_TIMER_DURATION_MAX_S}s</span
+								>
+							</div>
+							<label class="mt-2 flex items-start gap-3 text-sm">
+								<input
+									type="checkbox"
+									class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
+									checked={forceVotingTimer}
+									on:change={updateForceVotingTimer}
+									disabled={!isModerator || !canChangePreVotingSettings}
+								/>
+								<span>Force timeout by auto-submitting random votes</span>
+							</label>
+						</div>
+					</div>
+					{#if !canChangePreVotingSettings}
+						<p class="mt-2 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
 					{/if}
 				</div>
 				<div class="mt-3 rounded border border-white/20 px-2 py-2">

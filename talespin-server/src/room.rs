@@ -17,6 +17,11 @@ const DEFAULT_CARDS_PER_HAND: u16 = 12;
 const MAX_CARDS_PER_HAND: u16 = 18;
 const DEFAULT_NOMINATIONS_PER_GUESSER: u16 = 1;
 const THREE_PLAYER_NOMINATIONS_PER_GUESSER: u16 = 2;
+const MIN_STAGE_TIMER_DURATION_S: u16 = 1;
+const MAX_STAGE_TIMER_DURATION_S: u16 = 60 * 60;
+const DEFAULT_HINT_CHOOSING_TIMER_DURATION_S: u16 = 60;
+const DEFAULT_CARD_CHOOSING_TIMER_DURATION_S: u16 = 30;
+const DEFAULT_VOTING_TIMER_DURATION_S: u16 = 3 * 60;
 const DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION: [f64; 1] = [1.0];
 const VOTING_WRONG_CARD_DISABLE_SUM_TOLERANCE: f64 = 1e-6;
 
@@ -62,6 +67,16 @@ pub enum ServerMsg {
         bonus_double_vote_on_threshold_correct_loss: bool,
         show_voting_card_numbers: bool,
         round_start_discard_count: u16,
+        hint_choosing_timer_enabled: bool,
+        hint_choosing_timer_duration_s: u16,
+        card_choosing_timer_enabled: bool,
+        card_choosing_timer_duration_s: u16,
+        voting_timer_enabled: bool,
+        voting_timer_duration_s: u16,
+        force_card_choosing_timer: bool,
+        force_voting_timer: bool,
+        server_time_ms: u64,
+        current_stage_deadline_s: Option<u64>,
         voting_wrong_card_disable_distribution: Vec<f64>,
     },
     StartRound {
@@ -149,6 +164,30 @@ pub enum ClientMsg {
     },
     SetRoundStartDiscardCount {
         count: u16,
+    },
+    SetHintChoosingTimerEnabled {
+        enabled: bool,
+    },
+    SetHintChoosingTimerDuration {
+        seconds: u16,
+    },
+    SetCardChoosingTimerEnabled {
+        enabled: bool,
+    },
+    SetCardChoosingTimerDuration {
+        seconds: u16,
+    },
+    SetVotingTimerEnabled {
+        enabled: bool,
+    },
+    SetVotingTimerDuration {
+        seconds: u16,
+    },
+    SetForceCardChoosingTimer {
+        enabled: bool,
+    },
+    SetForceVotingTimer {
+        enabled: bool,
     },
     SetVotingWrongCardDisableDistribution {
         distribution: Vec<f64>,
@@ -270,6 +309,22 @@ struct RoomState {
     show_voting_card_numbers: bool,
     // random cards discarded from each active hand at round start (then topped up)
     round_start_discard_count: u16,
+    // whether to show a countdown during storyteller clue/card choosing
+    hint_choosing_timer_enabled: bool,
+    // storyteller choosing timer duration in seconds
+    hint_choosing_timer_duration_s: u16,
+    // whether to show a countdown during player card choosing
+    card_choosing_timer_enabled: bool,
+    // player card choosing timer duration in seconds
+    card_choosing_timer_duration_s: u16,
+    // whether to show a countdown during voting
+    voting_timer_enabled: bool,
+    // voting timer duration in seconds
+    voting_timer_duration_s: u16,
+    // auto-fill missing player card choices at timeout
+    force_card_choosing_timer: bool,
+    // auto-fill missing votes at timeout
+    force_voting_timer: bool,
     // probability distribution over additional wrong cards disabled per player during voting
     voting_wrong_card_disable_distribution: Vec<f64>,
     // store general stats about each player
@@ -282,6 +337,10 @@ struct RoomState {
     deck: Vec<String>,
     // stage of the game
     stage: RoomStage,
+    // when the current stage began (for recomputing deadlines if settings change mid-stage)
+    stage_started_at_s: Option<u64>,
+    // shared stage deadline for client countdown display / timeout enforcement
+    current_stage_deadline_s: Option<u64>,
     // round number
     round: u16,
     // order of players being "active"
@@ -334,6 +393,15 @@ pub fn get_time_s() -> u64 {
         .as_secs()
 }
 
+pub fn get_time_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis()
+        .try_into()
+        .unwrap_or(u64::MAX)
+}
+
 pub fn hash_room_password(room_id: &str, password: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(room_id.as_bytes());
@@ -376,11 +444,21 @@ impl Room {
             bonus_double_vote_on_threshold_correct_loss: true,
             show_voting_card_numbers: true,
             round_start_discard_count: 3,
+            hint_choosing_timer_enabled: true,
+            hint_choosing_timer_duration_s: DEFAULT_HINT_CHOOSING_TIMER_DURATION_S,
+            card_choosing_timer_enabled: true,
+            card_choosing_timer_duration_s: DEFAULT_CARD_CHOOSING_TIMER_DURATION_S,
+            voting_timer_enabled: true,
+            voting_timer_duration_s: DEFAULT_VOTING_TIMER_DURATION_S,
+            force_card_choosing_timer: false,
+            force_voting_timer: false,
             voting_wrong_card_disable_distribution: DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION
                 .to_vec(),
             players: HashMap::new(),
             deck: base_deck.to_vec(),
             stage: RoomStage::Joining,
+            stage_started_at_s: None,
+            current_stage_deadline_s: None,
             player_order: Vec::new(),
             player_hand: HashMap::new(),
             observer_hand: HashMap::new(),
@@ -562,6 +640,81 @@ impl Room {
         let (_, cards_per_hand_max) = self.cards_per_hand_bounds(state);
         let cards_per_hand = state.cards_per_hand.clamp(1, cards_per_hand_max);
         (0, cards_per_hand.saturating_sub(1))
+    }
+
+    fn clamp_stage_timer_duration_s(seconds: u16) -> u16 {
+        seconds.clamp(MIN_STAGE_TIMER_DURATION_S, MAX_STAGE_TIMER_DURATION_S)
+    }
+
+    fn clamp_stage_timer_settings(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
+        state.hint_choosing_timer_duration_s =
+            Self::clamp_stage_timer_duration_s(state.hint_choosing_timer_duration_s);
+        state.card_choosing_timer_duration_s =
+            Self::clamp_stage_timer_duration_s(state.card_choosing_timer_duration_s);
+        state.voting_timer_duration_s =
+            Self::clamp_stage_timer_duration_s(state.voting_timer_duration_s);
+        self.refresh_current_stage_deadline(state);
+    }
+
+    fn stage_timer_duration_s_for_stage(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+        stage: RoomStage,
+    ) -> Option<u64> {
+        match stage {
+            RoomStage::ActiveChooses if state.hint_choosing_timer_enabled => Some(u64::from(
+                Self::clamp_stage_timer_duration_s(state.hint_choosing_timer_duration_s),
+            )),
+            RoomStage::PlayersChoose if state.card_choosing_timer_enabled => Some(u64::from(
+                Self::clamp_stage_timer_duration_s(state.card_choosing_timer_duration_s),
+            )),
+            RoomStage::Voting if state.voting_timer_enabled => Some(u64::from(
+                Self::clamp_stage_timer_duration_s(state.voting_timer_duration_s),
+            )),
+            _ => None,
+        }
+    }
+
+    fn refresh_current_stage_deadline(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
+        state.current_stage_deadline_s = state.stage_started_at_s.and_then(|started_at_s| {
+            self.stage_timer_duration_s_for_stage(state, state.stage)
+                .map(|duration_s| started_at_s.saturating_add(duration_s))
+        });
+    }
+
+    fn set_stage(&self, state: &mut RwLockWriteGuard<'_, RoomState>, stage: RoomStage) {
+        state.stage = stage;
+        state.stage_started_at_s = Some(get_time_s());
+        self.refresh_current_stage_deadline(state);
+    }
+
+    fn restart_current_stage_timer(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
+        state.stage_started_at_s = Some(get_time_s());
+        self.refresh_current_stage_deadline(state);
+    }
+
+    async fn handle_expired_stage_timer(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+    ) -> Result<bool> {
+        let Some(deadline_s) = state.current_stage_deadline_s else {
+            return Ok(false);
+        };
+        if get_time_s() < deadline_s {
+            return Ok(false);
+        }
+
+        match state.stage {
+            RoomStage::PlayersChoose if state.force_card_choosing_timer => {
+                self.init_voting(state).await?;
+                Ok(true)
+            }
+            RoomStage::Voting if state.force_voting_timer => {
+                self.init_results(state)?;
+                Ok(true)
+            }
+            _ => Ok(false),
+        }
     }
 
     fn clamp_storyteller_loss_complement(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
@@ -955,6 +1108,8 @@ impl Room {
         state.player_to_current_cards.clear();
         state.player_to_votes.clear();
         state.player_to_disabled_voting_cards.clear();
+        state.stage_started_at_s = None;
+        state.current_stage_deadline_s = None;
         self.clear_ready(state);
     }
 
@@ -1138,7 +1293,7 @@ impl Room {
         paused_needs_storyteller_selection: bool,
     ) {
         self.reset_round_keep_hands(state);
-        state.stage = RoomStage::Paused;
+        self.set_stage(state, RoomStage::Paused);
         state.paused_reason = Some(self.pause_reason());
         state.paused_needs_storyteller_selection = paused_needs_storyteller_selection;
     }
@@ -1329,6 +1484,7 @@ impl Room {
         }
 
         self.clamp_storyteller_loss_complement(state);
+        self.clamp_stage_timer_settings(state);
         self.clamp_votes_per_guesser(state);
         self.clamp_cards_per_hand(state);
         self.clamp_nominations_per_guesser(state);
@@ -1393,6 +1549,7 @@ impl Room {
         }
 
         self.clamp_storyteller_loss_complement(state);
+        self.clamp_stage_timer_settings(state);
         self.clamp_votes_per_guesser(state);
         self.clamp_cards_per_hand(state);
         self.clamp_nominations_per_guesser(state);
@@ -1476,9 +1633,11 @@ impl Room {
             state.active_player = self
                 .choose_random_lowest_storyteller_index(state)
                 .unwrap_or(0);
+            self.restart_current_stage_timer(state);
         }
 
         self.clamp_storyteller_loss_complement(state);
+        self.clamp_stage_timer_settings(state);
         self.clamp_votes_per_guesser(state);
         self.clamp_cards_per_hand(state);
         self.clamp_nominations_per_guesser(state);
@@ -1525,6 +1684,7 @@ impl Room {
         }
 
         self.clamp_storyteller_loss_complement(state);
+        self.clamp_stage_timer_settings(state);
         self.clamp_votes_per_guesser(state);
         self.clamp_cards_per_hand(state);
         self.clamp_nominations_per_guesser(state);
@@ -1607,9 +1767,11 @@ impl Room {
             state.active_player = self
                 .choose_random_lowest_storyteller_index(state)
                 .unwrap_or(0);
+            self.restart_current_stage_timer(state);
         }
 
         self.clamp_storyteller_loss_complement(state);
+        self.clamp_stage_timer_settings(state);
         self.clamp_votes_per_guesser(state);
         self.clamp_cards_per_hand(state);
         self.clamp_nominations_per_guesser(state);
@@ -1639,7 +1801,7 @@ impl Room {
         }
 
         self.reset_round_keep_hands(state);
-        state.stage = RoomStage::ActiveChooses;
+        self.set_stage(state, RoomStage::ActiveChooses);
         state.paused_reason = None;
         state.paused_needs_storyteller_selection = false;
 
@@ -1768,7 +1930,7 @@ impl Room {
             }
             RoomStage::Results => {
                 if self.should_end_game(state) {
-                    state.stage = RoomStage::End;
+                    self.set_stage(state, RoomStage::End);
                     state.paused_reason = None;
                     self.broadcast_msg(ServerMsg::EndGame {})?;
                     self.broadcast_msg(self.room_state(state))?;
@@ -1991,7 +2153,7 @@ impl Room {
     }
 
     async fn init_voting(&self, state: &mut RwLockWriteGuard<'_, RoomState>) -> Result<()> {
-        state.stage = RoomStage::Voting;
+        self.set_stage(state, RoomStage::Voting);
         state.voting_order_seed = rand::thread_rng().gen::<u64>();
         state.player_to_votes.clear();
 
@@ -2071,7 +2233,7 @@ impl Room {
     }
 
     fn init_results(&self, state: &mut RwLockWriteGuard<RoomState>) -> Result<()> {
-        state.stage = RoomStage::Results;
+        self.set_stage(state, RoomStage::Results);
 
         let center_cards = self.get_center_cards(state);
         let active_player = state
@@ -2216,6 +2378,7 @@ impl Room {
         }
 
         self.clamp_storyteller_loss_complement(state);
+        self.clamp_stage_timer_settings(state);
         self.clamp_votes_per_guesser(state);
         self.clamp_cards_per_hand(state);
         self.clamp_nominations_per_guesser(state);
@@ -2264,7 +2427,7 @@ impl Room {
                     Some(card) => card,
                     None => {
                         if matches!(state.win_condition, WinCondition::CardsFinish) {
-                            state.stage = RoomStage::End;
+                            self.set_stage(state, RoomStage::End);
                             self.broadcast_msg(ServerMsg::EndGame {})?;
                             return Ok(());
                         }
@@ -2279,7 +2442,7 @@ impl Room {
         state.active_player = next_active_player;
         state.deck = deck;
         state.player_hand = player_hand;
-        state.stage = RoomStage::ActiveChooses;
+        self.set_stage(state, RoomStage::ActiveChooses);
 
         for player in state.player_order.iter() {
             let _ = self
@@ -2376,7 +2539,7 @@ impl Room {
                     self.broadcast_msg(self.room_state(&state))?;
 
                     if self.should_end_game(&state) {
-                        state.stage = RoomStage::End;
+                        self.set_stage(&mut state, RoomStage::End);
                         self.broadcast_msg(self.get_msg(None, &state)?)?;
                         return Ok(());
                     }
@@ -2671,6 +2834,7 @@ impl Room {
 
                 state.storyteller_loss_complement = complement;
                 self.clamp_storyteller_loss_complement(&mut state);
+                self.clamp_stage_timer_settings(&mut state);
                 self.broadcast_msg(self.room_state(&state))?;
             }
             ClientMsg::SetStorytellerLossComplementAuto { enabled } => {
@@ -2690,6 +2854,7 @@ impl Room {
 
                 state.storyteller_loss_complement_auto = enabled;
                 self.clamp_storyteller_loss_complement(&mut state);
+                self.clamp_stage_timer_settings(&mut state);
                 self.broadcast_msg(self.room_state(&state))?;
             }
             ClientMsg::SetVotesPerGuesser { votes } => {
@@ -2957,6 +3122,295 @@ impl Room {
                 self.clamp_round_start_discard_count(&mut state);
                 self.broadcast_msg(self.room_state(&state))?;
             }
+            ClientMsg::SetHintChoosingTimerEnabled { enabled } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change hint timer settings".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if matches!(state.stage, RoomStage::End) {
+                    return Ok(());
+                }
+
+                if !matches!(state.stage, RoomStage::ActiveChooses) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Stage timers can only be changed during storyteller choosing stage"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                state.hint_choosing_timer_enabled = enabled;
+                self.clamp_stage_timer_settings(&mut state);
+                self.broadcast_msg(self.room_state(&state))?;
+            }
+            ClientMsg::SetHintChoosingTimerDuration { seconds } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change hint timer settings".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if matches!(state.stage, RoomStage::End) {
+                    return Ok(());
+                }
+
+                if !matches!(state.stage, RoomStage::ActiveChooses) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Stage timers can only be changed during storyteller choosing stage"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                state.hint_choosing_timer_duration_s = seconds;
+                self.clamp_stage_timer_settings(&mut state);
+                self.broadcast_msg(self.room_state(&state))?;
+            }
+            ClientMsg::SetCardChoosingTimerEnabled { enabled } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change card choosing timer settings"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if matches!(state.stage, RoomStage::End) {
+                    return Ok(());
+                }
+
+                if !matches!(state.stage, RoomStage::ActiveChooses) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Stage timers can only be changed during storyteller choosing stage"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                state.card_choosing_timer_enabled = enabled;
+                self.clamp_stage_timer_settings(&mut state);
+                self.broadcast_msg(self.room_state(&state))?;
+            }
+            ClientMsg::SetCardChoosingTimerDuration { seconds } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change card choosing timer settings"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if matches!(state.stage, RoomStage::End) {
+                    return Ok(());
+                }
+
+                if !matches!(state.stage, RoomStage::ActiveChooses) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Stage timers can only be changed during storyteller choosing stage"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                state.card_choosing_timer_duration_s = seconds;
+                self.clamp_stage_timer_settings(&mut state);
+                self.broadcast_msg(self.room_state(&state))?;
+            }
+            ClientMsg::SetVotingTimerEnabled { enabled } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change voting timer settings".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if matches!(state.stage, RoomStage::End) {
+                    return Ok(());
+                }
+
+                if !matches!(state.stage, RoomStage::ActiveChooses) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Stage timers can only be changed during storyteller choosing stage"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                state.voting_timer_enabled = enabled;
+                self.clamp_stage_timer_settings(&mut state);
+                self.broadcast_msg(self.room_state(&state))?;
+            }
+            ClientMsg::SetVotingTimerDuration { seconds } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change voting timer settings".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if matches!(state.stage, RoomStage::End) {
+                    return Ok(());
+                }
+
+                if !matches!(state.stage, RoomStage::ActiveChooses) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Stage timers can only be changed during storyteller choosing stage"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                state.voting_timer_duration_s = seconds;
+                self.clamp_stage_timer_settings(&mut state);
+                self.broadcast_msg(self.room_state(&state))?;
+            }
+            ClientMsg::SetForceCardChoosingTimer { enabled } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change card choosing timer settings"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if matches!(state.stage, RoomStage::End) {
+                    return Ok(());
+                }
+
+                if !matches!(state.stage, RoomStage::ActiveChooses) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Stage timers can only be changed during storyteller choosing stage"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                state.force_card_choosing_timer = enabled;
+                self.broadcast_msg(self.room_state(&state))?;
+            }
+            ClientMsg::SetForceVotingTimer { enabled } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change voting timer settings".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if matches!(state.stage, RoomStage::End) {
+                    return Ok(());
+                }
+
+                if !matches!(state.stage, RoomStage::ActiveChooses) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Stage timers can only be changed during storyteller choosing stage"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                state.force_voting_timer = enabled;
+                self.broadcast_msg(self.room_state(&state))?;
+            }
             ClientMsg::SetVotingWrongCardDisableDistribution { distribution } => {
                 if !self.is_moderator(&state, name) {
                     if let Some(tx) = state.player_to_socket.get(name) {
@@ -3022,7 +3476,7 @@ impl Room {
                 }
 
                 if self.should_end_game(&state) {
-                    state.stage = RoomStage::End;
+                    self.set_stage(&mut state, RoomStage::End);
                     state.paused_reason = None;
                     self.broadcast_msg(ServerMsg::EndGame {})?;
                     self.broadcast_msg(self.room_state(&state))?;
@@ -3134,7 +3588,7 @@ impl Room {
                         .entry(name.to_string())
                         .or_insert(0);
                     *storyteller_count = storyteller_count.saturating_add(1);
-                    state.stage = RoomStage::PlayersChoose;
+                    self.set_stage(&mut state, RoomStage::PlayersChoose);
 
                     // record choice
                     state
@@ -3525,6 +3979,7 @@ impl Room {
             state.moderators.insert(name.to_string());
         }
         self.clamp_storyteller_loss_complement(&mut state);
+        self.clamp_stage_timer_settings(&mut state);
         self.clamp_votes_per_guesser(&mut state);
         self.clamp_cards_per_hand(&mut state);
         self.clamp_nominations_per_guesser(&mut state);
@@ -3639,7 +4094,15 @@ impl Room {
 
     pub async fn run_maintenance(&self) {
         let mut state = self.state.write().await;
-        if self.maybe_promote_moderator(&mut state) {
+        let promoted = self.maybe_promote_moderator(&mut state);
+        let timed_out = match self.handle_expired_stage_timer(&mut state).await {
+            Ok(timed_out) => timed_out,
+            Err(err) => {
+                println!("Error handling stage timer expiration: {:?}", err);
+                false
+            }
+        };
+        if promoted && !timed_out {
             let _ = self.broadcast_msg(self.room_state(&state));
         }
     }
@@ -3682,6 +4145,12 @@ impl Room {
         let round_start_discard_count = state
             .round_start_discard_count
             .clamp(round_discard_min, round_discard_max);
+        let hint_choosing_timer_duration_s =
+            Self::clamp_stage_timer_duration_s(state.hint_choosing_timer_duration_s);
+        let card_choosing_timer_duration_s =
+            Self::clamp_stage_timer_duration_s(state.card_choosing_timer_duration_s);
+        let voting_timer_duration_s =
+            Self::clamp_stage_timer_duration_s(state.voting_timer_duration_s);
         let voting_wrong_card_disable_distribution = self
             .canonicalize_voting_wrong_card_disable_distribution(
                 &state.voting_wrong_card_disable_distribution,
@@ -3722,6 +4191,16 @@ impl Room {
                 .bonus_double_vote_on_threshold_correct_loss,
             show_voting_card_numbers: state.show_voting_card_numbers,
             round_start_discard_count,
+            hint_choosing_timer_enabled: state.hint_choosing_timer_enabled,
+            hint_choosing_timer_duration_s,
+            card_choosing_timer_enabled: state.card_choosing_timer_enabled,
+            card_choosing_timer_duration_s,
+            voting_timer_enabled: state.voting_timer_enabled,
+            voting_timer_duration_s,
+            force_card_choosing_timer: state.force_card_choosing_timer,
+            force_voting_timer: state.force_voting_timer,
+            server_time_ms: get_time_ms(),
+            current_stage_deadline_s: state.current_stage_deadline_s,
             voting_wrong_card_disable_distribution,
         }
     }
@@ -5375,6 +5854,15 @@ mod tests {
                 bonus_double_vote_on_threshold_correct_loss,
                 show_voting_card_numbers,
                 round_start_discard_count,
+                hint_choosing_timer_enabled,
+                hint_choosing_timer_duration_s,
+                card_choosing_timer_enabled,
+                card_choosing_timer_duration_s,
+                voting_timer_enabled,
+                voting_timer_duration_s,
+                force_card_choosing_timer,
+                force_voting_timer,
+                current_stage_deadline_s,
                 voting_wrong_card_disable_distribution,
                 ..
             } => {
@@ -5400,6 +5888,42 @@ mod tests {
                     round_start_discard_count, 3,
                     "round-start discard count should default to 3"
                 );
+                assert!(
+                    hint_choosing_timer_enabled,
+                    "hint choosing timer should default to enabled"
+                );
+                assert_eq!(
+                    hint_choosing_timer_duration_s, 60,
+                    "hint choosing timer should default to 60 seconds"
+                );
+                assert!(
+                    card_choosing_timer_enabled,
+                    "card choosing timer should default to enabled"
+                );
+                assert_eq!(
+                    card_choosing_timer_duration_s, 30,
+                    "card choosing timer should default to 30 seconds"
+                );
+                assert!(
+                    voting_timer_enabled,
+                    "voting timer should default to enabled"
+                );
+                assert_eq!(
+                    voting_timer_duration_s, 180,
+                    "voting timer should default to 180 seconds"
+                );
+                assert!(
+                    !force_card_choosing_timer,
+                    "forced card choosing timeout should default to off"
+                );
+                assert!(
+                    !force_voting_timer,
+                    "forced voting timeout should default to off"
+                );
+                assert!(
+                    current_stage_deadline_s.is_none(),
+                    "joining room state should not expose a current stage deadline"
+                );
                 assert_eq!(
                     voting_wrong_card_disable_distribution,
                     vec![1.0],
@@ -5408,6 +5932,192 @@ mod tests {
             }
             _ => return Err(anyhow!("Expected RoomState")),
         }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn moderator_can_update_hint_timer_and_refresh_current_deadline() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            add_player(&mut state, "p2", 0);
+            add_player(&mut state, "p3", 0);
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 10);
+            room.set_stage(&mut state, RoomStage::ActiveChooses);
+            state.stage_started_at_s = Some(1_000);
+            room.refresh_current_stage_deadline(&mut state);
+        }
+
+        room.handle_client_msg(
+            "host",
+            10,
+            to_ws(ClientMsg::SetHintChoosingTimerDuration { seconds: 42 }),
+        )
+        .await?;
+
+        let state = room.state.write().await;
+        assert_eq!(
+            state.hint_choosing_timer_duration_s, 42,
+            "moderator update should persist the new hint timer duration"
+        );
+        assert_eq!(
+            state.current_stage_deadline_s,
+            Some(1_042),
+            "current storyteller deadline should be recomputed from stage start"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn maintenance_forces_players_choose_timeout_into_voting() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "a", 0);
+            add_player(&mut state, "b", 0);
+            add_player(&mut state, "c", 0);
+            state.player_order = vec!["a".into(), "b".into(), "c".into()];
+            state.active_player = 0;
+            state.current_description = "clue".to_string();
+            state.stage = RoomStage::PlayersChoose;
+            state.stage_started_at_s = Some(get_time_s().saturating_sub(60));
+            state.current_stage_deadline_s = Some(get_time_s().saturating_sub(1));
+            state.force_card_choosing_timer = true;
+            state.nominations_per_guesser = 1;
+            state.player_hand.insert("a".into(), vec!["a-card".into()]);
+            state
+                .player_hand
+                .insert("b".into(), vec!["b-card-1".into(), "b-card-2".into()]);
+            state
+                .player_hand
+                .insert("c".into(), vec!["c-card-1".into(), "c-card-2".into()]);
+            state
+                .player_to_current_cards
+                .insert("a".into(), vec!["a-card".into()]);
+        }
+
+        room.run_maintenance().await;
+
+        let state = room.state.write().await;
+        assert!(
+            matches!(state.stage, RoomStage::Voting),
+            "expired forced PlayersChoose timer should advance to Voting"
+        );
+        assert_eq!(
+            state
+                .player_to_current_cards
+                .get("b")
+                .map(|cards| cards.len())
+                .unwrap_or_default(),
+            1,
+            "missing chooser submissions should be auto-filled"
+        );
+        assert_eq!(
+            state
+                .player_to_current_cards
+                .get("c")
+                .map(|cards| cards.len())
+                .unwrap_or_default(),
+            1,
+            "missing chooser submissions should be auto-filled"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn maintenance_without_force_leaves_players_choose_stage_running() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "a", 0);
+            add_player(&mut state, "b", 0);
+            add_player(&mut state, "c", 0);
+            state.player_order = vec!["a".into(), "b".into(), "c".into()];
+            state.active_player = 0;
+            state.current_description = "clue".to_string();
+            state.stage = RoomStage::PlayersChoose;
+            state.stage_started_at_s = Some(get_time_s().saturating_sub(60));
+            state.current_stage_deadline_s = Some(get_time_s().saturating_sub(1));
+            state.force_card_choosing_timer = false;
+            state.player_hand.insert("a".into(), vec!["a-card".into()]);
+            state
+                .player_hand
+                .insert("b".into(), vec!["b-card-1".into()]);
+            state
+                .player_hand
+                .insert("c".into(), vec!["c-card-1".into()]);
+            state
+                .player_to_current_cards
+                .insert("a".into(), vec!["a-card".into()]);
+        }
+
+        room.run_maintenance().await;
+
+        let state = room.state.write().await;
+        assert!(
+            matches!(state.stage, RoomStage::PlayersChoose),
+            "display-only PlayersChoose timer should not auto-advance"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn maintenance_forces_voting_timeout_into_results() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "a", 0);
+            add_player(&mut state, "b", 0);
+            add_player(&mut state, "c", 0);
+            state.player_order = vec!["a".into(), "b".into(), "c".into()];
+            state.active_player = 0;
+            state.stage = RoomStage::Voting;
+            state.stage_started_at_s = Some(get_time_s().saturating_sub(180));
+            state.current_stage_deadline_s = Some(get_time_s().saturating_sub(1));
+            state.force_voting_timer = true;
+            state.votes_per_guesser = 1;
+            state
+                .player_to_current_cards
+                .insert("a".into(), vec!["a-card".into()]);
+            state
+                .player_to_current_cards
+                .insert("b".into(), vec!["b-card".into()]);
+            state
+                .player_to_current_cards
+                .insert("c".into(), vec!["c-card".into()]);
+        }
+
+        room.run_maintenance().await;
+
+        let state = room.state.write().await;
+        assert!(
+            matches!(state.stage, RoomStage::Results),
+            "expired forced voting timer should advance to Results"
+        );
+        assert_eq!(
+            state
+                .player_to_votes
+                .get("b")
+                .map(|votes| votes.len())
+                .unwrap_or_default(),
+            1,
+            "missing votes should be auto-filled for player b"
+        );
+        assert_eq!(
+            state
+                .player_to_votes
+                .get("c")
+                .map(|votes| votes.len())
+                .unwrap_or_default(),
+            1,
+            "missing votes should be auto-filled for player c"
+        );
 
         Ok(())
     }

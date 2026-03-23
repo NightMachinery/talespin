@@ -35,7 +35,7 @@ use rand::distributions::{Distribution, Uniform};
 use room::{get_time_s, hash_room_password, Room, ServerMsg, WinCondition};
 
 const GARBAGE_COLLECT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60 * 20); // 20 minutes
-const ROOM_MAINTENANCE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
+const ROOM_MAINTENANCE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
 const GC_ROOM_TIMEOUT_S: u64 = 60 * 60; // 1 hour
 
 const BUILTIN_IMAGE_DIR: &str = "../static/assets/cards/";
