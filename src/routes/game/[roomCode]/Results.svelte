@@ -59,7 +59,11 @@
 	let cardToPlayer: { [key: string]: string } = {};
 	let cardToVoterCounts: { [key: string]: { [key: string]: number } } = {};
 	let isObserver = false;
+	let isModerator = false;
+	let canForceStartNextRound = false;
 	$: isObserver = !!observers[name];
+	$: isModerator = new Set(moderators).has(name);
+	$: canForceStartNextRound = stage === 'Results';
 	$: resultsDesktopFitClass = $cardsFitToHeight ? 'lg:h-full' : '';
 	$: resultsSectionClass = $cardsFitToHeight
 		? 'grid w-full grid-cols-2 gap-3 overflow-y-auto lg:h-full lg:grid-cols-3 lg:grid-rows-2 lg:content-stretch'
@@ -141,11 +145,22 @@
 			<p>Review votes and scores, then continue to the next round.</p>
 		</div>
 		<div class="card light p-4">
-			<button
-				class="btn variant-filled w-full"
-				disabled={isObserver}
-				on:click={() => gameServer.ready()}>Next Round</button
-			>
+			<div class="space-y-2">
+				<button
+					class="btn variant-filled w-full"
+					disabled={isObserver}
+					on:click={() => gameServer.ready()}>Next Round</button
+				>
+				{#if isModerator}
+					<button
+						class="btn variant-filled w-full"
+						disabled={!canForceStartNextRound}
+						on:click={() => gameServer.forceStartNextRound()}
+					>
+						Force start next round
+					</button>
+				{/if}
+			</div>
 			{#if isObserver}
 				<p class="mt-2 text-xs opacity-70">Observers cannot ready up.</p>
 			{/if}
@@ -160,11 +175,22 @@
 	</svelte:fragment>
 
 	<svelte:fragment slot="mobileActions">
-		<button
-			class="btn variant-filled w-full"
-			disabled={isObserver}
-			on:click={() => gameServer.ready()}>Next Round</button
-		>
+		<div class="space-y-2">
+			<button
+				class="btn variant-filled w-full"
+				disabled={isObserver}
+				on:click={() => gameServer.ready()}>Next Round</button
+			>
+			{#if isModerator}
+				<button
+					class="btn variant-filled w-full"
+					disabled={!canForceStartNextRound}
+					on:click={() => gameServer.forceStartNextRound()}
+				>
+					Force start next round
+				</button>
+			{/if}
+		</div>
 	</svelte:fragment>
 
 	<div class="flex h-full flex-col">

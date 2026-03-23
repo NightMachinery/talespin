@@ -74,7 +74,6 @@
 	$: canChangeCardsPerHand = stage === 'ActiveChooses';
 	$: canChangePreVotingSettings = stage === 'ActiveChooses';
 	$: canRefreshHands = stage === 'ActiveChooses';
-	$: canForceStartNextRound = stage === 'Results';
 	$: storytellerWinCondition = storytellerLossComplement + 1;
 	$: storytellerWinConditionMin = storytellerLossComplementMin + 1;
 	$: storytellerWinConditionMax = storytellerLossComplementMax + 1;
@@ -420,11 +419,6 @@
 		updateVotingWrongCardDisableProbability(index, Number(input.value));
 	}
 
-	function forceStartNextRound() {
-		if (!isModerator || !canForceStartNextRound) return;
-		gameServer.forceStartNextRound();
-	}
-
 	function refreshHands() {
 		if (!isModerator || !canRefreshHands) return;
 		if (!browser || window.confirm('Discard and redraw all active player hands now?')) {
@@ -571,16 +565,6 @@
 						</button>
 						{#if !canRefreshHands}
 							<p class="text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
-						{/if}
-						<button
-							class="btn variant-filled w-full"
-							on:click={forceStartNextRound}
-							disabled={!isModerator || !canForceStartNextRound}
-						>
-							Force start next round
-						</button>
-						{#if !canForceStartNextRound}
-							<p class="text-xs opacity-70">Available in results stage.</p>
 						{/if}
 					</div>
 				</div>
