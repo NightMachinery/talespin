@@ -74,18 +74,20 @@ class GameServer {
 	}
 
 	createRoom(name: string) {
+		const normalizedName = name.trim();
 		this.send({
 			CreateRoom: {
-				name
+				name: normalizedName
 			}
 		});
 	}
 
 	joinRoom(room_id: string, name: string, token: string, roomPassword?: string) {
+		const normalizedName = name.trim();
 		const trimmedPassword = roomPassword?.trim();
 		this.send({
 			JoinRoom: {
-				name,
+				name: normalizedName,
 				room_id,
 				token,
 				...(trimmedPassword ? { room_password: trimmedPassword } : {})

@@ -25,6 +25,10 @@ const DEFAULT_VOTING_TIMER_DURATION_S: u16 = 3 * 60;
 const DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION: [f64; 1] = [1.0];
 const VOTING_WRONG_CARD_DISABLE_SUM_TOLERANCE: f64 = 1e-6;
 
+pub(crate) fn canonical_member_name(name: &str) -> &str {
+    name.trim()
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
 #[serde(tag = "mode", rename_all = "snake_case")]
 pub enum WinCondition {
@@ -2462,6 +2466,7 @@ impl Room {
         connection_generation: u64,
         msg: WsMessage,
     ) -> Result<()> {
+        let name = canonical_member_name(name);
         let mut state = self.state.write().await;
 
         if state.connection_generation.get(name).copied() != Some(connection_generation) {
@@ -3846,6 +3851,7 @@ impl Room {
         token: &str,
         room_password: Option<&str>,
     ) {
+        let name = canonical_member_name(name);
         // public funciton
         let connection_generation =
             match self.attempt_join(socket, name, token, room_password).await {
@@ -3895,6 +3901,7 @@ impl Room {
         token: &str,
         room_password: Option<&str>,
     ) -> Result<u64> {
+        let name = canonical_member_name(name);
         if name.is_empty() {
             socket
                 .send(ServerMsg::ErrorMsg("Name cannot be empty".to_string()).into())
@@ -4282,6 +4289,13 @@ mod tests {
         )
     }
 
+    #[test]
+    fn canonical_member_name_trims_surrounding_whitespace() {
+        assert_eq!(canonical_member_name("  Elham  "), "Elham");
+        assert_eq!(canonical_member_name("Elham A"), "Elham A");
+        assert_eq!(canonical_member_name("   "), "");
+    }
+
     #[tokio::test]
     async fn kicking_non_voter_during_voting_transitions_to_results() -> Result<()> {
         let room = test_room();
@@ -4578,6 +4592,46 @@ mod tests {
                 .map(|hand| !hand.is_empty())
                 .unwrap_or(false),
             "immediate promotion should provision a hand for current round"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn self_observer_request_accepts_whitespace_padded_connection_and_target_names(
+    ) -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 5);
+            add_player(&mut state, "Elham", 4);
+            add_player(&mut state, "b", 3);
+            add_player(&mut state, "c", 2);
+            state.player_order = vec!["host".into(), "Elham".into(), "b".into(), "c".into()];
+            state.active_player = 0;
+            state.round = 2;
+            state.stage = RoomStage::PlayersChoose;
+            setup_connected_member(&mut state, "Elham", "t-elham", 4_601);
+        }
+
+        room.handle_client_msg(
+            "Elham ",
+            4_601,
+            to_ws(ClientMsg::SetObserver {
+                player: "Elham ".to_string(),
+                enabled: true,
+            }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert!(
+            !state.players.contains_key("Elham"),
+            "canonical member should be removed from active players"
+        );
+        assert!(
+            state.observers.contains_key("Elham"),
+            "canonical member should become observer even when request uses padded names"
         );
 
         Ok(())
@@ -5195,6 +5249,45 @@ mod tests {
             "moderator join action should promote observer immediately outside voting"
         );
         assert!(state.players.contains_key("obs"));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn moderator_kick_accepts_whitespace_padded_connection_and_target_names() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 5);
+            add_player(&mut state, "Elham", 4);
+            add_player(&mut state, "b", 3);
+            add_player(&mut state, "c", 2);
+            state.player_order = vec!["host".into(), "Elham".into(), "b".into(), "c".into()];
+            state.active_player = 0;
+            state.round = 2;
+            state.stage = RoomStage::PlayersChoose;
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 5_184);
+        }
+
+        room.handle_client_msg(
+            "host ",
+            5_184,
+            to_ws(ClientMsg::KickPlayer {
+                player: "Elham ".to_string(),
+            }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert!(
+            !state.players.contains_key("Elham"),
+            "moderator kick should remove canonical member even when request uses padded names"
+        );
+        assert!(
+            state.removed_players.contains("Elham"),
+            "canonical member should be marked removed after kick"
+        );
 
         Ok(())
     }

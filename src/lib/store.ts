@@ -1,7 +1,26 @@
 import { browser } from '$app/environment';
 import { writable } from 'svelte/store';
 
-export const nameStore = writable(browser ? window.localStorage.getItem('name') || '' : '');
+function normalizeName(value: string): string {
+	return value.trim();
+}
+
+function createNormalizedNameStore() {
+	const initialValue = browser ? normalizeName(window.localStorage.getItem('name') || '') : '';
+	const { subscribe, set: setRaw, update: updateRaw } = writable(initialValue);
+
+	return {
+		subscribe,
+		set(value: string) {
+			setRaw(normalizeName(value));
+		},
+		update(updater: (value: string) => string) {
+			updateRaw((value) => normalizeName(updater(value)));
+		}
+	};
+}
+
+export const nameStore = createNormalizedNameStore();
 const existingToken = browser ? window.localStorage.getItem('player_token') || '' : '';
 const generatedToken = browser && existingToken === '' ? window.crypto.randomUUID() : existingToken;
 export const playerTokenStore = writable(browser ? generatedToken : '');
