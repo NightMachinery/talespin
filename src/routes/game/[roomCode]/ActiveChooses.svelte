@@ -64,6 +64,10 @@
 		gameServer.activePlayerChoose(selectedImage, descriptionBox);
 	}
 
+	function handleCardSelect(event: CustomEvent<string>) {
+		selectedImage = event.detail;
+	}
+
 	if (activePlayer === name && !isObserver) {
 		toastStore.trigger({
 			message: '👉 Your turn!',
@@ -193,7 +197,13 @@
 	<div class="flex h-full flex-col">
 		<h2 class="mb-2 hidden text-lg font-semibold lg:block">{name}, your cards</h2>
 		<div class="min-h-0 flex-1 overflow-y-auto">
-			<Images {displayImages} bind:selectedImage selectable={isActivePlayer} mode="hand" />
+			<Images
+				{displayImages}
+				selectedImages={selectedImage ? [selectedImage] : []}
+				selectable={isActivePlayer}
+				mode="hand"
+				on:select={handleCardSelect}
+			/>
 		</div>
 	</div>
 </StageShell>
