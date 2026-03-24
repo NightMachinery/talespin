@@ -55,10 +55,11 @@ It also exports:
 - `TALESPIN_SNIFF_EXTENSIONLESS_IMAGES_P` (default `n`; when `y`, extensionless files are sniffed and JPEG/PNG/WebP are accepted)
 - `TALESPIN_DEFAULT_WIN_POINTS` (default `10`, used when lobby creates `points` mode without explicit target)
 
-Run in production mode with:
+Production mode is the default when `TALESPIN_PRODUCTION_P` is unset.
+Run in development mode with:
 
 ```bash
-TALESPIN_PRODUCTION_P=y zsh run_tmux.zsh
+TALESPIN_PRODUCTION_P=n zsh run_tmux.zsh
 ```
 
 ## Dependencies
