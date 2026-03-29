@@ -32,7 +32,10 @@ mod avif;
 mod room;
 
 use rand::distributions::{Distribution, Uniform};
-use room::{canonical_member_name, get_time_s, hash_room_password, Room, ServerMsg, WinCondition};
+use room::{
+    canonical_member_name, get_time_s, hash_room_password, Room, ServerMsg, WinCondition,
+    MAX_MEMBER_NAME_LEN,
+};
 
 const GARBAGE_COLLECT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60 * 20); // 20 minutes
 const ROOM_MAINTENANCE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
@@ -1276,7 +1279,7 @@ async fn initialize_socket(socket: &mut WebSocket, state: Arc<ServerState>) -> R
             } = msg
             {
                 let name = canonical_member_name(&name);
-                if name.len() > 30 {
+                if name.len() > MAX_MEMBER_NAME_LEN {
                     socket
                         .send(room::ServerMsg::ErrorMsg("Name too long".to_string()).into())
                         .await?;

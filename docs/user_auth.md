@@ -3,22 +3,30 @@
 ## Identity after refresh
 
 - The game does **not** use cookies.
-- The frontend stores only the player name in browser `localStorage`.
-- On load/reconnect, client sends `JoinRoom { room_id, name }`.
-- Backend maps identity by `name` inside the room:
-  - if same name exists and is disconnected, it reconnects that player
-  - if same name is already connected, server rejects with `Name already taken`
+- The frontend stores:
+  - preferred player name in browser `localStorage`
+  - stable `player_token` in browser `localStorage`
+  - room-scoped assigned duplicate names in browser `localStorage`
+- On load/reconnect, client sends `JoinRoom { room_id, name, token }`.
+- Backend maps identity by token+assigned room name inside the room:
+  - same token reconnects to its existing room identity
+  - different token using a taken name is auto-renamed to `Name 2`, `Name 3`, etc.
+  - assigned duplicate names are remembered per room only, not as the user's global preferred name
 
 ## localStorage contents
 
 - Key: `name`
-- Value: player name string
+- Value: preferred/base player name string
+- Key: `player_token`
+- Value: stable auth token string
+- Key: `room_assigned_name:<room_code>`
+- Value: JSON with `{ token, name }` for room-local duplicate-name reconnects
 
 Not stored:
 
-- room code
-- auth/session tokens
 - game state or cards
+
+`room_assigned_name:<room_code>` is cleared when the user explicitly leaves, gets kicked, or exits an invalid room flow.
 
 ## Creator and moderator model
 

@@ -1,8 +1,18 @@
 import { browser } from '$app/environment';
 import { writable } from 'svelte/store';
 
+const ROOM_ASSIGNED_NAME_KEY_PREFIX = 'room_assigned_name:';
+
 function normalizeName(value: string): string {
 	return value.trim();
+}
+
+function normalizeRoomCode(roomCode: string): string {
+	return roomCode.trim().toLowerCase();
+}
+
+function roomAssignedNameKey(roomCode: string): string {
+	return `${ROOM_ASSIGNED_NAME_KEY_PREFIX}${normalizeRoomCode(roomCode)}`;
 }
 
 function createNormalizedNameStore() {
@@ -24,6 +34,65 @@ export const nameStore = createNormalizedNameStore();
 const existingToken = browser ? window.localStorage.getItem('player_token') || '' : '';
 const generatedToken = browser && existingToken === '' ? window.crypto.randomUUID() : existingToken;
 export const playerTokenStore = writable(browser ? generatedToken : '');
+
+export function getAssignedRoomName(roomCode: string, token: string): string | null {
+	if (!browser || !token) {
+		return null;
+	}
+
+	const raw = window.localStorage.getItem(roomAssignedNameKey(roomCode));
+	if (!raw) {
+		return null;
+	}
+
+	try {
+		const parsed = JSON.parse(raw) as {
+			token?: string;
+			name?: string;
+		};
+		if (parsed.token !== token) {
+			return null;
+		}
+
+		const normalizedName = normalizeName(parsed.name || '');
+		return normalizedName === '' ? null : normalizedName;
+	} catch {
+		window.localStorage.removeItem(roomAssignedNameKey(roomCode));
+		return null;
+	}
+}
+
+export function getJoinNameForRoom(roomCode: string, preferredName: string, token: string): string {
+	return getAssignedRoomName(roomCode, token) || normalizeName(preferredName);
+}
+
+export function setAssignedRoomName(roomCode: string, token: string, name: string) {
+	if (!browser) {
+		return;
+	}
+
+	const normalizedName = normalizeName(name);
+	if (!token || normalizedName === '') {
+		window.localStorage.removeItem(roomAssignedNameKey(roomCode));
+		return;
+	}
+
+	window.localStorage.setItem(
+		roomAssignedNameKey(roomCode),
+		JSON.stringify({
+			token,
+			name: normalizedName
+		})
+	);
+}
+
+export function clearAssignedRoomName(roomCode: string) {
+	if (!browser) {
+		return;
+	}
+
+	window.localStorage.removeItem(roomAssignedNameKey(roomCode));
+}
 
 nameStore.subscribe((value) => {
 	if (browser) {

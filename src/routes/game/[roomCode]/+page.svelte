@@ -6,7 +6,13 @@
 	import { goto } from '$app/navigation';
 	import { getToastStore } from '@skeletonlabs/skeleton';
 
-	import { nameStore, playerTokenStore } from '$lib/store';
+	import {
+		clearAssignedRoomName,
+		getJoinNameForRoom,
+		nameStore,
+		playerTokenStore,
+		setAssignedRoomName
+	} from '$lib/store';
 	import {
 		playStageChangeCue,
 		type StageCueStage,
@@ -28,11 +34,13 @@
 
 	// connection information
 	let name = '';
+	let preferredName = '';
 	let token = '';
 	let roomCode = '';
 	let gameServer: GameServer;
 	let rejoin = false;
 	let roomPassword = '';
+	let lastJoinAttemptName = '';
 
 	// game state
 	let players: { [key: string]: PlayerInfo } = {};
@@ -101,7 +109,12 @@
 
 	// store
 	let toastStore = getToastStore();
-	nameStore.subscribe((value) => (name = value));
+	nameStore.subscribe((value) => {
+		preferredName = value;
+		if (name === '') {
+			name = value;
+		}
+	});
 	playerTokenStore.subscribe((value) => (token = value));
 
 	function setStage(nextStage: string, { suppressCue = false } = {}) {
@@ -117,6 +130,32 @@
 		void unlockStageChangeAudio();
 	}
 
+	function clearStoredAssignedName() {
+		if (roomCode !== '') {
+			clearAssignedRoomName(roomCode);
+		}
+	}
+
+	function persistAssignedName(assignedName: string) {
+		name = assignedName;
+		if (roomCode === '') {
+			return;
+		}
+
+		if (assignedName !== '' && assignedName !== preferredName) {
+			setAssignedRoomName(roomCode, token, assignedName);
+		} else {
+			clearStoredAssignedName();
+		}
+	}
+
+	function joinCurrentRoom(includePassword = false) {
+		const joinName = getJoinNameForRoom(roomCode, preferredName, token);
+		lastJoinAttemptName = joinName;
+		name = joinName;
+		gameServer.joinRoom(roomCode, joinName, token, includePassword ? roomPassword : undefined);
+	}
+
 	onDestroy(() => {
 		if (gameServer) {
 			rejoin = false;
@@ -130,6 +169,7 @@
 			roomPassword = window.sessionStorage.getItem(`room_password_${roomCode}`) || '';
 		}
 
+		name = getJoinNameForRoom(roomCode, preferredName, token);
 		if (name === '') {
 			goto(`/?room=${roomCode}`);
 			return;
@@ -141,16 +181,29 @@
 		}
 
 		gameServer = new GameServer();
-		gameServer.joinRoom(roomCode, name, token, roomPassword);
+		joinCurrentRoom(true);
 		gameServer.onclose(() => {
 			if (rejoin) {
-				gameServer.joinRoom(roomCode, name, token);
+				joinCurrentRoom();
 			}
 		});
 		gameServer.addMsgHandler((data: any) => {
 			console.log(data);
 
-			if (data.RoomState) {
+			if (data.JoinedAs) {
+				const assignedName = (data.JoinedAs.name || '').trim();
+				if (assignedName !== '') {
+					const previousAttemptName = lastJoinAttemptName;
+					persistAssignedName(assignedName);
+					if (previousAttemptName !== '' && assignedName !== previousAttemptName) {
+						toastStore.trigger({
+							message: `🙋 Name already taken, joined as ${assignedName}`,
+							autohide: true,
+							timeout: 3000
+						});
+					}
+				}
+			} else if (data.RoomState) {
 				if (!hasReceivedRoomState && roomPassword !== '' && typeof window !== 'undefined') {
 					window.sessionStorage.removeItem(`room_password_${roomCode}`);
 					roomPassword = '';
@@ -249,6 +302,7 @@
 				});
 			} else if (data.InvalidRoomId) {
 				rejoin = false;
+				clearStoredAssignedName();
 				toastStore.trigger({
 					message: '💔 Invalid Room Code!',
 					autohide: true,
@@ -258,6 +312,7 @@
 				goto('/');
 			} else if (data.Kicked) {
 				rejoin = false;
+				clearStoredAssignedName();
 				toastStore.trigger({
 					message: '👢 ' + (data.Kicked.reason || 'You were removed from the lobby'),
 					autohide: true,
@@ -267,6 +322,7 @@
 				goto('/');
 			} else if (data.LeftRoom) {
 				rejoin = false;
+				clearStoredAssignedName();
 				toastStore.trigger({
 					message: '👋 ' + (data.LeftRoom.reason || 'You left the game'),
 					autohide: true,

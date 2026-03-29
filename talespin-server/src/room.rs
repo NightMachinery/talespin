@@ -24,6 +24,7 @@ const DEFAULT_CARD_CHOOSING_TIMER_DURATION_S: u16 = 30;
 const DEFAULT_VOTING_TIMER_DURATION_S: u16 = 3 * 60;
 const DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION: [f64; 1] = [1.0];
 const VOTING_WRONG_CARD_DISABLE_SUM_TOLERANCE: f64 = 1e-6;
+pub(crate) const MAX_MEMBER_NAME_LEN: usize = 30;
 
 pub(crate) fn canonical_member_name(name: &str) -> &str {
     name.trim()
@@ -39,6 +40,9 @@ pub enum WinCondition {
 
 #[derive(Debug, Serialize, Clone)]
 pub enum ServerMsg {
+    JoinedAs {
+        name: String,
+    },
     RoomState {
         room_id: String,
         players: HashMap<String, PlayerInfo>,
@@ -1100,6 +1104,76 @@ impl Room {
             Some(existing_token) => existing_token == token,
             None => true,
         }
+    }
+
+    fn member_name_for_token(
+        &self,
+        state: &RwLockWriteGuard<RoomState>,
+        token: &str,
+    ) -> Option<String> {
+        state.name_tokens.iter().find_map(|(name, existing_token)| {
+            (existing_token == token && self.member_exists(state, name)).then(|| name.clone())
+        })
+    }
+
+    fn truncate_name_to_byte_len(name: &str, max_bytes: usize) -> String {
+        if name.len() <= max_bytes {
+            return name.to_string();
+        }
+
+        let mut end = 0;
+        for (idx, ch) in name.char_indices() {
+            let next = idx + ch.len_utf8();
+            if next > max_bytes {
+                break;
+            }
+            end = next;
+        }
+
+        name[..end].to_string()
+    }
+
+    fn format_numbered_member_name(base_name: &str, number: usize) -> String {
+        let suffix = format!(" {}", number);
+        let max_base_len = MAX_MEMBER_NAME_LEN.saturating_sub(suffix.len());
+        let truncated_base = Self::truncate_name_to_byte_len(base_name, max_base_len);
+        format!("{}{}", truncated_base, suffix)
+    }
+
+    fn next_available_member_name(
+        &self,
+        state: &RwLockWriteGuard<RoomState>,
+        requested_name: &str,
+    ) -> String {
+        if !self.member_exists(state, requested_name) {
+            return requested_name.to_string();
+        }
+
+        let mut number = 2usize;
+        loop {
+            let candidate = Self::format_numbered_member_name(requested_name, number);
+            if !self.member_exists(state, &candidate) {
+                return candidate;
+            }
+            number = number.saturating_add(1);
+        }
+    }
+
+    fn resolve_join_name(
+        &self,
+        state: &RwLockWriteGuard<RoomState>,
+        requested_name: &str,
+        token: &str,
+    ) -> String {
+        if let Some(existing_name) = self.member_name_for_token(state, token) {
+            return existing_name;
+        }
+
+        if self.has_valid_token_for_name(state, requested_name, token) {
+            return requested_name.to_string();
+        }
+
+        self.next_available_member_name(state, requested_name)
     }
 
     fn pause_reason(&self) -> String {
@@ -3853,7 +3927,7 @@ impl Room {
     ) {
         let name = canonical_member_name(name);
         // public funciton
-        let connection_generation =
+        let (joined_name, connection_generation) =
             match self.attempt_join(socket, name, token, room_password).await {
                 Ok(generation) => generation,
                 Err(e) => {
@@ -3862,26 +3936,28 @@ impl Room {
                 }
             };
 
-        let res = self.run_ws_loop(socket, name, connection_generation).await;
-        println!("Player {} has left", name);
+        let res = self
+            .run_ws_loop(socket, &joined_name, connection_generation)
+            .await;
+        println!("Player {} has left", joined_name);
 
         self.last_access.store(get_time_s(), Ordering::Relaxed);
         let mut state = self.state.write().await;
 
-        if state.connection_generation.get(name).copied() != Some(connection_generation) {
+        if state.connection_generation.get(&joined_name).copied() != Some(connection_generation) {
             if let Err(e) = res {
                 println!("Error in run_ws_loop (stale session): {:?}", e);
             }
             return;
         }
 
-        if state.removed_players.remove(name) {
+        if state.removed_players.remove(&joined_name) {
             // already removed explicitly (leave/kick)
         } else {
-            self.mark_member_disconnected(&mut state, name);
+            self.mark_member_disconnected(&mut state, &joined_name);
         }
 
-        state.player_to_socket.remove(name);
+        state.player_to_socket.remove(&joined_name);
         self.clean_moderators(&mut state);
         self.maybe_promote_moderator(&mut state);
 
@@ -3900,7 +3976,7 @@ impl Room {
         name: &str,
         token: &str,
         room_password: Option<&str>,
-    ) -> Result<u64> {
+    ) -> Result<(String, u64)> {
         let name = canonical_member_name(name);
         if name.is_empty() {
             socket
@@ -3918,15 +3994,9 @@ impl Room {
         println!("Handling join for {}", name);
 
         let mut state = self.state.write().await;
+        let resolved_name = self.resolve_join_name(&state, name, token);
 
-        if !self.has_valid_token_for_name(&state, name, token) {
-            socket
-                .send(ServerMsg::ErrorMsg("Name already taken".to_string()).into())
-                .await?;
-            return Err(anyhow!("Name already taken"));
-        }
-
-        let is_known_member = self.member_exists(&state, name);
+        let is_known_member = self.member_exists(&state, &resolved_name);
 
         if !is_known_member {
             if let Some(expected_hash) = state.room_password_hash.as_ref() {
@@ -3942,12 +4012,12 @@ impl Room {
             }
         }
 
-        if let Some(player) = state.players.get_mut(name) {
+        if let Some(player) = state.players.get_mut(&resolved_name) {
             player.connected = true;
-            self.disconnect_previous_session(&mut state, name)?;
-        } else if let Some(observer) = state.observers.get_mut(name) {
+            self.disconnect_previous_session(&mut state, &resolved_name)?;
+        } else if let Some(observer) = state.observers.get_mut(&resolved_name) {
             observer.connected = true;
-            self.disconnect_previous_session(&mut state, name)?;
+            self.disconnect_previous_session(&mut state, &resolved_name)?;
         } else {
             if self.total_members(&state) >= self.max_members {
                 socket
@@ -3966,7 +4036,7 @@ impl Room {
                 return Err(anyhow!("New players are disabled"));
             }
 
-            if let Err(err) = self.add_new_member_for_current_stage(&mut state, name) {
+            if let Err(err) = self.add_new_member_for_current_stage(&mut state, &resolved_name) {
                 socket
                     .send(ServerMsg::ErrorMsg("Game has already ended".to_string()).into())
                     .await?;
@@ -3976,14 +4046,14 @@ impl Room {
 
         state
             .name_tokens
-            .insert(name.to_string(), token.to_string());
+            .insert(resolved_name.clone(), token.to_string());
         let generation = self.next_connection_generation(&mut state);
         state
             .connection_generation
-            .insert(name.to_string(), generation);
+            .insert(resolved_name.clone(), generation);
 
-        if state.creator.as_deref() == Some(name) {
-            state.moderators.insert(name.to_string());
+        if state.creator.as_deref() == Some(resolved_name.as_str()) {
+            state.moderators.insert(resolved_name.clone());
         }
         self.clamp_storyteller_loss_complement(&mut state);
         self.clamp_stage_timer_settings(&mut state);
@@ -4000,18 +4070,26 @@ impl Room {
         }
 
         self.broadcast_msg(self.room_state(&state))?; // will not receive this one yet
+        socket
+            .send(
+                ServerMsg::JoinedAs {
+                    name: resolved_name.clone(),
+                }
+                .into(),
+            )
+            .await?;
         socket.send(self.room_state(&state).into()).await?;
-        if state.players.contains_key(name) {
-            if let Ok(msg) = self.get_msg(Some(name), &state) {
+        if state.players.contains_key(&resolved_name) {
+            if let Ok(msg) = self.get_msg(Some(&resolved_name), &state) {
                 socket.send(msg.into()).await?;
             }
         } else if matches!(state.stage, RoomStage::Voting | RoomStage::Results) {
-            if let Ok(msg) = self.get_msg(Some(name), &state) {
+            if let Ok(msg) = self.get_msg(Some(&resolved_name), &state) {
                 socket.send(msg.into()).await?;
             }
         }
 
-        Ok(generation)
+        Ok((resolved_name, generation))
     }
 
     async fn run_ws_loop(
@@ -7302,5 +7380,82 @@ mod tests {
         );
 
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn resolve_join_name_prefers_existing_member_owned_by_token() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        add_player(&mut state, "alice", 0);
+        add_player(&mut state, "alice 2", 0);
+        setup_connected_member(&mut state, "alice", "token-a", 1);
+        setup_connected_member(&mut state, "alice 2", "token-b", 2);
+
+        assert_eq!(
+            room.resolve_join_name(&state, "alice", "token-b"),
+            "alice 2",
+            "token ownership should win over the requested base name"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn resolve_join_name_allocates_lowest_available_numeric_suffix() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        add_player(&mut state, "alice", 0);
+        add_player(&mut state, "alice 3", 0);
+        setup_connected_member(&mut state, "alice", "token-a", 1);
+        setup_connected_member(&mut state, "alice 3", "token-c", 3);
+
+        assert_eq!(
+            room.resolve_join_name(&state, "alice", "token-b"),
+            "alice 2",
+            "new duplicate names should use the lowest free numeric suffix"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn resolve_join_name_keeps_disconnected_members_reserved() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        add_player(&mut state, "alice", 0);
+        state.players.get_mut("alice").unwrap().connected = false;
+        setup_connected_member(&mut state, "alice", "token-a", 1);
+
+        assert_eq!(
+            room.resolve_join_name(&state, "alice", "token-b"),
+            "alice 2",
+            "disconnected members should still reserve their assigned room names"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn format_numbered_member_name_truncates_to_member_name_limit() {
+        let base_name = "a".repeat(MAX_MEMBER_NAME_LEN);
+        let numbered = Room::format_numbered_member_name(&base_name, 2);
+
+        assert_eq!(
+            numbered.len(),
+            MAX_MEMBER_NAME_LEN,
+            "numbered duplicate names must stay within the configured length limit"
+        );
+        assert!(
+            numbered.ends_with(" 2"),
+            "numbered duplicate names should keep the numeric suffix"
+        );
+        assert_eq!(
+            numbered,
+            format!("{} 2", "a".repeat(MAX_MEMBER_NAME_LEN - " 2".len())),
+            "the base name should be truncated just enough to fit the suffix"
+        );
     }
 }
