@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
+	import { getDesktopFitRowCount } from '$lib/cardGrid';
 	import { http_host } from '$lib/gameServer';
 	import { CARD_IMAGE_ALT_TEXT } from '$lib/cardImageText';
 	import { cardsFitToHeight } from '$lib/viewOptions';
@@ -20,7 +21,7 @@
 
 	$: isHandMode = mode === 'hand';
 	$: handDesktopFitEnabled = isHandMode && $cardsFitToHeight;
-	$: handDesktopRowCount = Math.max(2, Math.ceil(Math.max(displayImages?.length ?? 0, 1) / 3));
+	$: handDesktopRowCount = getDesktopFitRowCount(displayImages?.length);
 	$: handDesktopGridClass = handDesktopFitEnabled
 		? 'hand-fit-grid lg:h-full lg:grid-cols-3 lg:content-stretch'
 		: 'lg:grid-cols-3 lg:auto-rows-max lg:content-start';
@@ -40,9 +41,7 @@
 	$: visibleImageSet = new Set(displayImages);
 	$: disabledImageSet = new Set(disabledImages);
 	$: selectedImageSet = new Set(
-		selectedImages.filter(
-			(image) => visibleImageSet.has(image) && !disabledImageSet.has(image)
-		)
+		selectedImages.filter((image) => visibleImageSet.has(image) && !disabledImageSet.has(image))
 	);
 
 	function selectImage(image: string, isDisabled: boolean) {
@@ -75,19 +74,11 @@
 				disabled={isDisabled}
 				on:click={() => selectImage(image, isDisabled)}
 			>
-				<img
-					class={imageClass}
-					src={`${http_host}/cards/${image}`}
-					alt={CARD_IMAGE_ALT_TEXT}
-				/>
+				<img class={imageClass} src={`${http_host}/cards/${image}`} alt={CARD_IMAGE_ALT_TEXT} />
 			</button>
 		{:else}
 			<div class={containerClass}>
-				<img
-					class={imageClass}
-					src={`${http_host}/cards/${image}`}
-					alt={CARD_IMAGE_ALT_TEXT}
-				/>
+				<img class={imageClass} src={`${http_host}/cards/${image}`} alt={CARD_IMAGE_ALT_TEXT} />
 			</div>
 		{/if}
 	{/each}

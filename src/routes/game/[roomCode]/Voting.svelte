@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { getToastStore } from '@skeletonlabs/skeleton';
 
+	import { getDesktopFitRowCount } from '$lib/cardGrid';
 	import { CARD_IMAGE_ALT_TEXT } from '$lib/cardImageText';
 	import { http_host } from '$lib/gameServer';
 	import type GameServer from '$lib/gameServer';
@@ -69,7 +70,7 @@
 		Math.min(votesPerGuesser, Math.max(votesPerGuesserMax, 1))
 	);
 	$: tableDesktopFitEnabled = $cardsFitToHeight;
-	$: tableDesktopRowCount = Math.max(2, Math.ceil(Math.max(displayImages?.length ?? 0, 1) / 3));
+	$: tableDesktopRowCount = getDesktopFitRowCount(displayImages?.length);
 	$: tableSectionClass = tableDesktopFitEnabled
 		? 'voting-fit-grid grid w-full grid-cols-2 gap-3 overflow-visible p-1 lg:min-h-0 lg:flex-1 lg:grid-cols-3 lg:content-stretch'
 		: 'grid w-full grid-cols-2 gap-3 overflow-visible p-1 lg:grid-cols-3 lg:auto-rows-max lg:content-start';

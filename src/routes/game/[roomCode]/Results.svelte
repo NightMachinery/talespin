@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { getDesktopFitRowCount } from '$lib/cardGrid';
 	import { CARD_IMAGE_ALT_TEXT } from '$lib/cardImageText';
 	import { http_host } from '$lib/gameServer';
 	import { cardsFitToHeight } from '$lib/viewOptions';
@@ -64,10 +65,15 @@
 	$: isObserver = !!observers[name];
 	$: isModerator = new Set(moderators).has(name);
 	$: canForceStartNextRound = stage === 'Results';
-	$: resultsDesktopFitClass = $cardsFitToHeight ? 'lg:h-full' : '';
-	$: resultsSectionClass = $cardsFitToHeight
-		? 'grid w-full grid-cols-2 gap-3 overflow-y-auto lg:h-full lg:grid-cols-3 lg:grid-rows-2 lg:content-stretch'
+	$: resultsDesktopFitEnabled = $cardsFitToHeight;
+	$: resultsDesktopFitClass = resultsDesktopFitEnabled ? 'lg:h-full' : '';
+	$: resultsDesktopRowCount = getDesktopFitRowCount(displayImages?.length);
+	$: resultsSectionClass = resultsDesktopFitEnabled
+		? 'results-fit-grid grid w-full grid-cols-2 gap-3 overflow-y-auto lg:min-h-0 lg:flex-1 lg:grid-cols-3 lg:content-stretch'
 		: 'grid w-full grid-cols-2 gap-3 overflow-y-auto lg:grid-cols-3 lg:auto-rows-max lg:content-start';
+	$: resultsDesktopFitStyle = resultsDesktopFitEnabled
+		? `--results-desktop-rows: ${resultsDesktopRowCount};`
+		: '';
 	$: resultsCardClass = (isActiveCard: boolean) =>
 		`${isActiveCard ? 'boujee-border' : ''} relative overflow-hidden rounded-lg ${resultsDesktopFitClass}`;
 	$: resultsImageClass = `relative w-full object-cover object-center aspect-[2/3] ${resultsDesktopFitClass}`;
@@ -193,9 +199,9 @@
 		</div>
 	</svelte:fragment>
 
-	<div class="flex h-full flex-col">
+	<div class="flex h-full min-h-0 flex-col">
 		<h2 class="mb-2 hidden text-lg font-semibold lg:block">Round cards</h2>
-		<section class={resultsSectionClass}>
+		<section class={resultsSectionClass} style={resultsDesktopFitStyle}>
 			{#each displayImages as image, cardIndex}
 				<div class={resultsCardClass(activeCard == image)}>
 					<img
@@ -253,6 +259,12 @@
 	@keyframes spin {
 		to {
 			--bg-angle: 360deg;
+		}
+	}
+
+	@media (min-width: 1024px) {
+		.results-fit-grid {
+			grid-template-rows: repeat(var(--results-desktop-rows, 2), minmax(0, 1fr));
 		}
 	}
 </style>
