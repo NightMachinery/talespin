@@ -49,48 +49,42 @@
 		if (!selectable || isDisabled) return;
 		dispatch('select', image);
 	}
-
-	function cardContainerClass(image: string, isDisabled: boolean) {
-		return `card-hover-source group relative block w-full overflow-visible rounded-lg focus-visible:outline-none ${handButtonSizeClass} ${
-			selectedImageSet.size > 0 && !selectedImageSet.has(image) ? nonSelectedCardDimClass : ''
-		} ${isDisabled ? 'cursor-not-allowed' : selectable ? '' : 'cursor-default'}`;
-	}
-
-	function cardImageClass(image: string, isDisabled: boolean) {
-		const baseClass = `${imageClassBase} pointer-events-none transition-all duration-150 ease-out`;
-		if (isDisabled) {
-			return `${baseClass} cursor-not-allowed ring-[3px] ring-gray-400`;
-		}
-		if (selectedImageSet.has(image)) {
-			return `${baseClass} brightness-105 ring-4 ring-white shadow-xlg`;
-		}
-		if (selectable) {
-			return `${baseClass} card-hover-target cursor-pointer group-focus-visible:ring-2 group-focus-visible:ring-white/85 group-focus-visible:shadow-[0_0_0_2px_rgba(255,255,255,0.22),0_16px_30px_rgba(0,0,0,0.38)]`;
-		}
-		return baseClass;
-	}
 </script>
 
 <section class={`${sectionClass} isolate`} style={handDesktopFitStyle}>
 	{#each displayImages as image}
 		{@const isDisabled = disabledImageSet.has(image)}
+		{@const isSelected = selectedImageSet.has(image)}
+		{@const shouldDim = selectedImageSet.size > 0 && !isSelected}
+		{@const containerClass = `card-hover-source group relative block w-full overflow-visible rounded-lg focus-visible:outline-none ${handButtonSizeClass} ${
+			shouldDim ? nonSelectedCardDimClass : ''
+		} ${isDisabled ? 'cursor-not-allowed' : selectable ? '' : 'cursor-default'}`}
+		{@const imageClass = `${imageClassBase} pointer-events-none transition-all duration-150 ease-out ${
+			isDisabled
+				? 'cursor-not-allowed ring-[3px] ring-gray-400'
+				: isSelected
+					? 'brightness-105 ring-4 ring-white shadow-xlg'
+					: selectable
+						? 'card-hover-target cursor-pointer group-focus-visible:ring-2 group-focus-visible:ring-white/85 group-focus-visible:shadow-[0_0_0_2px_rgba(255,255,255,0.22),0_16px_30px_rgba(0,0,0,0.38)]'
+						: ''
+		}`}
 		{#if selectable}
 			<button
 				type="button"
-				class={cardContainerClass(image, isDisabled)}
+				class={containerClass}
 				disabled={isDisabled}
 				on:click={() => selectImage(image, isDisabled)}
 			>
 				<img
-					class={cardImageClass(image, isDisabled)}
+					class={imageClass}
 					src={`${http_host}/cards/${image}`}
 					alt={CARD_IMAGE_ALT_TEXT}
 				/>
 			</button>
 		{:else}
-			<div class={cardContainerClass(image, isDisabled)}>
+			<div class={containerClass}>
 				<img
-					class={cardImageClass(image, isDisabled)}
+					class={imageClass}
 					src={`${http_host}/cards/${image}`}
 					alt={CARD_IMAGE_ALT_TEXT}
 				/>
