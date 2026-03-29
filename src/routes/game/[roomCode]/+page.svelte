@@ -1,12 +1,19 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
+	import { get } from 'svelte/store';
 
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { getToastStore } from '@skeletonlabs/skeleton';
 
 	import { nameStore, playerTokenStore } from '$lib/store';
+	import {
+		playStageChangeCue,
+		type StageCueStage,
+		unlockStageChangeAudio
+	} from '$lib/stageChangeAudio';
 	import type { ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
+	import { stageChangeSoundCuesEnabled } from '$lib/viewOptions';
 	import GameServer from '$lib/gameServer';
 	import { DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION } from '$lib/votingWrongCardDisableDistribution';
 
@@ -85,11 +92,30 @@
 	let playerToVotes: { [key: string]: string[] } = {};
 	let activeCard = '';
 	let pointChange: { [key: string]: number } = {};
+	const GAMEPLAY_STAGE_CUES = new Set<StageCueStage>([
+		'ActiveChooses',
+		'PlayersChoose',
+		'Voting',
+		'Results'
+	]);
 
 	// store
 	let toastStore = getToastStore();
 	nameStore.subscribe((value) => (name = value));
 	playerTokenStore.subscribe((value) => (token = value));
+
+	function setStage(nextStage: string, { suppressCue = false } = {}) {
+		const previousStage = stage;
+		stage = nextStage;
+		if (suppressCue || nextStage === previousStage || !get(stageChangeSoundCuesEnabled)) return;
+		if (!GAMEPLAY_STAGE_CUES.has(nextStage as StageCueStage)) return;
+		void playStageChangeCue(nextStage as StageCueStage);
+	}
+
+	function maybeUnlockStageChangeAudio() {
+		if (!get(stageChangeSoundCuesEnabled)) return;
+		void unlockStageChangeAudio();
+	}
 
 	onDestroy(() => {
 		if (gameServer) {
@@ -107,6 +133,11 @@
 		if (name === '') {
 			goto(`/?room=${roomCode}`);
 			return;
+		}
+
+		if (typeof window !== 'undefined') {
+			window.addEventListener('pointerdown', maybeUnlockStageChangeAudio, { passive: true });
+			window.addEventListener('keydown', maybeUnlockStageChangeAudio);
 		}
 
 		gameServer = new GameServer();
@@ -129,7 +160,7 @@
 				observers = data.RoomState.observers || {};
 				creator = data.RoomState.creator || '';
 				moderators = data.RoomState.moderators || [];
-				stage = data.RoomState.stage;
+				setStage(data.RoomState.stage, { suppressCue: !hasReceivedRoomState });
 				allowNewPlayersMidgame = data.RoomState.allow_new_players_midgame ?? true;
 				pausedReason = data.RoomState.paused_reason || '';
 				storytellerLossComplement = data.RoomState.storyteller_loss_complement ?? 0;
@@ -185,23 +216,23 @@
 					rejoin = true;
 				}
 			} else if (data.StartRound) {
-				stage = 'ActiveChooses';
+				setStage('ActiveChooses');
 				displayImages = data.StartRound.hand;
 				storytellerChosenCard = '';
 			} else if (data.PlayersChoose) {
-				stage = 'PlayersChoose';
+				setStage('PlayersChoose');
 				displayImages = data.PlayersChoose.hand;
 				description = data.PlayersChoose.description;
 				storytellerChosenCard = data.PlayersChoose.chosen_card || '';
 			} else if (data.BeginVoting) {
-				stage = 'Voting';
+				setStage('Voting');
 				displayImages = data.BeginVoting.center_cards;
 				description = data.BeginVoting.description;
 				votingDisabledCards = data.BeginVoting.disabled_cards || [];
 				votesPerGuesser = data.BeginVoting.votes_per_guesser ?? votesPerGuesser;
 				storytellerChosenCard = '';
 			} else if (data.Results) {
-				stage = 'Results';
+				setStage('Results');
 				currentStageDeadlineS = null;
 				playerToCurrentCards = data.Results.player_to_current_cards || {};
 				displayImages = data.Results.center_cards || Object.values(playerToCurrentCards).flat();
@@ -244,11 +275,18 @@
 				gameServer.close();
 				goto('/');
 			} else if (data.EndGame) {
-				stage = 'End';
+				setStage('End');
 				currentStageDeadlineS = null;
 				storytellerChosenCard = '';
 			}
 		});
+
+		return () => {
+			if (typeof window !== 'undefined') {
+				window.removeEventListener('pointerdown', maybeUnlockStageChangeAudio);
+				window.removeEventListener('keydown', maybeUnlockStageChangeAudio);
+			}
+		};
 	});
 </script>
 

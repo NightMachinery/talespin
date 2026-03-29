@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import type GameServer from '$lib/gameServer';
+	import { isStageChangeAudioSupported, unlockStageChangeAudio } from '$lib/stageChangeAudio';
 	import type { PlayerInfo, WinCondition } from '$lib/types';
+	import { stageChangeSoundCuesEnabled } from '$lib/viewOptions';
 	import { Avatar, getToastStore } from '@skeletonlabs/skeleton';
 
 	export let players: { [key: string]: PlayerInfo } = {};
@@ -21,6 +23,7 @@
 	$: isCreator = creator !== '' && creator === name;
 	$: isModerator = moderatorSet.has(name);
 	$: canStart = roomStateLoaded && isModerator && playerEntries.length >= 3;
+	const supportsStageChangeAudio = isStageChangeAudioSupported();
 
 	function getInitialsFromString(name: string) {
 		return name
@@ -93,6 +96,12 @@
 		}
 		gameServer.setModerator(playerName, enabled);
 	}
+
+	function handleStageChangeSoundToggle() {
+		if ($stageChangeSoundCuesEnabled) {
+			void unlockStageChangeAudio();
+		}
+	}
 </script>
 
 <div class="m-auto w-80/10">
@@ -111,6 +120,27 @@
 			>
 				Copy Invite Link
 			</button>
+		</div>
+		<div class="card mt-4 p-4">
+			<label class="flex items-start gap-3">
+				<input
+					type="checkbox"
+					class="mt-1 h-4 w-4 cursor-pointer accent-primary-500 disabled:cursor-not-allowed disabled:opacity-50"
+					bind:checked={$stageChangeSoundCuesEnabled}
+					disabled={!supportsStageChangeAudio}
+					on:change={handleStageChangeSoundToggle}
+				/>
+				<div>
+					<p class="font-semibold">Stage change sound cues</p>
+					<p class="mt-1 text-sm opacity-75">
+						Play short tones when the game moves into storyteller, card choosing, voting,
+						and results stages.
+					</p>
+					{#if !supportsStageChangeAudio}
+						<p class="mt-1 text-xs opacity-70">Not supported in this browser.</p>
+					{/if}
+				</div>
+			</label>
 		</div>
 		<div class="container mt-10 flex flex-col gap-3">
 			{#each playerEntries as [playerName, value]}

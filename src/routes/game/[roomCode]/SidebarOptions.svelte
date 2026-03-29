@@ -3,7 +3,8 @@
 	import type GameServer from '$lib/gameServer';
 	import type { ObserverInfo, PlayerInfo } from '$lib/types';
 	import { OFFLINE_STATUS_LABEL } from '$lib/presence';
-	import { cardsFitToHeight } from '$lib/viewOptions';
+	import { isStageChangeAudioSupported, unlockStageChangeAudio } from '$lib/stageChangeAudio';
+	import { cardsFitToHeight, stageChangeSoundCuesEnabled } from '$lib/viewOptions';
 	import {
 		DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION,
 		MAX_VOTING_WRONG_CARD_DISABLE_X,
@@ -93,9 +94,16 @@
 		(selfObserverInfo.join_requested || selfObserverInfo.auto_join_on_next_round);
 	$: selfJoinBackLabel =
 		stage === 'Voting' ? (selfJoinPending ? 'Cancel pending join' : 'Join next round') : 'Join now';
+	const supportsStageChangeAudio = isStageChangeAudioSupported();
 
 	function isPlayerModerator(playerName: string) {
 		return moderatorSet.has(playerName);
+	}
+
+	function handleStageChangeSoundToggle() {
+		if ($stageChangeSoundCuesEnabled) {
+			void unlockStageChangeAudio();
+		}
 	}
 
 	function kickPlayer(playerName: string) {
@@ -436,6 +444,24 @@
 			bind:checked={$cardsFitToHeight}
 		/>
 		<span class="block font-medium">Cards fit to height</span>
+	</label>
+	<label class="flex items-start gap-3">
+		<input
+			type="checkbox"
+			class="mt-1 h-4 w-4 cursor-pointer accent-primary-500 disabled:cursor-not-allowed disabled:opacity-50"
+			bind:checked={$stageChangeSoundCuesEnabled}
+			disabled={!supportsStageChangeAudio}
+			on:change={handleStageChangeSoundToggle}
+		/>
+		<div>
+			<span class="block font-medium">Stage change sound cues</span>
+			<p class="text-xs opacity-70">
+				Short tones for storyteller, card choosing, voting, and results stages.
+			</p>
+			{#if !supportsStageChangeAudio}
+				<p class="mt-1 text-xs opacity-70">Not supported in this browser.</p>
+			{/if}
+		</div>
 	</label>
 	{#if stage !== 'Joining' && stage !== 'End'}
 		{#if isSelfObserver}
