@@ -59,7 +59,7 @@ Leaderboard shows cards left and flashes when `deck_refill_count` increases (ref
 
 For points mode, if multiple players are at/above the threshold, game still ends.
 
-There is no dedicated tie-break policy in code; end ranking is sorted by points descending.
+There is no dedicated tie-break policy in code; standings are sorted by points descending, equal scores share the same displayed rank, and the next rank skips accordingly (for example `1, 1, 3`).
 
 ## Not Supported (Current Implementation)
 

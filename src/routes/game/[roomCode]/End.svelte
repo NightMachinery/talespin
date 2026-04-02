@@ -1,12 +1,12 @@
 <script lang="ts">
 	import type { PlayerInfo } from '$lib/types';
+	import { rankPlayersByPoints, type RankedPlayerEntry } from '$lib/ranking';
+
 	export let players: { [key: string]: PlayerInfo } = {};
-	let sortedPlayersList: string[] = [];
+	let rankedPlayers: RankedPlayerEntry[] = [];
 
 	$: {
-		sortedPlayersList = Object.keys(players).sort((a, b) => {
-			return players[b].points - players[a].points;
-		});
+		rankedPlayers = rankPlayersByPoints(players);
 	}
 </script>
 
@@ -16,14 +16,14 @@
 
 		<div class="light p-4">
 			<div>
-				{#each sortedPlayersList as player, i}
+				{#each rankedPlayers as entry}
 					<div class="flex space-between w-44 text-xl">
 						<div class="flex-auto">
-							{i + 1}.
-							<span class={`${i === 0 ? 'boujee-text' : ''} `}>{player}</span>
+							{entry.rank}.
+							<span class={`${entry.isTopScore ? 'boujee-text' : ''} `}>{entry.name}</span>
 						</div>
 						<div class="font-right">
-							{players[player].points}
+							{entry.points}
 						</div>
 					</div>
 				{/each}

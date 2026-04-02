@@ -2,6 +2,7 @@
 	import { onDestroy } from 'svelte';
 	import type { ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
 	import { OFFLINE_STATUS_LABEL } from '$lib/presence';
+	import { rankPlayersByPoints, type RankedPlayerEntry } from '$lib/ranking';
 
 	export let players: { [key: string]: PlayerInfo } = {};
 	export let observers: { [key: string]: ObserverInfo } = {};
@@ -17,16 +18,14 @@
 		target_points: 10
 	};
 
-	let sortedPlayersList: string[] = [];
+	let rankedPlayers: RankedPlayerEntry[] = [];
 	let winConditionLabel = '';
 	let previousFlashToken = 0;
 	let cardsRemainingFlashing = false;
 	let cardsRemainingFlashTimeout: ReturnType<typeof setTimeout> | undefined = undefined;
 
 	$: {
-		sortedPlayersList = Object.keys(players).sort((a, b) => {
-			return players[b].points - players[a].points;
-		});
+		rankedPlayers = rankPlayersByPoints(players);
 	}
 
 	$: {
@@ -61,21 +60,21 @@
 	<div class="card light p-4">
 		<h2 class="text-xl">Round {roundNum}</h2>
 		<div>
-			{#each sortedPlayersList as player, i}
+			{#each rankedPlayers as entry}
 				<div class="flex items-center justify-between gap-2">
 					<div class="flex-auto">
-						{i + 1}.
+						{entry.rank}.
 						<span
-							class={`${player === activePlayer ? 'boujee-text' : ''} ${!players[player].connected ? 'opacity-50 grayscale' : ''}`}
+							class={`${entry.name === activePlayer ? 'boujee-text' : ''} ${!players[entry.name].connected ? 'opacity-50 grayscale' : ''}`}
 						>
-							{player}
+							{entry.name}
 						</span>
-						{#if !players[player].connected}
+						{#if !players[entry.name].connected}
 							<span class="text-error-500">({OFFLINE_STATUS_LABEL})</span>
 						{/if}
 
-						{#if stage === 'Joining' || ((stage === 'PlayersChoose' || stage === 'Voting') && player !== activePlayer) || stage === 'Results'}
-							{#if players[player].ready}
+						{#if stage === 'Joining' || ((stage === 'PlayersChoose' || stage === 'Voting') && entry.name !== activePlayer) || stage === 'Results'}
+							{#if players[entry.name].ready}
 								<span>🟢</span>
 							{:else}
 								<span>🔴</span>
@@ -83,10 +82,10 @@
 						{/if}
 					</div>
 					<div class="shrink-0">
-						{#if stage === 'Results' && typeof pointChange[player] === 'number' && pointChange[player] !== 0}
-							<span class="opacity-50">(+{pointChange[player]})</span>
+						{#if stage === 'Results' && typeof pointChange[entry.name] === 'number' && pointChange[entry.name] !== 0}
+							<span class="opacity-50">(+{pointChange[entry.name]})</span>
 						{/if}
-						{players[player].points}
+						{entry.points}
 					</div>
 				</div>
 			{/each}
