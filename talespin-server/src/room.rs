@@ -4484,9 +4484,8 @@ impl Room {
                     }
                     return Ok(());
                 }
-                let (selection_min, _) = self.stella_selection_bounds(&state);
                 let count = cards.len().min(usize::from(u16::MAX)) as u16;
-                if count < selection_min || count > state.stella_selection_max {
+                if count < state.stella_selection_min || count > state.stella_selection_max {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(format!(
@@ -7865,6 +7864,54 @@ mod tests {
         assert_eq!(
             state.active_player, 2,
             "force-start should choose the lowest-count storyteller for the next round"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stella_submission_respects_configured_selection_minimum() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "a", 0);
+            add_player(&mut state, "b", 0);
+            add_player(&mut state, "c", 0);
+            state.game_mode = GameMode::Stella;
+            state.stage = RoomStage::StellaAssociate;
+            state.player_order = vec!["a".into(), "b".into(), "c".into()];
+            state.stella_board_cards = vec![
+                "card-1".into(),
+                "card-2".into(),
+                "card-3".into(),
+                "card-4".into(),
+            ];
+            state.stella_selection_min = 3;
+            state.stella_selection_max = 4;
+            setup_connected_member(&mut state, "a", "t-a", 601);
+        }
+
+        room.handle_client_msg(
+            "a",
+            601,
+            to_ws(ClientMsg::SubmitStellaSelection {
+                cards: vec!["card-1".to_string()],
+            }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert!(
+            !state.stella_player_selections.contains_key("a"),
+            "submission below the configured Stella minimum should be rejected"
+        );
+        assert!(
+            !state.players.get("a").unwrap().ready,
+            "rejected Stella submission should not ready the player"
+        );
+        assert!(
+            matches!(state.stage, RoomStage::StellaAssociate),
+            "invalid Stella submission should not advance the stage"
         );
 
         Ok(())
