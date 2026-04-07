@@ -1,9 +1,14 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import type GameServer from '$lib/gameServer';
+	import {
+		BUILTIN_STELLA_WORD_PACK_PRESETS,
+		type StellaWordPackPreset
+	} from '$lib/stellaWordPacks';
 	import type { GameMode, PlayerInfo, WinCondition } from '$lib/types';
 	import { formatWinCondition } from '$lib/winCondition';
 	import { Avatar, getToastStore } from '@skeletonlabs/skeleton';
+	import { onDestroy } from 'svelte';
 
 	export let players: { [key: string]: PlayerInfo } = {};
 	export let roomCode = '';
@@ -29,6 +34,9 @@
 
 	const toastStore = getToastStore();
 	const LOCAL_STELLA_PACKS_KEY = 'stella_word_pack_presets';
+	const LOCAL_PRESET_KEY_PREFIX = 'local:';
+	const BUILTIN_PRESET_KEY_PREFIX = 'builtin:';
+	const WORD_PACK_APPLY_DEBOUNCE_MS = 350;
 	$: playerEntries = Object.entries(players);
 	$: moderatorSet = new Set(moderators);
 	$: isCreator = creator !== '' && creator === name;
@@ -42,8 +50,31 @@
 	let localTargetRounds = 4;
 	let localWordPackText = '';
 	let newPresetName = '';
-	let savedPresets: { name: string; words: string }[] = [];
-	let selectedPresetName = '';
+	let savedPresets: StellaWordPackPreset[] = [];
+	let selectedPresetKey = '';
+	let wordPackApplyTimeout: ReturnType<typeof setTimeout> | null = null;
+	let availableWordPackPresets: StellaWordPackOption[] = [];
+	let selectedWordPackPreset: StellaWordPackOption | null = null;
+
+	type StellaWordPackOption = StellaWordPackPreset & {
+		key: string;
+		builtin: boolean;
+	};
+
+	$: availableWordPackPresets = [
+		...BUILTIN_STELLA_WORD_PACK_PRESETS.map((preset) => ({
+			...preset,
+			key: `${BUILTIN_PRESET_KEY_PREFIX}${preset.name}`,
+			builtin: true
+		})),
+		...savedPresets.map((preset) => ({
+			...preset,
+			key: `${LOCAL_PRESET_KEY_PREFIX}${preset.name}`,
+			builtin: false
+		}))
+	].sort((a, b) => a.name.localeCompare(b.name));
+	$: selectedWordPackPreset =
+		availableWordPackPresets.find((preset) => preset.key === selectedPresetKey) ?? null;
 
 	$: if (winCondition.mode === 'points') localTargetPoints = winCondition.target_points;
 	$: if (winCondition.mode === 'cycles') localTargetCycles = winCondition.target_cycles;
@@ -52,7 +83,13 @@
 	function loadPresets() {
 		if (!browser) return;
 		try {
-			savedPresets = JSON.parse(window.localStorage.getItem(LOCAL_STELLA_PACKS_KEY) || '[]');
+			const parsed = JSON.parse(window.localStorage.getItem(LOCAL_STELLA_PACKS_KEY) || '[]');
+			savedPresets = Array.isArray(parsed)
+				? parsed.filter(
+						(entry): entry is StellaWordPackPreset =>
+							typeof entry?.name === 'string' && typeof entry?.words === 'string'
+					)
+				: [];
 		} catch {
 			savedPresets = [];
 		}
@@ -198,57 +235,100 @@
 		gameServer.setStellaSelectionMax(value);
 	}
 
-	function applyWordPack() {
-		if (!canEditSettings) return;
-		gameServer.setStellaWordPack(localWordPackText);
+	function normalizeWordPackText(rawWords: string) {
+		return rawWords
+			.split(/\r?\n/u)
+			.map((word) => word.trim())
+			.filter((word) => word.length > 0)
+			.join('\n');
+	}
+
+	function queueWordPackApply(words = localWordPackText) {
+		if (!browser || !canEditSettings || gameMode !== 'stella') return;
+		const normalizedWords = normalizeWordPackText(words);
+		if (!normalizedWords) return;
+		if (wordPackApplyTimeout) {
+			clearTimeout(wordPackApplyTimeout);
+		}
+		wordPackApplyTimeout = window.setTimeout(() => {
+			gameServer.setStellaWordPack(normalizedWords);
+			wordPackApplyTimeout = null;
+		}, WORD_PACK_APPLY_DEBOUNCE_MS);
+	}
+
+	function updateSelectedWordPack(words: string) {
+		localWordPackText = words;
+		queueWordPackApply(words);
+	}
+
+	function getWordPackPresetByKey(key: string) {
+		return availableWordPackPresets.find((preset) => preset.key === key) ?? null;
 	}
 
 	function saveCurrentPreset() {
 		if (!browser) return;
 		const name = newPresetName.trim();
-		if (!name || !localWordPackText.trim()) return;
-		savedPresets = [
-			...savedPresets.filter((preset) => preset.name !== name),
-			{ name, words: localWordPackText }
-		].sort((a, b) => a.name.localeCompare(b.name));
+		const words = normalizeWordPackText(localWordPackText);
+		if (!name || !words) return;
+		if (BUILTIN_STELLA_WORD_PACK_PRESETS.some((preset) => preset.name === name)) {
+			toastStore.trigger({
+				message: `Preset name "${name}" is reserved for a built-in pack.`,
+				autohide: true,
+				timeout: 2500
+			});
+			return;
+		}
+		savedPresets = [...savedPresets.filter((preset) => preset.name !== name), { name, words }].sort(
+			(a, b) => a.name.localeCompare(b.name)
+		);
 		savePresets();
-		selectedPresetName = name;
+		selectedPresetKey = `${LOCAL_PRESET_KEY_PREFIX}${name}`;
+		localWordPackText = words;
 		newPresetName = '';
 	}
 
-	function loadSelectedPreset() {
-		const preset = savedPresets.find((entry) => entry.name === selectedPresetName);
+	function handlePresetSelectionChange(event: Event) {
+		const nextKey = (event.currentTarget as HTMLSelectElement).value;
+		selectedPresetKey = nextKey;
+		const preset = getWordPackPresetByKey(nextKey);
 		if (preset) {
-			localWordPackText = preset.words;
+			updateSelectedWordPack(preset.words);
 		}
 	}
 
 	function deleteSelectedPreset() {
-		savedPresets = savedPresets.filter((preset) => preset.name !== selectedPresetName);
+		if (!selectedWordPackPreset || selectedWordPackPreset.builtin) return;
+		savedPresets = savedPresets.filter((preset) => preset.name !== selectedWordPackPreset.name);
 		savePresets();
-		selectedPresetName = '';
+		selectedPresetKey = '';
 	}
 
 	async function importWordPack(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
 		const file = input.files?.[0];
 		if (!file) return;
-		localWordPackText = await file.text();
+		updateSelectedWordPack(await file.text());
+		selectedPresetKey = '';
 		input.value = '';
 	}
 
 	function exportSelectedPreset() {
 		if (!browser) return;
-		const preset = savedPresets.find((entry) => entry.name === selectedPresetName);
-		if (!preset) return;
-		const blob = new Blob([preset.words], { type: 'text/plain;charset=utf-8' });
+		if (!selectedWordPackPreset) return;
+		const blob = new Blob([selectedWordPackPreset.words], { type: 'text/plain;charset=utf-8' });
 		const url = URL.createObjectURL(blob);
 		const link = document.createElement('a');
 		link.href = url;
-		link.download = `${preset.name}.txt`;
+		link.download = `${selectedWordPackPreset.name}.txt`;
 		link.click();
 		URL.revokeObjectURL(url);
 	}
+
+	onDestroy(() => {
+		if (wordPackApplyTimeout) {
+			clearTimeout(wordPackApplyTimeout);
+		}
+	});
 </script>
 
 <div class="m-auto w-full max-w-6xl px-4">
@@ -448,8 +528,10 @@
 									class="w-full rounded border px-3 py-2 text-gray-700 min-h-[160px]"
 									bind:value={localWordPackText}
 									placeholder="One clue word per line"
+									on:input={() => queueWordPackApply()}
 									disabled={!canEditSettings}
 								></textarea>
+								<p class="text-xs opacity-70">Changes apply automatically after you stop typing.</p>
 								<div class="flex flex-wrap gap-2">
 									<input
 										type="file"
@@ -457,11 +539,6 @@
 										on:change={importWordPack}
 										disabled={!canEditSettings}
 									/>
-									<button
-										class="btn variant-filled"
-										on:click={applyWordPack}
-										disabled={!canEditSettings}>Apply to room</button
-									>
 								</div>
 								<div class="grid grid-cols-[1fr_auto] gap-2">
 									<input
@@ -476,27 +553,26 @@
 								<div class="flex flex-wrap gap-2 items-center">
 									<select
 										class="rounded border px-3 py-2 text-gray-700 min-w-[180px]"
-										bind:value={selectedPresetName}
+										value={selectedPresetKey}
+										on:change={handlePresetSelectionChange}
 									>
-										<option value="">Saved local presets</option>
-										{#each savedPresets as preset}
-											<option value={preset.name}>{preset.name}</option>
+										<option value="">Choose a word pack preset</option>
+										{#each availableWordPackPresets as preset}
+											<option value={preset.key}>
+												{preset.name}{preset.builtin ? ' (built-in)' : ''}
+											</option>
 										{/each}
 									</select>
 									<button
 										class="btn variant-filled"
-										on:click={loadSelectedPreset}
-										disabled={!selectedPresetName}>Load</button
-									>
-									<button
-										class="btn variant-filled"
 										on:click={exportSelectedPreset}
-										disabled={!selectedPresetName}>Export</button
+										disabled={!selectedWordPackPreset}>Export</button
 									>
 									<button
 										class="btn variant-filled"
 										on:click={deleteSelectedPreset}
-										disabled={!selectedPresetName}>Delete</button
+										disabled={!selectedWordPackPreset || selectedWordPackPreset.builtin}
+										>Delete</button
 									>
 								</div>
 							</div>
