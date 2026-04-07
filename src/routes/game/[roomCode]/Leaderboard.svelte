@@ -33,6 +33,8 @@
 			winConditionLabel = `First to ${winCondition.target_points} points!`;
 		} else if (winCondition.mode === 'cycles') {
 			winConditionLabel = `${winCondition.target_cycles} full storyteller cycle${winCondition.target_cycles === 1 ? '' : 's'}`;
+		} else if (winCondition.mode === 'fixed_rounds') {
+			winConditionLabel = `${winCondition.target_rounds} fixed round${winCondition.target_rounds === 1 ? '' : 's'}`;
 		} else {
 			winConditionLabel = 'Play until cards finish';
 		}

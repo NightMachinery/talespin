@@ -153,6 +153,22 @@ class GameServer {
 		});
 	}
 
+	setGameMode(game_mode: 'dixit_plus' | 'stella') {
+		this.send({
+			SetGameMode: {
+				game_mode
+			}
+		});
+	}
+
+	setWinCondition(win_condition: object) {
+		this.send({
+			SetWinCondition: {
+				win_condition
+			}
+		});
+	}
+
 	setStorytellerLossComplement(complement: number) {
 		this.send({
 			SetStorytellerLossComplement: {
@@ -297,6 +313,42 @@ class GameServer {
 		});
 	}
 
+	setStellaBoardSize(size: number) {
+		this.send({
+			SetStellaBoardSize: { size }
+		});
+	}
+
+	setStellaSelectionMin(count: number) {
+		this.send({
+			SetStellaSelectionMin: { count }
+		});
+	}
+
+	setStellaSelectionMax(count: number) {
+		this.send({
+			SetStellaSelectionMax: { count }
+		});
+	}
+
+	setStellaWordPack(words: string) {
+		this.send({
+			SetStellaWordPack: { words }
+		});
+	}
+
+	resetStellaClue() {
+		this.send({
+			ResetStellaClue: {}
+		});
+	}
+
+	resetStellaBoard() {
+		this.send({
+			ResetStellaBoard: {}
+		});
+	}
+
 	forceStartNextRound() {
 		this.send({
 			ForceStartNextRound: {}
@@ -344,6 +396,22 @@ class GameServer {
 		this.send({
 			SubmitVotes: {
 				cards
+			}
+		});
+	}
+
+	submitStellaSelection(cards: string[]) {
+		this.send({
+			SubmitStellaSelection: {
+				cards
+			}
+		});
+	}
+
+	revealStellaCard(card: string) {
+		this.send({
+			RevealStellaCard: {
+				card
 			}
 		});
 	}

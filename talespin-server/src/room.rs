@@ -14,9 +14,13 @@ use tokio::sync::{broadcast, mpsc, RwLock, RwLockWriteGuard};
 
 const MODERATOR_ABSENCE_PROMOTION_DELAY_S: u64 = 5 * 60;
 const DEFAULT_CARDS_PER_HAND: u16 = 12;
-const MAX_CARDS_PER_HAND: u16 = 18;
+const MAX_CARDS_PER_HAND: u16 = 100;
 const DEFAULT_NOMINATIONS_PER_GUESSER: u16 = 1;
 const THREE_PLAYER_NOMINATIONS_PER_GUESSER: u16 = 2;
+const DEFAULT_STELLA_BOARD_SIZE: u16 = 15;
+const MAX_STELLA_BOARD_SIZE: u16 = 100;
+const DEFAULT_STELLA_SELECTION_MIN: u16 = 1;
+const DEFAULT_STELLA_SELECTION_MAX: u16 = 10;
 const MIN_STAGE_TIMER_DURATION_S: u16 = 1;
 const MAX_STAGE_TIMER_DURATION_S: u16 = 60 * 60;
 const DEFAULT_HINT_CHOOSING_TIMER_DURATION_S: u16 = 60;
@@ -30,12 +34,25 @@ pub(crate) fn canonical_member_name(name: &str) -> &str {
     name.trim()
 }
 
+const DEFAULT_STELLA_WORD_PACK: &[&str] = &[
+    "Dream", "Journey", "Secret", "Memory", "Wonder", "Shadow", "Hope", "Magic", "Silence",
+    "Storm", "Fragile", "Wild", "Lost", "Bloom", "Home", "Echo",
+];
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum GameMode {
+    DixitPlus,
+    Stella,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
 #[serde(tag = "mode", rename_all = "snake_case")]
 pub enum WinCondition {
     Points { target_points: u16 },
     Cycles { target_cycles: u16 },
     CardsFinish,
+    FixedRounds { target_rounds: u16 },
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -45,6 +62,7 @@ pub enum ServerMsg {
     },
     RoomState {
         room_id: String,
+        game_mode: GameMode,
         players: HashMap<String, PlayerInfo>,
         observers: HashMap<String, ObserverInfo>,
         creator: Option<String>,
@@ -86,6 +104,16 @@ pub enum ServerMsg {
         server_time_ms: u64,
         current_stage_deadline_s: Option<u64>,
         voting_wrong_card_disable_distribution: Vec<f64>,
+        stella_board_size: u16,
+        stella_board_size_min: u16,
+        stella_board_size_max: u16,
+        stella_selection_min: u16,
+        stella_selection_max: u16,
+        stella_selection_count_min: u16,
+        stella_selection_count_max: u16,
+        stella_active_clue: String,
+        stella_word_pack_size: u16,
+        stella_dark_player: Option<String>,
     },
     StartRound {
         hand: Vec<String>,
@@ -106,6 +134,30 @@ pub enum ServerMsg {
         player_to_votes: HashMap<String, Vec<String>>,
         player_to_current_cards: HashMap<String, Vec<String>>,
         active_card: String,
+        point_change: HashMap<String, u16>,
+    },
+    StellaAssociate {
+        board_cards: Vec<String>,
+        clue_word: String,
+        selected_cards: Vec<String>,
+    },
+    StellaReveal {
+        board_cards: Vec<String>,
+        clue_word: String,
+        selected_cards: Vec<String>,
+        selected_counts: HashMap<String, u16>,
+        revealed_cards: Vec<String>,
+        card_points: HashMap<String, u16>,
+        scout: Option<String>,
+        dark_player: Option<String>,
+    },
+    StellaResults {
+        board_cards: Vec<String>,
+        clue_word: String,
+        selected_counts: HashMap<String, u16>,
+        revealed_cards: Vec<String>,
+        card_points: HashMap<String, u16>,
+        dark_player: Option<String>,
         point_change: HashMap<String, u16>,
     },
     ErrorMsg(String),
@@ -145,6 +197,12 @@ pub enum ClientMsg {
     },
     SetAllowMidgameJoin {
         enabled: bool,
+    },
+    SetGameMode {
+        game_mode: GameMode,
+    },
+    SetWinCondition {
+        win_condition: WinCondition,
     },
     SetStorytellerLossComplement {
         complement: u16,
@@ -200,6 +258,20 @@ pub enum ClientMsg {
     SetVotingWrongCardDisableDistribution {
         distribution: Vec<f64>,
     },
+    SetStellaBoardSize {
+        size: u16,
+    },
+    SetStellaSelectionMin {
+        count: u16,
+    },
+    SetStellaSelectionMax {
+        count: u16,
+    },
+    SetStellaWordPack {
+        words: String,
+    },
+    ResetStellaClue {},
+    ResetStellaBoard {},
     ForceStartNextRound {},
     RefreshHands {},
     ResumeGame {},
@@ -226,6 +298,12 @@ pub enum ClientMsg {
     SubmitVotes {
         cards: Vec<String>,
     },
+    SubmitStellaSelection {
+        cards: Vec<String>,
+    },
+    RevealStellaCard {
+        card: String,
+    },
     // legacy single-vote message kept for compatibility with older clients
     Vote {
         card: String,
@@ -239,12 +317,17 @@ pub enum RoomStage {
     Joining,
     // active player chooses card from their hand and writes description
     ActiveChooses,
+    // stella players choose cards from shared board for a clue
+    StellaAssociate,
     // players choose cards to match the description
     PlayersChoose,
+    // stella scout-by-scout reveal
+    StellaReveal,
     // players vote on what they think the active card is
     Voting,
     // results are computed; circle back to ActiveChooses while deck is not empty
     Results,
+    StellaResults,
     // game is paused due to low amount of players
     Paused,
     // game is over
@@ -272,6 +355,7 @@ pub struct ObserverInfo {
 #[derive(Debug)]
 struct RoomState {
     room_id: String,
+    game_mode: GameMode,
     // lobby creator / host
     creator: Option<String>,
     // moderation privileges; creator is auto-included while present
@@ -369,6 +453,32 @@ struct RoomState {
     // for each player, the card they voted for as being the active's card
     // they cannot vote for themselves; duplicates are allowed
     player_to_votes: HashMap<String, Vec<String>>,
+    // stella shared board cards for the current round
+    stella_board_cards: Vec<String>,
+    // current stella clue word
+    stella_clue_word: String,
+    // selectable words for stella rooms
+    stella_word_pack: Vec<String>,
+    // stella board size target
+    stella_board_size: u16,
+    // stella min picks required
+    stella_selection_min: u16,
+    // stella max picks allowed
+    stella_selection_max: u16,
+    // each player's hidden stella selections
+    stella_player_selections: HashMap<String, Vec<String>>,
+    // public announced counts after associate closes
+    stella_player_selection_counts: HashMap<String, u16>,
+    // player currently in the dark, if any
+    stella_dark_player: Option<String>,
+    // already revealed stella cards this round
+    stella_revealed_cards: Vec<String>,
+    // stella revealed card => points awarded to matching non-fallen players
+    stella_card_points: HashMap<String, u16>,
+    // stella players who have fallen this round
+    stella_fallen_players: HashSet<String>,
+    // stella per-player round score contribution
+    stella_point_change: HashMap<String, u16>,
     // per-player cards that are visible but not votable during voting.
     // This is frozen when voting starts; if the voter set changes mid-round, the original
     // private information has already been revealed and cannot be cleanly recomputed.
@@ -429,6 +539,7 @@ impl Room {
     ) -> Self {
         let state = RoomState {
             room_id: room_id.to_string(),
+            game_mode: GameMode::DixitPlus,
             creator,
             moderators: HashSet::new(),
             no_connected_moderator_since_s: None,
@@ -477,6 +588,22 @@ impl Room {
             voting_order_seed: 0,
             player_to_current_cards: HashMap::new(),
             player_to_votes: HashMap::new(),
+            stella_board_cards: Vec::new(),
+            stella_clue_word: String::new(),
+            stella_word_pack: DEFAULT_STELLA_WORD_PACK
+                .iter()
+                .map(|word| (*word).to_string())
+                .collect(),
+            stella_board_size: DEFAULT_STELLA_BOARD_SIZE,
+            stella_selection_min: DEFAULT_STELLA_SELECTION_MIN,
+            stella_selection_max: DEFAULT_STELLA_SELECTION_MAX,
+            stella_player_selections: HashMap::new(),
+            stella_player_selection_counts: HashMap::new(),
+            stella_dark_player: None,
+            stella_revealed_cards: Vec::new(),
+            stella_card_points: HashMap::new(),
+            stella_fallen_players: HashSet::new(),
+            stella_point_change: HashMap::new(),
             player_to_disabled_voting_cards: HashMap::new(),
             round: 0,
             win_condition,
@@ -634,8 +761,11 @@ impl Room {
         (1, max_votes)
     }
 
-    fn cards_per_hand_bounds(&self, _state: &RwLockWriteGuard<RoomState>) -> (u16, u16) {
-        (1, MAX_CARDS_PER_HAND)
+    fn cards_per_hand_bounds(&self, state: &RwLockWriteGuard<RoomState>) -> (u16, u16) {
+        let active_players = self.non_observer_player_count(state).max(1);
+        let server_max = self.base_deck.len().max(1) / active_players;
+        let max_cards = server_max.max(1).min(usize::from(MAX_CARDS_PER_HAND)) as u16;
+        (1, max_cards.max(1))
     }
 
     fn nominations_per_guesser_bounds(&self, state: &RwLockWriteGuard<RoomState>) -> (u16, u16) {
@@ -648,6 +778,21 @@ impl Room {
         let (_, cards_per_hand_max) = self.cards_per_hand_bounds(state);
         let cards_per_hand = state.cards_per_hand.clamp(1, cards_per_hand_max);
         (0, cards_per_hand.saturating_sub(1))
+    }
+
+    fn stella_board_size_bounds(&self) -> (u16, u16) {
+        let max_board_size = self
+            .base_deck
+            .len()
+            .max(1)
+            .min(usize::from(MAX_STELLA_BOARD_SIZE)) as u16;
+        (1, max_board_size.max(1))
+    }
+
+    fn stella_selection_bounds(&self, state: &RwLockWriteGuard<RoomState>) -> (u16, u16) {
+        let (_, board_size_max) = self.stella_board_size_bounds();
+        let board_size = state.stella_board_size.clamp(1, board_size_max);
+        (1, board_size.min(MAX_STELLA_BOARD_SIZE).max(1))
     }
 
     fn clamp_stage_timer_duration_s(seconds: u16) -> u16 {
@@ -670,12 +815,20 @@ impl Room {
         stage: RoomStage,
     ) -> Option<u64> {
         match stage {
-            RoomStage::ActiveChooses if state.hint_choosing_timer_enabled => Some(u64::from(
-                Self::clamp_stage_timer_duration_s(state.hint_choosing_timer_duration_s),
-            )),
-            RoomStage::PlayersChoose if state.card_choosing_timer_enabled => Some(u64::from(
-                Self::clamp_stage_timer_duration_s(state.card_choosing_timer_duration_s),
-            )),
+            RoomStage::ActiveChooses | RoomStage::StellaAssociate
+                if state.hint_choosing_timer_enabled =>
+            {
+                Some(u64::from(Self::clamp_stage_timer_duration_s(
+                    state.hint_choosing_timer_duration_s,
+                )))
+            }
+            RoomStage::PlayersChoose | RoomStage::StellaReveal
+                if state.card_choosing_timer_enabled =>
+            {
+                Some(u64::from(Self::clamp_stage_timer_duration_s(
+                    state.card_choosing_timer_duration_s,
+                )))
+            }
             RoomStage::Voting if state.voting_timer_enabled => Some(u64::from(
                 Self::clamp_stage_timer_duration_s(state.voting_timer_duration_s),
             )),
@@ -752,6 +905,35 @@ impl Room {
     fn clamp_nominations_per_guesser(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
         let (min_cards, max_cards) = self.nominations_per_guesser_bounds(state);
         state.nominations_per_guesser = state.nominations_per_guesser.clamp(min_cards, max_cards);
+    }
+
+    fn clamp_stella_settings(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
+        let (board_min, board_max) = self.stella_board_size_bounds();
+        state.stella_board_size = state.stella_board_size.clamp(board_min, board_max);
+        let (selection_min_bound, selection_max_bound) = self.stella_selection_bounds(state);
+        state.stella_selection_min = state
+            .stella_selection_min
+            .clamp(selection_min_bound, selection_max_bound);
+        state.stella_selection_max = state
+            .stella_selection_max
+            .clamp(state.stella_selection_min, selection_max_bound);
+        if state.stella_word_pack.is_empty() {
+            state.stella_word_pack = DEFAULT_STELLA_WORD_PACK
+                .iter()
+                .map(|word| (*word).to_string())
+                .collect();
+        }
+    }
+
+    fn parse_stella_word_pack(raw_words: &str) -> Vec<String> {
+        let mut seen = HashSet::new();
+        raw_words
+            .lines()
+            .map(str::trim)
+            .filter(|word| !word.is_empty())
+            .filter(|word| seen.insert(word.to_lowercase()))
+            .map(|word| word.to_string())
+            .collect()
     }
 
     fn max_voting_wrong_card_disable_x(&self) -> usize {
@@ -1066,7 +1248,28 @@ impl Room {
                     state.player_order.push(name.to_string());
                 }
             }
-            RoomStage::Voting | RoomStage::Results => {
+            RoomStage::StellaResults => {
+                let points = self.midgame_join_score_floor(state);
+                let storyteller_count = self.midgame_join_storyteller_floor(state);
+                state
+                    .storyteller_counts
+                    .insert(name.to_string(), storyteller_count);
+                state.players.insert(
+                    name.to_string(),
+                    PlayerInfo {
+                        connected: true,
+                        points,
+                        ready: false,
+                    },
+                );
+                if !state.player_order.iter().any(|player| player == name) {
+                    state.player_order.push(name.to_string());
+                }
+            }
+            RoomStage::StellaAssociate
+            | RoomStage::StellaReveal
+            | RoomStage::Voting
+            | RoomStage::Results => {
                 let points = self.midgame_join_score_floor(state);
                 let storyteller_count = self.midgame_join_storyteller_floor(state);
                 state
@@ -1863,6 +2066,10 @@ impl Room {
         &self,
         state: &mut RwLockWriteGuard<'_, RoomState>,
     ) -> Result<()> {
+        if matches!(state.game_mode, GameMode::Stella) {
+            return self.init_stella_round(state).await;
+        }
+
         if state.player_order.is_empty() {
             self.sync_player_order_with_players(state);
         }
@@ -1950,6 +2157,20 @@ impl Room {
                 }
                 return Ok(());
             }
+            RoomStage::StellaAssociate => {
+                let active_exists = self
+                    .active_player_name(state)
+                    .map(|name| state.players.contains_key(name))
+                    .unwrap_or(false);
+                if !active_exists {
+                    self.sync_player_order_with_players(state);
+                    state.active_player = self
+                        .choose_random_lowest_storyteller_index(state)
+                        .unwrap_or(0);
+                }
+                self.init_stella_round(state).await?;
+                return Ok(());
+            }
             RoomStage::PlayersChoose => {
                 let active_exists = self
                     .active_player_name(state)
@@ -1967,6 +2188,27 @@ impl Room {
                 let ready_count = state.players.values().filter(|player| player.ready).count();
                 if ready_count >= state.players.len().saturating_sub(1) {
                     self.init_voting(state).await?;
+                } else {
+                    self.broadcast_msg(self.room_state(state))?;
+                }
+                return Ok(());
+            }
+            RoomStage::StellaReveal => {
+                let active_exists = self
+                    .active_player_name(state)
+                    .map(|name| state.players.contains_key(name))
+                    .unwrap_or(false);
+                if !active_exists {
+                    if !self.advance_stella_scout(state) {
+                        self.init_stella_results(state)?;
+                    } else {
+                        for player in state.player_order.clone().iter() {
+                            let _ = self
+                                .send_msg(state, player, self.get_msg(Some(player), state)?)
+                                .await;
+                        }
+                        self.broadcast_msg(self.room_state(state))?;
+                    }
                 } else {
                     self.broadcast_msg(self.room_state(state))?;
                 }
@@ -2022,6 +2264,22 @@ impl Room {
                 }
                 return Ok(());
             }
+            RoomStage::StellaResults => {
+                if self.should_end_game(state) {
+                    self.set_stage(state, RoomStage::End);
+                    state.paused_reason = None;
+                    self.broadcast_msg(ServerMsg::EndGame {})?;
+                    self.broadcast_msg(self.room_state(state))?;
+                    return Ok(());
+                }
+
+                if state.players.values().all(|player| player.ready) {
+                    self.init_stella_round(state).await?;
+                } else {
+                    self.broadcast_msg(self.room_state(state))?;
+                }
+                return Ok(());
+            }
             _ => {}
         }
 
@@ -2037,6 +2295,15 @@ impl Room {
         match state.stage {
             RoomStage::ActiveChooses => Ok(ServerMsg::StartRound {
                 hand: state.player_hand[name.ok_or_else(|| anyhow!("No name provided"))?].clone(),
+            }),
+            RoomStage::StellaAssociate => Ok(ServerMsg::StellaAssociate {
+                board_cards: state.stella_board_cards.clone(),
+                clue_word: state.stella_clue_word.clone(),
+                selected_cards: name
+                    .and_then(|player_name| {
+                        state.stella_player_selections.get(player_name).cloned()
+                    })
+                    .unwrap_or_default(),
             }),
             RoomStage::PlayersChoose => Ok(ServerMsg::PlayersChoose {
                 description: state.current_description.clone(),
@@ -2056,6 +2323,20 @@ impl Room {
                         None
                     }
                 }),
+            }),
+            RoomStage::StellaReveal => Ok(ServerMsg::StellaReveal {
+                board_cards: state.stella_board_cards.clone(),
+                clue_word: state.stella_clue_word.clone(),
+                selected_cards: name
+                    .and_then(|player_name| {
+                        state.stella_player_selections.get(player_name).cloned()
+                    })
+                    .unwrap_or_default(),
+                selected_counts: state.stella_player_selection_counts.clone(),
+                revealed_cards: state.stella_revealed_cards.clone(),
+                card_points: state.stella_card_points.clone(),
+                scout: self.active_player_name(state).map(str::to_string),
+                dark_player: state.stella_dark_player.clone(),
             }),
             RoomStage::Voting => Ok(ServerMsg::BeginVoting {
                 center_cards: self.get_center_cards(state),
@@ -2085,6 +2366,15 @@ impl Room {
                     .cloned()
                     .ok_or_else(|| anyhow!("Missing active card"))?,
                 point_change: self.compute_results(state),
+            }),
+            RoomStage::StellaResults => Ok(ServerMsg::StellaResults {
+                board_cards: state.stella_board_cards.clone(),
+                clue_word: state.stella_clue_word.clone(),
+                selected_counts: state.stella_player_selection_counts.clone(),
+                revealed_cards: state.stella_revealed_cards.clone(),
+                card_points: state.stella_card_points.clone(),
+                dark_player: state.stella_dark_player.clone(),
+                point_change: state.stella_point_change.clone(),
             }),
             RoomStage::Paused => Err(anyhow!("No stage-specific paused message")),
             RoomStage::End => Ok(ServerMsg::EndGame {}),
@@ -2428,7 +2718,253 @@ impl Room {
         state.deck.len() >= needed
     }
 
+    fn reset_stella_round_state(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
+        state.current_description.clear();
+        state.player_to_current_cards.clear();
+        state.player_to_votes.clear();
+        state.player_to_disabled_voting_cards.clear();
+        state.stella_player_selections.clear();
+        state.stella_player_selection_counts.clear();
+        state.stella_dark_player = None;
+        state.stella_revealed_cards.clear();
+        state.stella_card_points.clear();
+        state.stella_point_change.clear();
+        state.stella_fallen_players.clear();
+    }
+
+    fn discard_stella_board(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
+        if state.stella_board_cards.is_empty() {
+            return;
+        }
+        let board_cards = std::mem::take(&mut state.stella_board_cards);
+        state.discard_pile.extend(board_cards);
+    }
+
+    fn choose_stella_clue(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+        avoid: Option<&str>,
+    ) -> String {
+        let mut candidates = state.stella_word_pack.clone();
+        if let Some(previous) = avoid {
+            if candidates.len() > 1 {
+                candidates.retain(|word| word != previous);
+            }
+        }
+        candidates
+            .choose(&mut rand::thread_rng())
+            .cloned()
+            .or_else(|| state.stella_word_pack.first().cloned())
+            .unwrap_or_else(|| DEFAULT_STELLA_WORD_PACK[0].to_string())
+    }
+
+    fn stella_player_has_unrevealed_selection(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+        player_name: &str,
+    ) -> bool {
+        let revealed = state
+            .stella_revealed_cards
+            .iter()
+            .cloned()
+            .collect::<HashSet<_>>();
+        state
+            .stella_player_selections
+            .get(player_name)
+            .map(|cards| cards.iter().any(|card| !revealed.contains(card)))
+            .unwrap_or(false)
+    }
+
+    fn advance_stella_scout(&self, state: &mut RwLockWriteGuard<'_, RoomState>) -> bool {
+        if state.player_order.is_empty() {
+            return false;
+        }
+        let len = state.player_order.len();
+        for offset in 1..=len {
+            let index = (state.active_player + offset) % len;
+            let Some(player_name) = state.player_order.get(index) else {
+                continue;
+            };
+            if !state.players.contains_key(player_name) {
+                continue;
+            }
+            if state.stella_fallen_players.contains(player_name) {
+                continue;
+            }
+            if !self.stella_player_has_unrevealed_selection(state, player_name) {
+                continue;
+            }
+            state.active_player = index;
+            return true;
+        }
+        false
+    }
+
+    async fn init_stella_reveal(&self, state: &mut RwLockWriteGuard<'_, RoomState>) -> Result<()> {
+        state.stella_player_selection_counts = state
+            .stella_player_selections
+            .iter()
+            .map(|(player, cards)| {
+                (
+                    player.clone(),
+                    cards.len().min(usize::from(u16::MAX)) as u16,
+                )
+            })
+            .collect();
+
+        let mut sorted_counts = state
+            .stella_player_selection_counts
+            .iter()
+            .map(|(player, count)| (player.clone(), *count))
+            .collect::<Vec<_>>();
+        sorted_counts.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        state.stella_dark_player =
+            if sorted_counts.len() >= 2 && sorted_counts[0].1 > sorted_counts[1].1 {
+                Some(sorted_counts[0].0.clone())
+            } else if sorted_counts.len() == 1 {
+                Some(sorted_counts[0].0.clone())
+            } else {
+                None
+            };
+
+        self.set_stage(state, RoomStage::StellaReveal);
+        self.clear_ready(state);
+        if !self.stella_player_has_unrevealed_selection(
+            state,
+            state
+                .player_order
+                .get(state.active_player)
+                .map(String::as_str)
+                .unwrap_or(""),
+        ) || state
+            .player_order
+            .get(state.active_player)
+            .map(|name| state.stella_fallen_players.contains(name))
+            .unwrap_or(true)
+        {
+            if !self.advance_stella_scout(state) {
+                self.init_stella_results(state)?;
+                return Ok(());
+            }
+        }
+
+        for player in state.player_order.clone().iter() {
+            let _ = self
+                .send_msg(state, player, self.get_msg(Some(player), state)?)
+                .await;
+        }
+        self.broadcast_msg(self.room_state(state))?;
+        Ok(())
+    }
+
+    fn init_stella_results(&self, state: &mut RwLockWriteGuard<'_, RoomState>) -> Result<()> {
+        self.set_stage(state, RoomStage::StellaResults);
+        let mut point_change = state.stella_point_change.clone();
+
+        if let Some(dark_player) = state.stella_dark_player.clone() {
+            let selections = state
+                .stella_player_selections
+                .get(&dark_player)
+                .cloned()
+                .unwrap_or_default();
+            let has_mistake = selections
+                .iter()
+                .any(|card| state.stella_card_points.get(card).copied().unwrap_or(0) == 0);
+            if has_mistake {
+                let penalty = selections
+                    .iter()
+                    .filter(|card| state.stella_card_points.get(*card).copied().unwrap_or(0) >= 2)
+                    .count() as u16;
+                if penalty > 0 {
+                    let entry = point_change.entry(dark_player).or_insert(0);
+                    *entry = entry.saturating_sub(penalty);
+                }
+            }
+        }
+
+        for (player, info) in state.players.iter_mut() {
+            if let Some(delta) = point_change.get(player) {
+                info.points = info.points.saturating_add(*delta);
+            }
+        }
+        state.stella_point_change = point_change;
+        self.clear_ready(state);
+        self.broadcast_msg(self.get_msg(None, state)?)?;
+        self.broadcast_msg(self.room_state(state))?;
+        Ok(())
+    }
+
+    async fn init_stella_round(&self, state: &mut RwLockWriteGuard<'_, RoomState>) -> Result<()> {
+        let _promoted = self.promote_requested_observers(state);
+
+        if self.non_observer_player_count(state) < 3 {
+            self.pause_for_low_player_count(state, true);
+            self.broadcast_msg(self.room_state(state))?;
+            return Ok(());
+        }
+
+        self.sync_player_order_with_players(state);
+        if state.player_order.is_empty() {
+            return Err(anyhow!("No players available to start Stella round"));
+        }
+
+        self.clamp_stella_settings(state);
+        self.clamp_stage_timer_settings(state);
+        self.discard_stella_board(state);
+        self.reset_stella_round_state(state);
+        state.paused_reason = None;
+        state.paused_needs_storyteller_selection = false;
+
+        let next_first_scout = self
+            .choose_random_lowest_storyteller_index(state)
+            .ok_or_else(|| anyhow!("No players available to choose first scout"))?;
+        state.active_player = next_first_scout;
+        if let Some(first_scout) = state.player_order.get(next_first_scout).cloned() {
+            let count = state.storyteller_counts.entry(first_scout).or_insert(0);
+            *count = count.saturating_add(1);
+        }
+
+        let board_size = usize::from(state.stella_board_size);
+        state.deck.shuffle(&mut rand::thread_rng());
+        self.ensure_deck_size(state, board_size);
+        if state.deck.len() < board_size {
+            self.set_stage(state, RoomStage::End);
+            self.broadcast_msg(ServerMsg::EndGame {})?;
+            self.broadcast_msg(self.room_state(state))?;
+            return Ok(());
+        }
+
+        for _ in 0..board_size {
+            let Some(card) = state.deck.pop() else {
+                return Err(anyhow!("Not enough cards for Stella board"));
+            };
+            state.stella_board_cards.push(card);
+        }
+
+        let previous_clue = if state.stella_clue_word.trim().is_empty() {
+            None
+        } else {
+            Some(state.stella_clue_word.as_str())
+        };
+        state.stella_clue_word = self.choose_stella_clue(state, previous_clue);
+        state.round = state.round.saturating_add(1);
+        self.set_stage(state, RoomStage::StellaAssociate);
+        self.clear_ready(state);
+
+        for player in state.player_order.clone().iter() {
+            let _ = self
+                .send_msg(state, player, self.get_msg(Some(player), state)?)
+                .await;
+        }
+        self.broadcast_msg(self.room_state(state))?;
+        Ok(())
+    }
+
     async fn init_round(&self, state: &mut RwLockWriteGuard<'_, RoomState>) -> Result<()> {
+        if matches!(state.game_mode, GameMode::Stella) {
+            return self.init_stella_round(state).await;
+        }
+
         let _promoted = self.promote_requested_observers(state);
 
         if self.non_observer_player_count(state) < 3 {
@@ -2608,7 +3144,7 @@ impl Room {
                     return Ok(());
                 }
 
-                if matches!(state.stage, RoomStage::Results) {
+                if matches!(state.stage, RoomStage::Results | RoomStage::StellaResults) {
                     state
                         .players
                         .get_mut(name)
@@ -2896,6 +3432,238 @@ impl Room {
                 state.allow_new_players_midgame = enabled;
                 self.broadcast_msg(self.room_state(&state))?;
             }
+            ClientMsg::SetGameMode { game_mode } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg("Only moderators can change game mode".to_string())
+                                .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+                if !matches!(state.stage, RoomStage::Joining) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Game mode can only be changed in the lobby".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+                state.game_mode = game_mode;
+                self.clamp_stella_settings(&mut state);
+                self.broadcast_msg(self.room_state(&state))?;
+            }
+            ClientMsg::SetWinCondition { win_condition } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change win condition".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+                if !matches!(state.stage, RoomStage::Joining) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Win condition can only be changed in the lobby".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+                state.win_condition = win_condition;
+                self.broadcast_msg(self.room_state(&state))?;
+            }
+            ClientMsg::SetStellaBoardSize { size } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change Stella board size".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+                if !matches!(state.game_mode, GameMode::Stella) {
+                    return Ok(());
+                }
+                if !matches!(state.stage, RoomStage::Joining | RoomStage::StellaAssociate) {
+                    return Ok(());
+                }
+                state.stella_board_size = size;
+                self.clamp_stella_settings(&mut state);
+                if matches!(state.stage, RoomStage::StellaAssociate) {
+                    self.reset_stella_round_state(&mut state);
+                }
+                self.broadcast_msg(self.room_state(&state))?;
+                if matches!(state.stage, RoomStage::StellaAssociate) {
+                    for player in state.player_order.clone().iter() {
+                        let _ = self
+                            .send_msg(&state, player, self.get_msg(Some(player), &state)?)
+                            .await;
+                    }
+                }
+            }
+            ClientMsg::SetStellaSelectionMin { count } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change Stella selection minimum".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+                if !matches!(state.game_mode, GameMode::Stella) {
+                    return Ok(());
+                }
+                if !matches!(state.stage, RoomStage::Joining | RoomStage::StellaAssociate) {
+                    return Ok(());
+                }
+                state.stella_selection_min = count;
+                self.clamp_stella_settings(&mut state);
+                if matches!(state.stage, RoomStage::StellaAssociate) {
+                    self.reset_stella_round_state(&mut state);
+                }
+                self.broadcast_msg(self.room_state(&state))?;
+            }
+            ClientMsg::SetStellaSelectionMax { count } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change Stella selection maximum".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+                if !matches!(state.game_mode, GameMode::Stella) {
+                    return Ok(());
+                }
+                if !matches!(state.stage, RoomStage::Joining | RoomStage::StellaAssociate) {
+                    return Ok(());
+                }
+                state.stella_selection_max = count;
+                self.clamp_stella_settings(&mut state);
+                if matches!(state.stage, RoomStage::StellaAssociate) {
+                    self.reset_stella_round_state(&mut state);
+                }
+                self.broadcast_msg(self.room_state(&state))?;
+            }
+            ClientMsg::SetStellaWordPack { words } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change Stella word packs".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+                if !matches!(state.game_mode, GameMode::Stella) {
+                    return Ok(());
+                }
+                let words = Self::parse_stella_word_pack(&words);
+                if words.is_empty() {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Word pack must contain at least one word".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+                state.stella_word_pack = words;
+                if matches!(state.stage, RoomStage::StellaAssociate) {
+                    self.reset_stella_round_state(&mut state);
+                }
+                self.broadcast_msg(self.room_state(&state))?;
+            }
+            ClientMsg::ResetStellaClue {} => {
+                if !self.is_moderator(&state, name) || !matches!(state.game_mode, GameMode::Stella)
+                {
+                    return Ok(());
+                }
+                if !matches!(state.stage, RoomStage::StellaAssociate) {
+                    return Ok(());
+                }
+                let previous = state.stella_clue_word.clone();
+                state.stella_clue_word = self.choose_stella_clue(&state, Some(previous.as_str()));
+                self.reset_stella_round_state(&mut state);
+                for player in state.player_order.clone().iter() {
+                    let _ = self
+                        .send_msg(&state, player, self.get_msg(Some(player), &state)?)
+                        .await;
+                }
+                self.broadcast_msg(self.room_state(&state))?;
+            }
+            ClientMsg::ResetStellaBoard {} => {
+                if !self.is_moderator(&state, name) || !matches!(state.game_mode, GameMode::Stella)
+                {
+                    return Ok(());
+                }
+                if !matches!(state.stage, RoomStage::StellaAssociate) {
+                    return Ok(());
+                }
+                self.discard_stella_board(&mut state);
+                self.clamp_stella_settings(&mut state);
+                let board_size = usize::from(state.stella_board_size);
+                self.ensure_deck_size(&mut state, board_size);
+                if state.deck.len() < board_size {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Not enough cards in the deck to reset the Stella board"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+                for _ in 0..board_size {
+                    let Some(card) = state.deck.pop() else {
+                        break;
+                    };
+                    state.stella_board_cards.push(card);
+                }
+                self.reset_stella_round_state(&mut state);
+                for player in state.player_order.clone().iter() {
+                    let _ = self
+                        .send_msg(&state, player, self.get_msg(Some(player), &state)?)
+                        .await;
+                }
+                self.broadcast_msg(self.room_state(&state))?;
+            }
             ClientMsg::SetStorytellerLossComplement { complement } => {
                 if !self.is_moderator(&state, name) {
                     if let Some(tx) = state.player_to_socket.get(name) {
@@ -2954,7 +3722,7 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::ActiveChooses) {
+                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
@@ -2991,7 +3759,7 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::ActiveChooses) {
+                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
@@ -3039,7 +3807,7 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::ActiveChooses) {
+                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
@@ -3077,7 +3845,7 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::ActiveChooses) {
+                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
@@ -3113,7 +3881,7 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::ActiveChooses) {
+                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
@@ -3148,7 +3916,7 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::ActiveChooses) {
+                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
@@ -3183,7 +3951,7 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::ActiveChooses) {
+                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
@@ -3219,7 +3987,7 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::ActiveChooses) {
+                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
@@ -3255,7 +4023,7 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::ActiveChooses) {
+                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
@@ -3292,7 +4060,7 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::ActiveChooses) {
+                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
@@ -3329,7 +4097,7 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::ActiveChooses) {
+                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
@@ -3365,7 +4133,7 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::ActiveChooses) {
+                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
@@ -3401,7 +4169,7 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::ActiveChooses) {
+                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
@@ -3438,7 +4206,7 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::ActiveChooses) {
+                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
@@ -3473,7 +4241,7 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::ActiveChooses) {
+                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
@@ -3509,7 +4277,7 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::ActiveChooses) {
+                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
@@ -3550,7 +4318,7 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::Results) {
+                if !matches!(state.stage, RoomStage::Results | RoomStage::StellaResults) {
                     return Ok(());
                 }
 
@@ -3576,7 +4344,7 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::ActiveChooses) {
+                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
                     return Ok(());
                 }
 
@@ -3695,6 +4463,151 @@ impl Room {
             }
             ClientMsg::SubmitVotes { cards } => {
                 self.submit_votes(&mut state, name, cards).await?;
+            }
+            ClientMsg::SubmitStellaSelection { cards } => {
+                if !state.players.contains_key(name)
+                    || !matches!(state.game_mode, GameMode::Stella)
+                    || !matches!(state.stage, RoomStage::StellaAssociate)
+                {
+                    return Ok(());
+                }
+                let unique = cards.iter().collect::<HashSet<_>>();
+                if unique.len() != cards.len() {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Duplicate Stella selections are not allowed".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+                let (selection_min, _) = self.stella_selection_bounds(&state);
+                let count = cards.len().min(usize::from(u16::MAX)) as u16;
+                if count < selection_min || count > state.stella_selection_max {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(format!(
+                                "Select between {} and {} cards",
+                                state.stella_selection_min, state.stella_selection_max
+                            ))
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+                let allowed_cards = state
+                    .stella_board_cards
+                    .iter()
+                    .cloned()
+                    .collect::<HashSet<_>>();
+                if !cards.iter().all(|card| allowed_cards.contains(card)) {
+                    return Err(anyhow!("Invalid Stella card selection"));
+                }
+                state
+                    .stella_player_selections
+                    .insert(name.to_string(), cards);
+                if let Some(player) = state.players.get_mut(name) {
+                    player.ready = true;
+                }
+                for player in state.player_order.clone().iter() {
+                    let _ = self
+                        .send_msg(&state, player, self.get_msg(Some(player), &state)?)
+                        .await;
+                }
+                self.broadcast_msg(self.room_state(&state))?;
+                if state.players.values().all(|player| player.ready) {
+                    self.init_stella_reveal(&mut state).await?;
+                }
+            }
+            ClientMsg::RevealStellaCard { card } => {
+                if !state.players.contains_key(name)
+                    || !matches!(state.game_mode, GameMode::Stella)
+                    || !matches!(state.stage, RoomStage::StellaReveal)
+                {
+                    return Ok(());
+                }
+                if self.active_player_name(&state) != Some(name) {
+                    return Ok(());
+                }
+                if state
+                    .stella_revealed_cards
+                    .iter()
+                    .any(|revealed| revealed == &card)
+                {
+                    return Ok(());
+                }
+                let selected = state
+                    .stella_player_selections
+                    .get(name)
+                    .cloned()
+                    .unwrap_or_default();
+                if !selected.iter().any(|selected_card| selected_card == &card) {
+                    return Ok(());
+                }
+
+                let matching_other_players = state
+                    .stella_player_selections
+                    .iter()
+                    .filter(|(player, cards)| {
+                        *player != name && cards.iter().any(|value| value == &card)
+                    })
+                    .map(|(player, _)| player.clone())
+                    .collect::<Vec<_>>();
+                let other_count = matching_other_players.len();
+                state.stella_revealed_cards.push(card.clone());
+
+                match other_count {
+                    0 => {
+                        state.stella_card_points.insert(card.clone(), 0);
+                        state.stella_fallen_players.insert(name.to_string());
+                    }
+                    1 => {
+                        state.stella_card_points.insert(card.clone(), 3);
+                        let entry = state
+                            .stella_point_change
+                            .entry(name.to_string())
+                            .or_insert(0);
+                        *entry = entry.saturating_add(3);
+                        let other_player = &matching_other_players[0];
+                        if !state.stella_fallen_players.contains(other_player) {
+                            let entry = state
+                                .stella_point_change
+                                .entry(other_player.clone())
+                                .or_insert(0);
+                            *entry = entry.saturating_add(3);
+                        }
+                    }
+                    _ => {
+                        state.stella_card_points.insert(card.clone(), 2);
+                        let entry = state
+                            .stella_point_change
+                            .entry(name.to_string())
+                            .or_insert(0);
+                        *entry = entry.saturating_add(2);
+                        for other_player in matching_other_players {
+                            if state.stella_fallen_players.contains(&other_player) {
+                                continue;
+                            }
+                            let entry = state.stella_point_change.entry(other_player).or_insert(0);
+                            *entry = entry.saturating_add(2);
+                        }
+                    }
+                }
+
+                if !self.advance_stella_scout(&mut state) {
+                    self.init_stella_results(&mut state)?;
+                } else {
+                    for player in state.player_order.clone().iter() {
+                        let _ = self
+                            .send_msg(&state, player, self.get_msg(Some(player), &state)?)
+                            .await;
+                    }
+                    self.broadcast_msg(self.room_state(&state))?;
+                }
             }
             ClientMsg::Vote { card } => {
                 self.submit_votes(&mut state, name, vec![card]).await?;
@@ -3914,6 +4827,7 @@ impl Room {
                     .keys()
                     .all(|player| self.storyteller_count_for_member(state, player) >= target_cycles)
             }
+            WinCondition::FixedRounds { target_rounds } => state.round >= target_rounds,
             WinCondition::CardsFinish => false,
         }
     }
@@ -4060,6 +4974,7 @@ impl Room {
         self.clamp_votes_per_guesser(&mut state);
         self.clamp_cards_per_hand(&mut state);
         self.clamp_nominations_per_guesser(&mut state);
+        self.clamp_stella_settings(&mut state);
         self.clamp_vote_submission_lengths(&mut state);
         self.clamp_player_nominations_lengths(&mut state);
         self.clean_moderators(&mut state);
@@ -4083,7 +4998,14 @@ impl Room {
             if let Ok(msg) = self.get_msg(Some(&resolved_name), &state) {
                 socket.send(msg.into()).await?;
             }
-        } else if matches!(state.stage, RoomStage::Voting | RoomStage::Results) {
+        } else if matches!(
+            state.stage,
+            RoomStage::Voting
+                | RoomStage::Results
+                | RoomStage::StellaAssociate
+                | RoomStage::StellaReveal
+                | RoomStage::StellaResults
+        ) {
             if let Ok(msg) = self.get_msg(Some(&resolved_name), &state) {
                 socket.send(msg.into()).await?;
             }
@@ -4241,9 +5163,13 @@ impl Room {
                 &state.voting_wrong_card_disable_distribution,
             )
             .unwrap_or_else(|_| DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION.to_vec());
+        let (stella_board_size_min, stella_board_size_max) = self.stella_board_size_bounds();
+        let (stella_selection_count_min, stella_selection_count_max) =
+            self.stella_selection_bounds(state);
 
         ServerMsg::RoomState {
             room_id: state.room_id.clone(),
+            game_mode: state.game_mode,
             players: state.players.clone(),
             observers: state.observers.clone(),
             creator: state.creator.clone(),
@@ -4287,6 +5213,22 @@ impl Room {
             server_time_ms: get_time_ms(),
             current_stage_deadline_s: state.current_stage_deadline_s,
             voting_wrong_card_disable_distribution,
+            stella_board_size: state
+                .stella_board_size
+                .clamp(stella_board_size_min, stella_board_size_max),
+            stella_board_size_min,
+            stella_board_size_max,
+            stella_selection_min: state
+                .stella_selection_min
+                .clamp(stella_selection_count_min, stella_selection_count_max),
+            stella_selection_max: state
+                .stella_selection_max
+                .clamp(stella_selection_count_min, stella_selection_count_max),
+            stella_selection_count_min,
+            stella_selection_count_max,
+            stella_active_clue: state.stella_clue_word.clone(),
+            stella_word_pack_size: state.stella_word_pack.len().min(usize::from(u16::MAX)) as u16,
+            stella_dark_player: state.stella_dark_player.clone(),
         }
     }
 }

@@ -18,7 +18,7 @@
 		type StageCueStage,
 		unlockStageChangeAudio
 	} from '$lib/stageChangeAudio';
-	import type { ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
+	import type { GameMode, ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
 	import { stageChangeSoundCuesEnabled } from '$lib/viewOptions';
 	import GameServer from '$lib/gameServer';
 	import { DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION } from '$lib/votingWrongCardDisableDistribution';
@@ -31,6 +31,9 @@
 	import Paused from './Paused.svelte';
 	import End from './End.svelte';
 	import ScoreCheatsheet from './ScoreCheatsheet.svelte';
+	import StellaAssociate from './StellaAssociate.svelte';
+	import StellaReveal from './StellaReveal.svelte';
+	import StellaResults from './StellaResults.svelte';
 
 	// connection information
 	let name = '';
@@ -46,6 +49,7 @@
 	let players: { [key: string]: PlayerInfo } = {};
 	let observers: { [key: string]: ObserverInfo } = {};
 	let stage: string = 'Joining';
+	let gameMode: GameMode = 'dixit_plus';
 	let creator = '';
 	let moderators: string[] = [];
 	let allowNewPlayersMidgame = true;
@@ -78,6 +82,16 @@
 	let serverTimeMs: number | null = null;
 	let currentStageDeadlineS: number | null = null;
 	let votingWrongCardDisableDistribution = [...DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION];
+	let stellaBoardSize = 15;
+	let stellaBoardSizeMin = 1;
+	let stellaBoardSizeMax = 100;
+	let stellaSelectionMin = 1;
+	let stellaSelectionMax = 10;
+	let stellaSelectionCountMin = 1;
+	let stellaSelectionCountMax = 15;
+	let stellaActiveClue = '';
+	let stellaWordPackSize = 0;
+	let stellaDarkPlayer = '';
 	let activePlayer = '';
 	let description = '';
 	let roundNum = 0;
@@ -100,6 +114,10 @@
 	let playerToVotes: { [key: string]: string[] } = {};
 	let activeCard = '';
 	let pointChange: { [key: string]: number } = {};
+	let stellaSelectedCards: string[] = [];
+	let stellaSelectedCounts: { [key: string]: number } = {};
+	let stellaRevealedCards: string[] = [];
+	let stellaCardPoints: { [key: string]: number } = {};
 	const GAMEPLAY_STAGE_CUES = new Set<StageCueStage>([
 		'ActiveChooses',
 		'PlayersChoose',
@@ -211,6 +229,7 @@
 				const previousDeckRefillCount = deckRefillCount;
 				players = data.RoomState.players;
 				observers = data.RoomState.observers || {};
+				gameMode = data.RoomState.game_mode || 'dixit_plus';
 				creator = data.RoomState.creator || '';
 				moderators = data.RoomState.moderators || [];
 				setStage(data.RoomState.stage, { suppressCue: !hasReceivedRoomState });
@@ -249,6 +268,16 @@
 					.voting_wrong_card_disable_distribution ?? [
 					...DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION
 				];
+				stellaBoardSize = data.RoomState.stella_board_size ?? 15;
+				stellaBoardSizeMin = data.RoomState.stella_board_size_min ?? 1;
+				stellaBoardSizeMax = data.RoomState.stella_board_size_max ?? 100;
+				stellaSelectionMin = data.RoomState.stella_selection_min ?? 1;
+				stellaSelectionMax = data.RoomState.stella_selection_max ?? 10;
+				stellaSelectionCountMin = data.RoomState.stella_selection_count_min ?? 1;
+				stellaSelectionCountMax = data.RoomState.stella_selection_count_max ?? 15;
+				stellaActiveClue = data.RoomState.stella_active_clue || '';
+				stellaWordPackSize = data.RoomState.stella_word_pack_size ?? 0;
+				stellaDarkPlayer = data.RoomState.stella_dark_player || '';
 				activePlayer = data.RoomState.active_player || '';
 				roundNum = data.RoomState.round;
 				cardsRemaining = data.RoomState.cards_remaining || 0;
@@ -294,6 +323,32 @@
 				pointChange = data.Results.point_change;
 				votingDisabledCards = [];
 				storytellerChosenCard = '';
+			} else if (data.StellaAssociate) {
+				setStage('StellaAssociate');
+				displayImages = data.StellaAssociate.board_cards || [];
+				stellaActiveClue = data.StellaAssociate.clue_word || '';
+				stellaSelectedCards = data.StellaAssociate.selected_cards || [];
+				stellaSelectedCounts = {};
+				stellaRevealedCards = [];
+				stellaCardPoints = {};
+			} else if (data.StellaReveal) {
+				setStage('StellaReveal');
+				displayImages = data.StellaReveal.board_cards || [];
+				stellaActiveClue = data.StellaReveal.clue_word || '';
+				stellaSelectedCards = data.StellaReveal.selected_cards || [];
+				stellaSelectedCounts = data.StellaReveal.selected_counts || {};
+				stellaRevealedCards = data.StellaReveal.revealed_cards || [];
+				stellaCardPoints = data.StellaReveal.card_points || {};
+				stellaDarkPlayer = data.StellaReveal.dark_player || stellaDarkPlayer;
+			} else if (data.StellaResults) {
+				setStage('StellaResults');
+				displayImages = data.StellaResults.board_cards || [];
+				stellaActiveClue = data.StellaResults.clue_word || '';
+				stellaSelectedCounts = data.StellaResults.selected_counts || {};
+				stellaRevealedCards = data.StellaResults.revealed_cards || [];
+				stellaCardPoints = data.StellaResults.card_points || {};
+				pointChange = data.StellaResults.point_change || {};
+				stellaDarkPlayer = data.StellaResults.dark_player || stellaDarkPlayer;
 			} else if (data.ErrorMsg) {
 				toastStore.trigger({
 					message: '😭 ' + data.ErrorMsg,
@@ -354,12 +409,127 @@
 				{gameServer}
 				{players}
 				{roomCode}
+				{stage}
+				{gameMode}
 				{winCondition}
 				{creator}
 				{moderators}
+				{cardsPerHand}
+				{cardsPerHandMin}
+				{cardsPerHandMax}
+				{stellaBoardSize}
+				{stellaBoardSizeMin}
+				{stellaBoardSizeMax}
+				{stellaSelectionMin}
+				{stellaSelectionMax}
+				{stellaSelectionCountMin}
+				{stellaSelectionCountMax}
+				{stellaWordPackSize}
 				roomStateLoaded={hasReceivedRoomState}
 			/>
 		</div>
+	{:else if stage === 'StellaAssociate'}
+		<StellaAssociate
+			{displayImages}
+			{name}
+			{creator}
+			{moderators}
+			{observers}
+			{activePlayer}
+			{gameServer}
+			{players}
+			{allowNewPlayersMidgame}
+			{storytellerLossComplement}
+			{storytellerLossComplementMin}
+			{storytellerLossComplementMax}
+			{storytellerLossComplementAuto}
+			{votesPerGuesser}
+			{votesPerGuesserMin}
+			{votesPerGuesserMax}
+			{cardsPerHand}
+			{cardsPerHandMin}
+			{cardsPerHandMax}
+			{nominationsPerGuesser}
+			{nominationsPerGuesserMin}
+			{nominationsPerGuesserMax}
+			{bonusCorrectGuessOnThresholdCorrectLoss}
+			{bonusDoubleVoteOnThresholdCorrectLoss}
+			{showVotingCardNumbers}
+			{roundStartDiscardCount}
+			{hintChoosingTimerEnabled}
+			{hintChoosingTimerDurationS}
+			{cardChoosingTimerEnabled}
+			{cardChoosingTimerDurationS}
+			{votingTimerEnabled}
+			{votingTimerDurationS}
+			{forceCardChoosingTimer}
+			{forceVotingTimer}
+			{serverTimeMs}
+			{currentStageDeadlineS}
+			{votingWrongCardDisableDistribution}
+			{stage}
+			{pointChange}
+			{roundNum}
+			{cardsRemaining}
+			{deckRefillFlashToken}
+			{winCondition}
+			{gameMode}
+			clueWord={stellaActiveClue}
+			selectedCards={stellaSelectedCards}
+		/>
+	{:else if stage === 'StellaReveal'}
+		<StellaReveal
+			{displayImages}
+			{name}
+			{creator}
+			{moderators}
+			{observers}
+			{activePlayer}
+			{gameServer}
+			{players}
+			{allowNewPlayersMidgame}
+			{storytellerLossComplement}
+			{storytellerLossComplementMin}
+			{storytellerLossComplementMax}
+			{storytellerLossComplementAuto}
+			{votesPerGuesser}
+			{votesPerGuesserMin}
+			{votesPerGuesserMax}
+			{cardsPerHand}
+			{cardsPerHandMin}
+			{cardsPerHandMax}
+			{nominationsPerGuesser}
+			{nominationsPerGuesserMin}
+			{nominationsPerGuesserMax}
+			{bonusCorrectGuessOnThresholdCorrectLoss}
+			{bonusDoubleVoteOnThresholdCorrectLoss}
+			{showVotingCardNumbers}
+			{roundStartDiscardCount}
+			{hintChoosingTimerEnabled}
+			{hintChoosingTimerDurationS}
+			{cardChoosingTimerEnabled}
+			{cardChoosingTimerDurationS}
+			{votingTimerEnabled}
+			{votingTimerDurationS}
+			{forceCardChoosingTimer}
+			{forceVotingTimer}
+			{serverTimeMs}
+			{currentStageDeadlineS}
+			{votingWrongCardDisableDistribution}
+			{stage}
+			{pointChange}
+			{roundNum}
+			{cardsRemaining}
+			{deckRefillFlashToken}
+			{winCondition}
+			{gameMode}
+			clueWord={stellaActiveClue}
+			selectedCards={stellaSelectedCards}
+			selectedCounts={stellaSelectedCounts}
+			revealedCards={stellaRevealedCards}
+			cardPoints={stellaCardPoints}
+			darkPlayer={stellaDarkPlayer}
+		/>
 	{:else if stage === 'ActiveChooses'}
 		<ActiveChooses
 			{displayImages}
@@ -551,6 +721,56 @@
 			{deckRefillFlashToken}
 			{winCondition}
 		/>
+	{:else if stage === 'StellaResults'}
+		<StellaResults
+			{displayImages}
+			{name}
+			{creator}
+			{moderators}
+			{observers}
+			{activePlayer}
+			{gameServer}
+			{players}
+			{allowNewPlayersMidgame}
+			{storytellerLossComplement}
+			{storytellerLossComplementMin}
+			{storytellerLossComplementMax}
+			{storytellerLossComplementAuto}
+			{votesPerGuesser}
+			{votesPerGuesserMin}
+			{votesPerGuesserMax}
+			{cardsPerHand}
+			{cardsPerHandMin}
+			{cardsPerHandMax}
+			{nominationsPerGuesser}
+			{nominationsPerGuesserMin}
+			{nominationsPerGuesserMax}
+			{bonusCorrectGuessOnThresholdCorrectLoss}
+			{bonusDoubleVoteOnThresholdCorrectLoss}
+			{showVotingCardNumbers}
+			{roundStartDiscardCount}
+			{hintChoosingTimerEnabled}
+			{hintChoosingTimerDurationS}
+			{cardChoosingTimerEnabled}
+			{cardChoosingTimerDurationS}
+			{votingTimerEnabled}
+			{votingTimerDurationS}
+			{forceCardChoosingTimer}
+			{forceVotingTimer}
+			{serverTimeMs}
+			{currentStageDeadlineS}
+			{votingWrongCardDisableDistribution}
+			{stage}
+			{pointChange}
+			{roundNum}
+			{cardsRemaining}
+			{deckRefillFlashToken}
+			{winCondition}
+			{gameMode}
+			clueWord={stellaActiveClue}
+			revealedCards={stellaRevealedCards}
+			darkPlayer={stellaDarkPlayer}
+		/>
 	{:else if stage === 'Paused'}
 		<Paused
 			{name}
@@ -602,6 +822,7 @@
 	{#if stage === 'Joining' || stage === 'End'}
 		<div class="mx-auto mt-4 max-w-[680px] px-3 pb-6 lg:px-6">
 			<ScoreCheatsheet
+				{gameMode}
 				{activePlayer}
 				{votesPerGuesser}
 				{votesPerGuesserMax}

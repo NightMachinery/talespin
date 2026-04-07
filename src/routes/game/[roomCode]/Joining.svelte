@@ -1,29 +1,73 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import type GameServer from '$lib/gameServer';
-	import type { PlayerInfo, WinCondition } from '$lib/types';
+	import type { GameMode, PlayerInfo, WinCondition } from '$lib/types';
 	import { Avatar, getToastStore } from '@skeletonlabs/skeleton';
 
 	export let players: { [key: string]: PlayerInfo } = {};
-	export let roomCode: string = '';
+	export let roomCode = '';
 	export let gameServer: GameServer;
 	export let name = '';
 	export let roomStateLoaded = false;
 	export let creator = '';
 	export let moderators: string[] = [];
-	export let winCondition: WinCondition = {
-		mode: 'points',
-		target_points: 10
-	};
+	export let stage = 'Joining';
+	export let gameMode: GameMode = 'dixit_plus';
+	export let winCondition: WinCondition = { mode: 'cards_finish' };
+	export let cardsPerHand = 12;
+	export let cardsPerHandMin = 1;
+	export let cardsPerHandMax = 100;
+	export let stellaBoardSize = 15;
+	export let stellaBoardSizeMin = 1;
+	export let stellaBoardSizeMax = 100;
+	export let stellaSelectionMin = 1;
+	export let stellaSelectionMax = 10;
+	export let stellaSelectionCountMin = 1;
+	export let stellaSelectionCountMax = 15;
+	export let stellaWordPackSize = 0;
+
 	const toastStore = getToastStore();
+	const LOCAL_STELLA_PACKS_KEY = 'stella_word_pack_presets';
 	$: playerEntries = Object.entries(players);
 	$: moderatorSet = new Set(moderators);
 	$: isCreator = creator !== '' && creator === name;
 	$: isModerator = moderatorSet.has(name);
 	$: canStart = roomStateLoaded && isModerator && playerEntries.length >= 3;
+	$: canEditSettings = roomStateLoaded && isModerator && stage === 'Joining';
+	$: showSettings = roomStateLoaded;
+	$: activeWinMode = winCondition.mode;
+	let localTargetPoints = 10;
+	let localTargetCycles = 3;
+	let localTargetRounds = 4;
+	let localWordPackText = '';
+	let newPresetName = '';
+	let savedPresets: { name: string; words: string }[] = [];
+	let selectedPresetName = '';
 
-	function getInitialsFromString(name: string) {
-		return name
+	$: if (winCondition.mode === 'points') localTargetPoints = winCondition.target_points;
+	$: if (winCondition.mode === 'cycles') localTargetCycles = winCondition.target_cycles;
+	$: if (winCondition.mode === 'fixed_rounds') localTargetRounds = winCondition.target_rounds;
+
+	function loadPresets() {
+		if (!browser) return;
+		try {
+			savedPresets = JSON.parse(window.localStorage.getItem(LOCAL_STELLA_PACKS_KEY) || '[]');
+		} catch {
+			savedPresets = [];
+		}
+	}
+
+	function savePresets() {
+		if (!browser) return;
+		window.localStorage.setItem(LOCAL_STELLA_PACKS_KEY, JSON.stringify(savedPresets));
+	}
+
+	if (browser) {
+		loadPresets();
+	}
+
+	function getInitialsFromString(playerName: string) {
+		return playerName
 			.split(' ')
 			.map((n) => n[0])
 			.join('');
@@ -33,21 +77,12 @@
 		if (!browser) return '';
 		const inviteUrl = new URL('/', window.location.origin);
 		inviteUrl.searchParams.set('room', roomCode);
-		inviteUrl.searchParams.set('win_mode', winCondition.mode);
-
-		if (winCondition.mode === 'points') {
-			inviteUrl.searchParams.set('target_points', String(winCondition.target_points));
-		} else if (winCondition.mode === 'cycles') {
-			inviteUrl.searchParams.set('target_cycles', String(winCondition.target_cycles));
-		}
-
 		return inviteUrl.toString();
 	}
 
 	async function copyInviteLink() {
 		const inviteLink = getInviteLink();
 		if (!inviteLink) return;
-
 		try {
 			await navigator.clipboard.writeText(inviteLink);
 		} catch {
@@ -61,12 +96,7 @@
 			document.execCommand('copy');
 			document.body.removeChild(textArea);
 		}
-
-		toastStore.trigger({
-			message: '🔗 Invite link copied',
-			autohide: true,
-			timeout: 2000
-		});
+		toastStore.trigger({ message: '🔗 Invite link copied', autohide: true, timeout: 2000 });
 	}
 
 	function startGame() {
@@ -93,86 +123,404 @@
 		}
 		gameServer.setModerator(playerName, enabled);
 	}
+
+	function updateGameMode(event: Event) {
+		const input = event.currentTarget as HTMLSelectElement;
+		if (!canEditSettings) return;
+		gameServer.setGameMode(input.value as GameMode);
+	}
+
+	function updateWinMode(event: Event) {
+		const input = event.currentTarget as HTMLSelectElement;
+		if (!canEditSettings) return;
+		const mode = input.value as WinCondition['mode'];
+		if (mode === 'points') {
+			gameServer.setWinCondition({ mode, target_points: localTargetPoints });
+		} else if (mode === 'cycles') {
+			gameServer.setWinCondition({ mode, target_cycles: localTargetCycles });
+		} else if (mode === 'fixed_rounds') {
+			gameServer.setWinCondition({ mode, target_rounds: localTargetRounds });
+		} else {
+			gameServer.setWinCondition({ mode });
+		}
+	}
+
+	function updateTargetValue(mode: WinCondition['mode'], value: number) {
+		if (!canEditSettings) return;
+		const normalized = Math.max(1, Math.floor(value || 1));
+		if (mode === 'points') {
+			gameServer.setWinCondition({ mode, target_points: normalized });
+		} else if (mode === 'cycles') {
+			gameServer.setWinCondition({ mode, target_cycles: normalized });
+		} else if (mode === 'fixed_rounds') {
+			gameServer.setWinCondition({ mode, target_rounds: normalized });
+		}
+	}
+
+	function updatePointsTarget(event: Event) {
+		updateTargetValue('points', Number((event.currentTarget as HTMLInputElement).value));
+	}
+
+	function updateCyclesTarget(event: Event) {
+		updateTargetValue('cycles', Number((event.currentTarget as HTMLInputElement).value));
+	}
+
+	function updateRoundsTarget(event: Event) {
+		updateTargetValue('fixed_rounds', Number((event.currentTarget as HTMLInputElement).value));
+	}
+
+	function updateCardsPerHand(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const value = Number(input.value);
+		if (!canEditSettings || !Number.isInteger(value)) return;
+		gameServer.setCardsPerHand(value);
+	}
+
+	function updateStellaBoardSize(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const value = Number(input.value);
+		if (!canEditSettings || !Number.isInteger(value)) return;
+		gameServer.setStellaBoardSize(value);
+	}
+
+	function updateStellaSelectionMin(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const value = Number(input.value);
+		if (!canEditSettings || !Number.isInteger(value)) return;
+		gameServer.setStellaSelectionMin(value);
+	}
+
+	function updateStellaSelectionMax(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const value = Number(input.value);
+		if (!canEditSettings || !Number.isInteger(value)) return;
+		gameServer.setStellaSelectionMax(value);
+	}
+
+	function applyWordPack() {
+		if (!canEditSettings) return;
+		gameServer.setStellaWordPack(localWordPackText);
+	}
+
+	function saveCurrentPreset() {
+		if (!browser) return;
+		const name = newPresetName.trim();
+		if (!name || !localWordPackText.trim()) return;
+		savedPresets = [
+			...savedPresets.filter((preset) => preset.name !== name),
+			{ name, words: localWordPackText }
+		].sort((a, b) => a.name.localeCompare(b.name));
+		savePresets();
+		selectedPresetName = name;
+		newPresetName = '';
+	}
+
+	function loadSelectedPreset() {
+		const preset = savedPresets.find((entry) => entry.name === selectedPresetName);
+		if (preset) {
+			localWordPackText = preset.words;
+		}
+	}
+
+	function deleteSelectedPreset() {
+		savedPresets = savedPresets.filter((preset) => preset.name !== selectedPresetName);
+		savePresets();
+		selectedPresetName = '';
+	}
+
+	async function importWordPack(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const file = input.files?.[0];
+		if (!file) return;
+		localWordPackText = await file.text();
+		input.value = '';
+	}
+
+	function exportSelectedPreset() {
+		if (!browser) return;
+		const preset = savedPresets.find((entry) => entry.name === selectedPresetName);
+		if (!preset) return;
+		const blob = new Blob([preset.words], { type: 'text/plain;charset=utf-8' });
+		const url = URL.createObjectURL(blob);
+		const link = document.createElement('a');
+		link.href = url;
+		link.download = `${preset.name}.txt`;
+		link.click();
+		URL.revokeObjectURL(url);
+	}
 </script>
 
-<div class="m-auto w-80/10">
-	<div class="max-w-md mx-auto">
-		<h1 class="text-3xl text-center">Hi {name}, let's play Talespin!</h1>
-		<h2 class="text-xl text-center">
-			You are in room
-			<code class="code text-lg">{roomCode}</code>
-		</h2>
-		<p class="mt-1 text-center text-sm opacity-70">Players in lobby: {playerEntries.length}</p>
-		<div class="flex justify-center mt-4">
-			<button
-				class="btn variant-filled"
-				disabled={!roomStateLoaded}
-				on:click={() => copyInviteLink()}
-			>
-				Copy Invite Link
-			</button>
-		</div>
-		<div class="container mt-10 flex flex-col gap-3">
-			{#each playerEntries as [playerName, value]}
-				<div class="card p-3">
-					<div class="flex items-center justify-between gap-3">
-						<div class="flex items-center gap-3">
-							<Avatar
-								initials={getInitialsFromString(playerName)}
-								background={value.ready ? 'bg-success-500' : 'bg-error-500'}
-							/>
-							<div class="font-bold">
-								{playerName}
-								{#if playerName === creator}
-									<span class="ml-2 text-xs font-normal opacity-70">(creator)</span>
-								{:else if isPlayerModerator(playerName)}
-									<span class="ml-2 text-xs font-normal opacity-70">(mod)</span>
+<div class="m-auto w-full max-w-6xl px-4">
+	<div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+		<div>
+			<div class="max-w-md mx-auto lg:mx-0">
+				<h1 class="text-3xl text-center lg:text-left">Hi {name}, let's play Talespin!</h1>
+				<h2 class="text-xl text-center lg:text-left">
+					You are in room <code class="code text-lg">{roomCode}</code>
+				</h2>
+				<p class="mt-1 text-center text-sm opacity-70 lg:text-left">
+					Players in lobby: {playerEntries.length}
+				</p>
+				<div class="flex justify-center mt-4 lg:justify-start">
+					<button class="btn variant-filled" disabled={!roomStateLoaded} on:click={copyInviteLink}
+						>Copy Invite Link</button
+					>
+				</div>
+			</div>
+
+			<div class="container mt-10 flex flex-col gap-3">
+				{#each playerEntries as [playerName, value]}
+					<div class="card p-3">
+						<div class="flex items-center justify-between gap-3">
+							<div class="flex items-center gap-3">
+								<Avatar
+									initials={getInitialsFromString(playerName)}
+									background={value.ready ? 'bg-success-500' : 'bg-error-500'}
+								/>
+								<div class="font-bold">
+									{playerName}
+									{#if playerName === creator}
+										<span class="ml-2 text-xs font-normal opacity-70">(creator)</span>
+									{:else if isPlayerModerator(playerName)}
+										<span class="ml-2 text-xs font-normal opacity-70">(mod)</span>
+									{/if}
+								</div>
+							</div>
+							<div class="flex items-center gap-2">
+								{#if playerName !== creator}
+									{#if isCreator && isPlayerModerator(playerName)}
+										<button
+											class="btn variant-filled px-3 py-1 text-sm"
+											on:click={() => setModerator(playerName, false)}>Demote</button
+										>
+									{:else if (isCreator || isModerator) && !isPlayerModerator(playerName)}
+										<button
+											class="btn variant-filled px-3 py-1 text-sm"
+											on:click={() => setModerator(playerName, true)}>Make Mod</button
+										>
+									{/if}
+								{/if}
+								{#if isModerator && playerName !== name}
+									<button
+										class="btn variant-filled px-3 py-1 text-sm"
+										on:click={() => kickPlayer(playerName)}>Kick</button
+									>
 								{/if}
 							</div>
 						</div>
-						<div class="flex items-center gap-2">
-							{#if playerName !== creator}
-								{#if isCreator && isPlayerModerator(playerName)}
-									<button
-										class="btn variant-filled px-3 py-1 text-sm"
-										on:click={() => setModerator(playerName, false)}
-									>
-										Demote
-									</button>
-								{:else if (isCreator || isModerator) && !isPlayerModerator(playerName)}
-									<button
-										class="btn variant-filled px-3 py-1 text-sm"
-										on:click={() => setModerator(playerName, true)}
-									>
-										Make Mod
-									</button>
-								{/if}
-							{/if}
-							{#if isModerator && playerName !== name}
-								<button
-									class="btn variant-filled px-3 py-1 text-sm"
-									on:click={() => kickPlayer(playerName)}
-								>
-									Kick
-								</button>
-							{/if}
-						</div>
 					</div>
-				</div>
-			{/each}
+				{/each}
+			</div>
 		</div>
 
-		<div class="flex flex-col gap-2 mt-10">
-			{#if isModerator}
-				<button class="btn variant-filled" disabled={!canStart} on:click={startGame}
-					>Start Game</button
-				>
-				{#if playerEntries.length < 3}
-					<p class="text-center text-sm opacity-70">Need at least 3 players to start.</p>
-				{/if}
-			{:else}
-				<p class="text-center text-sm opacity-70">Waiting for a moderator to start the game.</p>
+		<div class="space-y-4">
+			{#if showSettings}
+				<div class="card p-4 space-y-4">
+					<h2 class="text-xl font-semibold">Room settings</h2>
+					<div>
+						<label class="text-sm font-semibold" for="gameMode">Game mode</label>
+						<select
+							id="gameMode"
+							class="mt-1 w-full rounded border px-3 py-2 text-gray-700"
+							value={gameMode}
+							on:change={updateGameMode}
+							disabled={!canEditSettings}
+						>
+							<option value="dixit_plus">Dixit+</option>
+							<option value="stella">Stella</option>
+						</select>
+					</div>
+					<div>
+						<label class="text-sm font-semibold" for="winMode">Win condition</label>
+						<select
+							id="winMode"
+							class="mt-1 w-full rounded border px-3 py-2 text-gray-700"
+							value={activeWinMode}
+							on:change={updateWinMode}
+							disabled={!canEditSettings}
+						>
+							<option value="cards_finish">Cards finish</option>
+							<option value="points">Points</option>
+							<option value="cycles">Cycles</option>
+							<option value="fixed_rounds">Fixed rounds</option>
+						</select>
+						{#if activeWinMode === 'points'}
+							<input
+								class="mt-2 w-full rounded border px-3 py-2 text-gray-700"
+								type="number"
+								min="1"
+								value={localTargetPoints}
+								on:change={updatePointsTarget}
+								disabled={!canEditSettings}
+							/>
+						{:else if activeWinMode === 'cycles'}
+							<input
+								class="mt-2 w-full rounded border px-3 py-2 text-gray-700"
+								type="number"
+								min="1"
+								value={localTargetCycles}
+								on:change={updateCyclesTarget}
+								disabled={!canEditSettings}
+							/>
+						{:else if activeWinMode === 'fixed_rounds'}
+							<input
+								class="mt-2 w-full rounded border px-3 py-2 text-gray-700"
+								type="number"
+								min="1"
+								value={localTargetRounds}
+								on:change={updateRoundsTarget}
+								disabled={!canEditSettings}
+							/>
+						{/if}
+					</div>
+
+					{#if gameMode === 'dixit_plus'}
+						<div>
+							<label class="text-sm font-semibold" for="cardsPerHand">Cards per hand</label>
+							<input
+								id="cardsPerHand"
+								class="mt-1 w-full rounded border px-3 py-2 text-gray-700"
+								type="number"
+								min={cardsPerHandMin}
+								max={cardsPerHandMax}
+								value={cardsPerHand}
+								on:change={updateCardsPerHand}
+								disabled={!canEditSettings}
+							/>
+							<p class="mt-1 text-xs opacity-70">Range: {cardsPerHandMin}–{cardsPerHandMax}</p>
+						</div>
+					{:else}
+						<div class="space-y-3">
+							<div>
+								<label class="text-sm font-semibold" for="stellaBoardSize">Board size</label>
+								<input
+									id="stellaBoardSize"
+									class="mt-1 w-full rounded border px-3 py-2 text-gray-700"
+									type="number"
+									min={stellaBoardSizeMin}
+									max={stellaBoardSizeMax}
+									value={stellaBoardSize}
+									on:change={updateStellaBoardSize}
+									disabled={!canEditSettings}
+								/>
+								<p class="mt-1 text-xs opacity-70">
+									Range: {stellaBoardSizeMin}–{stellaBoardSizeMax}
+								</p>
+							</div>
+							<div class="grid grid-cols-2 gap-3">
+								<div>
+									<label class="text-sm font-semibold" for="stellaSelectionMin">Selection min</label
+									>
+									<input
+										id="stellaSelectionMin"
+										class="mt-1 w-full rounded border px-3 py-2 text-gray-700"
+										type="number"
+										min={stellaSelectionCountMin}
+										max={stellaSelectionCountMax}
+										value={stellaSelectionMin}
+										on:change={updateStellaSelectionMin}
+										disabled={!canEditSettings}
+									/>
+								</div>
+								<div>
+									<label class="text-sm font-semibold" for="stellaSelectionMax">Selection max</label
+									>
+									<input
+										id="stellaSelectionMax"
+										class="mt-1 w-full rounded border px-3 py-2 text-gray-700"
+										type="number"
+										min={stellaSelectionCountMin}
+										max={stellaSelectionCountMax}
+										value={stellaSelectionMax}
+										on:change={updateStellaSelectionMax}
+										disabled={!canEditSettings}
+									/>
+								</div>
+							</div>
+							<div class="rounded border border-white/20 p-3 space-y-2">
+								<div class="flex items-center justify-between gap-2">
+									<h3 class="font-semibold">Word pack</h3>
+									<span class="text-xs opacity-70">Current pack size: {stellaWordPackSize}</span>
+								</div>
+								<textarea
+									class="w-full rounded border px-3 py-2 text-gray-700 min-h-[160px]"
+									bind:value={localWordPackText}
+									placeholder="One clue word per line"
+									disabled={!canEditSettings}
+								></textarea>
+								<div class="flex flex-wrap gap-2">
+									<input
+										type="file"
+										accept=".txt,text/plain"
+										on:change={importWordPack}
+										disabled={!canEditSettings}
+									/>
+									<button
+										class="btn variant-filled"
+										on:click={applyWordPack}
+										disabled={!canEditSettings}>Apply to room</button
+									>
+								</div>
+								<div class="grid grid-cols-[1fr_auto] gap-2">
+									<input
+										class="rounded border px-3 py-2 text-gray-700"
+										placeholder="Preset name"
+										bind:value={newPresetName}
+									/>
+									<button class="btn variant-filled" on:click={saveCurrentPreset}
+										>Save preset</button
+									>
+								</div>
+								<div class="flex flex-wrap gap-2 items-center">
+									<select
+										class="rounded border px-3 py-2 text-gray-700 min-w-[180px]"
+										bind:value={selectedPresetName}
+									>
+										<option value="">Saved local presets</option>
+										{#each savedPresets as preset}
+											<option value={preset.name}>{preset.name}</option>
+										{/each}
+									</select>
+									<button
+										class="btn variant-filled"
+										on:click={loadSelectedPreset}
+										disabled={!selectedPresetName}>Load</button
+									>
+									<button
+										class="btn variant-filled"
+										on:click={exportSelectedPreset}
+										disabled={!selectedPresetName}>Export</button
+									>
+									<button
+										class="btn variant-filled"
+										on:click={deleteSelectedPreset}
+										disabled={!selectedPresetName}>Delete</button
+									>
+								</div>
+							</div>
+						</div>
+					{/if}
+
+					{#if !canEditSettings}
+						<p class="text-xs opacity-70">
+							Only moderators can edit room settings. Everyone else sees the live room config here.
+						</p>
+					{/if}
+				</div>
 			{/if}
+
+			<div class="card p-4 space-y-2">
+				{#if isModerator}
+					<button class="btn variant-filled w-full" disabled={!canStart} on:click={startGame}
+						>Start Game</button
+					>
+					{#if playerEntries.length < 3}
+						<p class="text-center text-sm opacity-70">Need at least 3 players to start.</p>
+					{/if}
+				{:else}
+					<p class="text-center text-sm opacity-70">Waiting for a moderator to start the game.</p>
+				{/if}
+			</div>
 		</div>
 	</div>
 </div>

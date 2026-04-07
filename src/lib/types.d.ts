@@ -11,6 +11,8 @@ export interface ObserverInfo {
 	auto_join_on_next_round: boolean;
 }
 
+export type GameMode = 'dixit_plus' | 'stella';
+
 export type WinCondition =
 	| {
 			mode: 'points';
@@ -19,6 +21,10 @@ export type WinCondition =
 	| {
 			mode: 'cycles';
 			target_cycles: number;
+	  }
+	| {
+			mode: 'fixed_rounds';
+			target_rounds: number;
 	  }
 	| {
 			mode: 'cards_finish';

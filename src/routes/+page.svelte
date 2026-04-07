@@ -7,9 +7,6 @@
 	import { nameStore } from '$lib/store';
 	import { get } from 'svelte/store';
 	import { http_host } from '$lib/gameServer';
-	import type { WinCondition } from '$lib/types';
-
-	type LobbyWinMode = WinCondition['mode'];
 
 	let name = get(nameStore) || '';
 	let roomCode = '';
@@ -17,9 +14,6 @@
 	let joinGameClicked = false;
 	let lockedRoomCode = false;
 	let toastStore = getToastStore();
-	let winMode: LobbyWinMode = 'cards_finish';
-	let targetPoints = 10;
-	let targetCycles = 3;
 
 	$: nameStore.set(name);
 
@@ -30,51 +24,8 @@
 			roomCode = linkedRoomCode;
 			joinGameClicked = true;
 			lockedRoomCode = true;
-
-			const linkedWinMode = (url.searchParams.get('win_mode') || '').trim().toLowerCase();
-			if (linkedWinMode === 'cycles') {
-				winMode = 'cycles';
-				targetCycles = normalizedPositiveInt(
-					Number(url.searchParams.get('target_cycles') || ''),
-					targetCycles
-				);
-			} else if (linkedWinMode === 'cards_finish') {
-				winMode = 'cards_finish';
-			} else if (linkedWinMode === 'points') {
-				winMode = 'points';
-				targetPoints = normalizedPositiveInt(
-					Number(url.searchParams.get('target_points') || ''),
-					targetPoints
-				);
-			}
 		}
 	});
-
-	function normalizedPositiveInt(value: number, fallback: number): number {
-		const normalized = Math.floor(value);
-		if (!Number.isFinite(normalized) || normalized <= 0) {
-			return fallback;
-		}
-		return normalized;
-	}
-
-	function getWinConditionPayload(): WinCondition {
-		if (winMode === 'cycles') {
-			return {
-				mode: 'cycles',
-				target_cycles: normalizedPositiveInt(targetCycles, 3)
-			};
-		}
-
-		if (winMode === 'cards_finish') {
-			return { mode: 'cards_finish' };
-		}
-
-		return {
-			mode: 'points',
-			target_points: normalizedPositiveInt(targetPoints, 10)
-		};
-	}
 
 	async function createGame() {
 		if (lockedRoomCode) {
@@ -92,7 +43,6 @@
 				'Content-Type': 'application/json'
 			},
 			body: JSON.stringify({
-				win_condition: getWinConditionPayload(),
 				creator_name: name.trim(),
 				...(trimmedPassword !== '' ? { password: trimmedPassword } : {})
 			})
@@ -182,48 +132,6 @@
 				bind:value={roomPassword}
 				class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
 			/>
-		</div>
-
-		<div class="mb-4 space-y-3">
-			<label for="winMode">Win Condition:</label>
-			<select
-				id="winMode"
-				bind:value={winMode}
-				disabled={lockedRoomCode}
-				class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-			>
-				<option value="points">Points target</option>
-				<option value="cycles">Storyteller cycles</option>
-				<option value="cards_finish">Cards finish</option>
-			</select>
-
-			{#if winMode === 'points'}
-				<div>
-					<label for="targetPoints">Winning points:</label>
-					<input
-						type="number"
-						id="targetPoints"
-						min="1"
-						step="1"
-						bind:value={targetPoints}
-						disabled={lockedRoomCode}
-						class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-					/>
-				</div>
-			{:else if winMode === 'cycles'}
-				<div>
-					<label for="targetCycles">Full storyteller cycles:</label>
-					<input
-						type="number"
-						id="targetCycles"
-						min="1"
-						step="1"
-						bind:value={targetCycles}
-						disabled={lockedRoomCode}
-						class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-					/>
-				</div>
-			{/if}
 		</div>
 
 		<div class="flex justify-between mb-4">

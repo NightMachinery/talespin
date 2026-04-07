@@ -5,7 +5,7 @@
 	import Leaderboard from './Leaderboard.svelte';
 	import SidebarOptions from './SidebarOptions.svelte';
 	import ScoreCheatsheet from './ScoreCheatsheet.svelte';
-	import type { ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
+	import type { GameMode, ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
 
 	export let players: { [key: string]: PlayerInfo } = {};
 	export let observers: { [key: string]: ObserverInfo } = {};
@@ -52,6 +52,7 @@
 		mode: 'points',
 		target_points: 10
 	};
+	export let gameMode: GameMode = 'dixit_plus';
 	export let showMobileActions = true;
 
 	const hasMobileTop = !!$$slots.mobileTop;
@@ -102,11 +103,15 @@
 	$: stageTimerLabel =
 		stage === 'ActiveChooses'
 			? 'Hint timer'
-			: stage === 'PlayersChoose'
-				? 'Card choosing timer'
-				: stage === 'Voting'
-					? 'Voting timer'
-					: 'Stage timer';
+			: stage === 'StellaAssociate'
+				? 'Associate timer'
+				: stage === 'PlayersChoose'
+					? 'Card choosing timer'
+					: stage === 'StellaReveal'
+						? 'Reveal timer'
+						: stage === 'Voting'
+							? 'Voting timer'
+							: 'Stage timer';
 	$: stageTimerDisplay = formatCountdown(remainingStageTimerSeconds);
 	$: stageTimerExpired = hasStageTimer && remainingStageTimerSeconds === 0;
 </script>
@@ -280,6 +285,7 @@
 
 					<div>
 						<ScoreCheatsheet
+							{gameMode}
 							{activePlayer}
 							{votesPerGuesser}
 							{votesPerGuesserMax}

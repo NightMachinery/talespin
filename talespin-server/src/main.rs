@@ -924,6 +924,12 @@ fn validate_win_condition(win_condition: WinCondition) -> Result<WinCondition> {
             }
             Ok(WinCondition::Cycles { target_cycles })
         }
+        WinCondition::FixedRounds { target_rounds } => {
+            if target_rounds == 0 {
+                return Err(anyhow!("target_rounds must be >= 1"));
+            }
+            Ok(WinCondition::FixedRounds { target_rounds })
+        }
         WinCondition::CardsFinish => Ok(WinCondition::CardsFinish),
     }
 }
