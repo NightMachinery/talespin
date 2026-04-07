@@ -7,7 +7,8 @@
 	import {
 		cardsFitToHeight,
 		hideNonSelectedStellaRevealCards,
-		stageChangeSoundCuesEnabled
+		stageChangeSoundCuesEnabled,
+		transparentCardNameOverlays
 	} from '$lib/viewOptions';
 	import {
 		DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION,
@@ -478,6 +479,19 @@
 			{#if !supportsStageChangeAudio}
 				<p class="mt-1 text-xs opacity-70">Not supported in this browser.</p>
 			{/if}
+		</div>
+	</label>
+	<label class="flex items-start gap-3">
+		<input
+			type="checkbox"
+			class="mt-1 h-4 w-4 cursor-pointer accent-primary-500"
+			bind:checked={$transparentCardNameOverlays}
+		/>
+		<div>
+			<span class="block font-medium">Transparent card name overlays</span>
+			<p class="text-xs opacity-70">
+				Local view option for Dixit results and Stella revealed-card chooser labels.
+			</p>
 		</div>
 	</label>
 	{#if isStellaMode && stage !== 'Joining' && stage !== 'End'}

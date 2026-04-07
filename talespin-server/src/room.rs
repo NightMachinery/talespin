@@ -147,6 +147,7 @@ pub enum ServerMsg {
         selected_cards: Vec<String>,
         selected_counts: HashMap<String, u16>,
         revealed_cards: Vec<String>,
+        revealed_card_choosers: HashMap<String, Vec<String>>,
         card_points: HashMap<String, u16>,
         point_change: HashMap<String, u16>,
         scout: Option<String>,
@@ -157,6 +158,7 @@ pub enum ServerMsg {
         clue_word: String,
         selected_counts: HashMap<String, u16>,
         revealed_cards: Vec<String>,
+        revealed_card_choosers: HashMap<String, Vec<String>>,
         card_points: HashMap<String, u16>,
         dark_player: Option<String>,
         point_change: HashMap<String, u16>,
@@ -2338,6 +2340,7 @@ impl Room {
                     .unwrap_or_default(),
                 selected_counts: state.stella_player_selection_counts.clone(),
                 revealed_cards: state.stella_revealed_cards.clone(),
+                revealed_card_choosers: self.stella_revealed_card_choosers(state),
                 card_points: state.stella_card_points.clone(),
                 point_change: self.effective_stella_point_change(state),
                 scout: self.active_player_name(state).map(str::to_string),
@@ -2377,6 +2380,7 @@ impl Room {
                 clue_word: state.stella_clue_word.clone(),
                 selected_counts: state.stella_player_selection_counts.clone(),
                 revealed_cards: state.stella_revealed_cards.clone(),
+                revealed_card_choosers: self.stella_revealed_card_choosers(state),
                 card_points: state.stella_card_points.clone(),
                 dark_player: state.stella_dark_player.clone(),
                 point_change: state.stella_point_change.clone(),
@@ -2824,6 +2828,36 @@ impl Room {
             return true;
         }
         false
+    }
+
+    fn stella_revealed_card_choosers(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+    ) -> HashMap<String, Vec<String>> {
+        let revealed_cards = state
+            .stella_revealed_cards
+            .iter()
+            .cloned()
+            .collect::<HashSet<_>>();
+        let mut chooser_map: HashMap<String, Vec<String>> = HashMap::new();
+
+        for (player, cards) in state.stella_player_selections.iter() {
+            for card in cards {
+                if !revealed_cards.contains(card) {
+                    continue;
+                }
+                chooser_map
+                    .entry(card.clone())
+                    .or_default()
+                    .push(player.clone());
+            }
+        }
+
+        for choosers in chooser_map.values_mut() {
+            choosers.sort();
+        }
+
+        chooser_map
     }
 
     async fn init_stella_reveal(&self, state: &mut RwLockWriteGuard<'_, RoomState>) -> Result<()> {
@@ -8203,6 +8237,7 @@ mod tests {
         match room.get_msg(Some("b"), &state)? {
             ServerMsg::StellaReveal {
                 point_change,
+                revealed_card_choosers,
                 scout,
                 ..
             } => {
@@ -8212,8 +8247,68 @@ mod tests {
                     Some(2),
                     "live Stella reveal point changes should include dark-player penalty"
                 );
+                assert_eq!(
+                    revealed_card_choosers.get("shared-early"),
+                    Some(&vec!["b".to_string(), "dark".to_string()]),
+                    "revealed Stella cards should list chooser names in alphabetical order"
+                );
+                assert!(
+                    !revealed_card_choosers.contains_key("shared-late"),
+                    "unrevealed Stella cards should keep chooser names hidden"
+                );
             }
             _ => return Err(anyhow!("Expected StellaReveal")),
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stella_results_message_includes_revealed_card_chooser_names() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        add_player(&mut state, "charlie", 0);
+        add_player(&mut state, "alice", 0);
+        add_player(&mut state, "bravo", 0);
+        state.stage = RoomStage::StellaResults;
+        state.stella_revealed_cards = vec!["shared".into(), "solo".into()];
+        state.stella_player_selections.insert(
+            "charlie".to_string(),
+            vec!["shared".into(), "hidden".into()],
+        );
+        state
+            .stella_player_selections
+            .insert("alice".to_string(), vec!["shared".into(), "solo".into()]);
+        state
+            .stella_player_selections
+            .insert("bravo".to_string(), vec!["shared".into()]);
+
+        match room.get_msg(None, &state)? {
+            ServerMsg::StellaResults {
+                revealed_card_choosers,
+                ..
+            } => {
+                assert_eq!(
+                    revealed_card_choosers.get("shared"),
+                    Some(&vec![
+                        "alice".to_string(),
+                        "bravo".to_string(),
+                        "charlie".to_string()
+                    ]),
+                    "results should expose chooser names for revealed cards in stable order"
+                );
+                assert_eq!(
+                    revealed_card_choosers.get("solo"),
+                    Some(&vec!["alice".to_string()]),
+                    "results should include single chooser entries"
+                );
+                assert!(
+                    !revealed_card_choosers.contains_key("hidden"),
+                    "unrevealed cards should not leak chooser names in results payloads"
+                );
+            }
+            _ => return Err(anyhow!("Expected StellaResults")),
         }
 
         Ok(())

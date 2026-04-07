@@ -48,26 +48,29 @@
 	export let deckRefillFlashToken = 0;
 	export let winCondition: WinCondition = { mode: 'cards_finish' };
 	export let clueWord = '';
-	export let revealedCards: string[] = [];
+	export let revealedCardChoosers: { [key: string]: string[] } = {};
 	export let cardPoints: { [key: string]: number } = {};
 	export let darkPlayer = '';
 	export let gameMode: GameMode = 'stella';
 
 	$: isObserver = !!observers[name];
 	$: isModerator = new Set(moderators).has(name);
-	$: revealedCardAnnotations = Object.fromEntries(
-		Object.entries(cardPoints).map(([card, points]) => [
+	$: revealedCardChooserEntries = Object.fromEntries(
+		Object.entries(revealedCardChoosers).map(([card, choosers]) => [
 			card,
-			points === 0
-				? {
-						label: '☠',
-						className: 'bg-error-500/90 text-white'
-					}
-				: {
-						label: points === 3 ? '★★★' : '★★',
-						className: 'bg-success-500/90 text-black'
-					}
+			choosers.map((chooser) => ({ name: chooser }))
 		])
+	);
+	$: revealedCardHighlightClasses = Object.fromEntries(
+		Object.entries(cardPoints).map(([card, points]) => {
+			const className =
+				points === 0
+					? 'brightness-95 ring-4 ring-error-500 shadow-[0_0_0_2px_rgba(239,68,68,0.35),0_0_28px_rgba(239,68,68,0.4)]'
+					: points === 3
+						? 'brightness-105 ring-4 ring-success-500 shadow-[0_0_0_2px_rgba(34,197,94,0.35),0_0_28px_rgba(34,197,94,0.4)]'
+						: 'brightness-105 ring-4 ring-warning-400 shadow-[0_0_0_2px_rgba(251,191,36,0.35),0_0_28px_rgba(251,191,36,0.4)]';
+			return [card, className];
+		})
 	);
 </script>
 
@@ -156,10 +159,11 @@
 		<div class="min-h-0 flex-1 overflow-y-auto">
 			<Images
 				{displayImages}
-				selectedImages={revealedCards}
 				selectable={false}
-				imageAnnotations={revealedCardAnnotations}
+				imageChooserOverlays={revealedCardChooserEntries}
+				imageHighlightClasses={revealedCardHighlightClasses}
 				showIndexOverlay={showVotingCardNumbers}
+				indexOverlayPosition="left"
 			/>
 		</div>
 		<div class="mt-3 card light p-4">

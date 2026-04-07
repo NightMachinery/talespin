@@ -5,6 +5,7 @@
 	import { cardsFitToHeight } from '$lib/viewOptions';
 	import type GameServer from '$lib/gameServer';
 	import type { ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
+	import ChooserNameOverlay from './ChooserNameOverlay.svelte';
 	import StageShell from './StageShell.svelte';
 
 	export let displayImages: string[] = [];
@@ -59,6 +60,7 @@
 
 	let cardToPlayer: { [key: string]: string } = {};
 	let cardToVoterCounts: { [key: string]: { [key: string]: number } } = {};
+	let cardToChooserEntries: { [key: string]: { name: string; count?: number }[] } = {};
 	let isObserver = false;
 	let isModerator = false;
 	let canForceStartNextRound = false;
@@ -81,6 +83,7 @@
 	$: {
 		cardToPlayer = {};
 		cardToVoterCounts = {};
+		cardToChooserEntries = {};
 		Object.entries(playerToCurrentCards).forEach(([key, values]) => {
 			for (const value of values || []) {
 				cardToPlayer[value] = key;
@@ -98,6 +101,18 @@
 				cardToVoterCounts[votedCard][voter] += 1;
 			}
 		});
+
+		cardToChooserEntries = Object.fromEntries(
+			Object.entries(cardToVoterCounts).map(([card, voterCounts]) => [
+				card,
+				Object.entries(voterCounts)
+					.sort(([a], [b]) => a.localeCompare(b))
+					.map(([voter, count]) => ({
+						name: voter,
+						...(count > 1 ? { count } : {})
+					}))
+			])
+		);
 	}
 </script>
 
@@ -217,15 +232,7 @@
 						</div>
 					{/if}
 					{#if cardToVoterCounts[image]}
-						<div class="absolute" style="top: 20px; right: 12px;">
-							<div class="flex flex-col gap-2">
-								{#each Object.entries(cardToVoterCounts[image]) as [voter, count]}
-									<div class="bg-success-500 px-1.5 rounded text-black font-bold">
-										🔘 {voter}{count > 1 ? ` ×${count}` : ''}
-									</div>
-								{/each}
-							</div>
-						</div>
+						<ChooserNameOverlay entries={cardToChooserEntries[image]} />
 					{/if}
 					<div
 						style="bottom: 0;"

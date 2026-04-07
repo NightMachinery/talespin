@@ -117,6 +117,7 @@
 	let stellaSelectedCards: string[] = [];
 	let stellaSelectedCounts: { [key: string]: number } = {};
 	let stellaRevealedCards: string[] = [];
+	let stellaRevealedCardChoosers: { [key: string]: string[] } = {};
 	let stellaCardPoints: { [key: string]: number } = {};
 	const GAMEPLAY_STAGE_CUES = new Set<StageCueStage>([
 		'ActiveChooses',
@@ -330,6 +331,7 @@
 				stellaSelectedCards = data.StellaAssociate.selected_cards || [];
 				stellaSelectedCounts = {};
 				stellaRevealedCards = [];
+				stellaRevealedCardChoosers = {};
 				stellaCardPoints = {};
 				pointChange = {};
 			} else if (data.StellaReveal) {
@@ -339,6 +341,7 @@
 				stellaSelectedCards = data.StellaReveal.selected_cards || [];
 				stellaSelectedCounts = data.StellaReveal.selected_counts || {};
 				stellaRevealedCards = data.StellaReveal.revealed_cards || [];
+				stellaRevealedCardChoosers = data.StellaReveal.revealed_card_choosers || {};
 				stellaCardPoints = data.StellaReveal.card_points || {};
 				pointChange = data.StellaReveal.point_change || {};
 				activePlayer = data.StellaReveal.scout || activePlayer;
@@ -349,6 +352,7 @@
 				stellaActiveClue = data.StellaResults.clue_word || '';
 				stellaSelectedCounts = data.StellaResults.selected_counts || {};
 				stellaRevealedCards = data.StellaResults.revealed_cards || [];
+				stellaRevealedCardChoosers = data.StellaResults.revealed_card_choosers || {};
 				stellaCardPoints = data.StellaResults.card_points || {};
 				pointChange = data.StellaResults.point_change || {};
 				stellaDarkPlayer = data.StellaResults.dark_player || stellaDarkPlayer;
@@ -530,6 +534,7 @@
 			selectedCards={stellaSelectedCards}
 			selectedCounts={stellaSelectedCounts}
 			revealedCards={stellaRevealedCards}
+			revealedCardChoosers={stellaRevealedCardChoosers}
 			cardPoints={stellaCardPoints}
 			darkPlayer={stellaDarkPlayer}
 		/>
@@ -771,7 +776,7 @@
 			{winCondition}
 			{gameMode}
 			clueWord={stellaActiveClue}
-			revealedCards={stellaRevealedCards}
+			revealedCardChoosers={stellaRevealedCardChoosers}
 			cardPoints={stellaCardPoints}
 			darkPlayer={stellaDarkPlayer}
 		/>

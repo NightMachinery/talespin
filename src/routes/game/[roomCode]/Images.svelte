@@ -4,6 +4,7 @@
 	import { http_host } from '$lib/gameServer';
 	import { CARD_IMAGE_ALT_TEXT } from '$lib/cardImageText';
 	import { cardsFitToHeight } from '$lib/viewOptions';
+	import ChooserNameOverlay from './ChooserNameOverlay.svelte';
 
 	// Toggle dimming of cards that are not currently selected.
 	const ENABLE_NON_SELECTED_CARD_DIM = false;
@@ -18,6 +19,11 @@
 		className?: string;
 	};
 
+	type ChooserOverlayEntry = {
+		name: string;
+		count?: number;
+	};
+
 	export let displayImages: string[];
 	export let selectable = false;
 	export let selectableImages: string[] = [];
@@ -25,7 +31,10 @@
 	export let mode: 'hand' | 'board' = 'board';
 	export let disabledImages: string[] = [];
 	export let imageAnnotations: Record<string, ImageAnnotation> = {};
+	export let imageChooserOverlays: Record<string, ChooserOverlayEntry[]> = {};
+	export let imageHighlightClasses: Record<string, string> = {};
 	export let showIndexOverlay = false;
+	export let indexOverlayPosition: 'left' | 'right' = 'right';
 
 	$: isHandMode = mode === 'hand';
 	$: handDesktopFitEnabled = isHandMode && $cardsFitToHeight;
@@ -55,6 +64,7 @@
 	$: selectedImageSet = new Set(
 		selectedImages.filter((image) => visibleImageSet.has(image) && !disabledImageSet.has(image))
 	);
+	$: indexOverlayPositionClass = indexOverlayPosition === 'left' ? 'left-2' : 'right-2';
 
 	function selectImage(image: string, isDisabled: boolean, canSelect: boolean) {
 		if (!selectable || isDisabled || !canSelect) return;
@@ -67,6 +77,8 @@
 		{@const isDisabled = disabledImageSet.has(image)}
 		{@const isSelected = selectedImageSet.has(image)}
 		{@const annotation = imageAnnotations[image]}
+		{@const chooserEntries = imageChooserOverlays[image] ?? []}
+		{@const highlightClass = imageHighlightClasses[image] ?? ''}
 		{@const shouldDim = selectedImageSet.size > 0 && !isSelected}
 		{@const canSelect =
 			selectable &&
@@ -78,11 +90,13 @@
 		{@const imageClass = `${imageClassBase} pointer-events-none transition-all duration-150 ease-out ${
 			isDisabled
 				? 'cursor-not-allowed ring-[3px] ring-gray-400'
-				: isSelected
-					? 'brightness-105 ring-4 ring-white shadow-xlg'
-					: canSelect
-						? 'card-hover-target cursor-pointer group-focus-visible:ring-2 group-focus-visible:ring-white/85 group-focus-visible:shadow-[0_0_0_2px_rgba(255,255,255,0.22),0_16px_30px_rgba(0,0,0,0.38)]'
-						: ''
+				: highlightClass
+					? highlightClass
+					: isSelected
+						? 'brightness-105 ring-4 ring-white shadow-xlg'
+						: canSelect
+							? 'card-hover-target cursor-pointer group-focus-visible:ring-2 group-focus-visible:ring-white/85 group-focus-visible:shadow-[0_0_0_2px_rgba(255,255,255,0.22),0_16px_30px_rgba(0,0,0,0.38)]'
+							: ''
 		}`}
 		{#if selectable}
 			<button
@@ -96,11 +110,12 @@
 				<img class={imageClass} src={`${http_host}/cards/${image}`} alt={CARD_IMAGE_ALT_TEXT} />
 				{#if showIndexOverlay}
 					<div
-						class="pointer-events-none absolute right-2 top-2 z-20 rounded bg-black/70 px-2 py-0.5 text-xs font-bold text-white shadow"
+						class={`pointer-events-none absolute ${indexOverlayPositionClass} top-2 z-20 rounded bg-black/70 px-2 py-0.5 text-xs font-bold text-white shadow`}
 					>
 						#{imageIndex + 1}
 					</div>
 				{/if}
+				<ChooserNameOverlay entries={chooserEntries} />
 				{#if annotation}
 					<div
 						class={`pointer-events-none absolute inset-x-2 bottom-2 z-20 rounded px-2 py-1 text-center text-sm font-bold shadow ${annotation.className ?? 'bg-black/75 text-white'}`}
@@ -114,11 +129,12 @@
 				<img class={imageClass} src={`${http_host}/cards/${image}`} alt={CARD_IMAGE_ALT_TEXT} />
 				{#if showIndexOverlay}
 					<div
-						class="pointer-events-none absolute right-2 top-2 z-20 rounded bg-black/70 px-2 py-0.5 text-xs font-bold text-white shadow"
+						class={`pointer-events-none absolute ${indexOverlayPositionClass} top-2 z-20 rounded bg-black/70 px-2 py-0.5 text-xs font-bold text-white shadow`}
 					>
 						#{imageIndex + 1}
 					</div>
 				{/if}
+				<ChooserNameOverlay entries={chooserEntries} />
 				{#if annotation}
 					<div
 						class={`pointer-events-none absolute inset-x-2 bottom-2 z-20 rounded px-2 py-1 text-center text-sm font-bold shadow ${annotation.className ?? 'bg-black/75 text-white'}`}
