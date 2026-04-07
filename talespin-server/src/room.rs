@@ -2730,6 +2730,7 @@ impl Room {
         state.stella_card_points.clear();
         state.stella_point_change.clear();
         state.stella_fallen_players.clear();
+        self.clear_ready(state);
     }
 
     fn discard_stella_board(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
@@ -7912,6 +7913,85 @@ mod tests {
         assert!(
             matches!(state.stage, RoomStage::StellaAssociate),
             "invalid Stella submission should not advance the stage"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn reset_stella_clue_clears_ready_flags_before_new_submissions() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            add_player(&mut state, "p2", 0);
+            add_player(&mut state, "p3", 0);
+            state.game_mode = GameMode::Stella;
+            state.stage = RoomStage::StellaAssociate;
+            state.player_order = vec!["host".into(), "p2".into(), "p3".into()];
+            state.active_player = 0;
+            state.stella_clue_word = "before".into();
+            state.stella_word_pack = vec!["before".into(), "after".into()];
+            state.stella_board_cards = vec![
+                "card-1".into(),
+                "card-2".into(),
+                "card-3".into(),
+                "card-4".into(),
+                "card-5".into(),
+                "card-6".into(),
+            ];
+            state.stella_selection_min = 1;
+            state.stella_selection_max = 6;
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 602);
+            setup_connected_member(&mut state, "p2", "t-p2", 603);
+            setup_connected_member(&mut state, "p3", "t-p3", 604);
+        }
+
+        room.handle_client_msg(
+            "host",
+            602,
+            to_ws(ClientMsg::SubmitStellaSelection {
+                cards: vec!["card-1".to_string()],
+            }),
+        )
+        .await?;
+        room.handle_client_msg(
+            "p2",
+            603,
+            to_ws(ClientMsg::SubmitStellaSelection {
+                cards: vec!["card-2".to_string()],
+            }),
+        )
+        .await?;
+        room.handle_client_msg("host", 602, to_ws(ClientMsg::ResetStellaClue {}))
+            .await?;
+        room.handle_client_msg(
+            "p3",
+            604,
+            to_ws(ClientMsg::SubmitStellaSelection {
+                cards: vec!["card-3".to_string()],
+            }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert!(
+            matches!(state.stage, RoomStage::StellaAssociate),
+            "a single post-reset Stella submission should not advance to reveal"
+        );
+        assert_eq!(
+            state.stella_player_selections.get("p3"),
+            Some(&vec!["card-3".to_string()]),
+            "post-reset round state should only contain fresh submissions"
+        );
+        assert!(
+            !state.players.get("host").unwrap().ready && !state.players.get("p2").unwrap().ready,
+            "resetting the Stella clue must clear earlier ready flags"
+        );
+        assert!(
+            state.players.get("p3").unwrap().ready,
+            "the new submission should still ready the submitting player"
         );
 
         Ok(())
