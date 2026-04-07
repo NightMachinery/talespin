@@ -2,6 +2,7 @@
 	import { browser } from '$app/environment';
 	import type GameServer from '$lib/gameServer';
 	import type { GameMode, PlayerInfo, WinCondition } from '$lib/types';
+	import { formatWinCondition } from '$lib/winCondition';
 	import { Avatar, getToastStore } from '@skeletonlabs/skeleton';
 
 	export let players: { [key: string]: PlayerInfo } = {};
@@ -372,6 +373,7 @@
 								disabled={!canEditSettings}
 							/>
 						{/if}
+						<p class="mt-2 text-xs opacity-70">Current: {formatWinCondition(winCondition)}</p>
 					</div>
 
 					{#if gameMode === 'dixit_plus'}

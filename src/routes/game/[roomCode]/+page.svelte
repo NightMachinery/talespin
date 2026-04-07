@@ -331,6 +331,7 @@
 				stellaSelectedCounts = {};
 				stellaRevealedCards = [];
 				stellaCardPoints = {};
+				pointChange = {};
 			} else if (data.StellaReveal) {
 				setStage('StellaReveal');
 				displayImages = data.StellaReveal.board_cards || [];
@@ -339,6 +340,8 @@
 				stellaSelectedCounts = data.StellaReveal.selected_counts || {};
 				stellaRevealedCards = data.StellaReveal.revealed_cards || [];
 				stellaCardPoints = data.StellaReveal.card_points || {};
+				pointChange = data.StellaReveal.point_change || {};
+				activePlayer = data.StellaReveal.scout || activePlayer;
 				stellaDarkPlayer = data.StellaReveal.dark_player || stellaDarkPlayer;
 			} else if (data.StellaResults) {
 				setStage('StellaResults');
@@ -769,6 +772,7 @@
 			{gameMode}
 			clueWord={stellaActiveClue}
 			revealedCards={stellaRevealedCards}
+			cardPoints={stellaCardPoints}
 			darkPlayer={stellaDarkPlayer}
 		/>
 	{:else if stage === 'Paused'}

@@ -49,11 +49,26 @@
 	export let winCondition: WinCondition = { mode: 'cards_finish' };
 	export let clueWord = '';
 	export let revealedCards: string[] = [];
+	export let cardPoints: { [key: string]: number } = {};
 	export let darkPlayer = '';
 	export let gameMode: GameMode = 'stella';
 
 	$: isObserver = !!observers[name];
 	$: isModerator = new Set(moderators).has(name);
+	$: revealedCardAnnotations = Object.fromEntries(
+		Object.entries(cardPoints).map(([card, points]) => [
+			card,
+			points === 0
+				? {
+						label: 'Fall',
+						className: 'bg-error-500/90 text-white'
+					}
+				: {
+						label: points === 3 ? '★★★' : '★★',
+						className: 'bg-success-500/90 text-black'
+					}
+		])
+	);
 </script>
 
 <StageShell
@@ -98,6 +113,7 @@
 	{roundNum}
 	{cardsRemaining}
 	{deckRefillFlashToken}
+	{darkPlayer}
 	{winCondition}
 	{gameMode}
 >
@@ -105,9 +121,6 @@
 		<div class="card light space-y-2 p-4">
 			<h1 class="text-xl font-semibold">Stella — Results</h1>
 			<p>Clue word: <span class="boujee-text">{clueWord}</span></p>
-			{#if darkPlayer}
-				<p>Dark player: {darkPlayer}</p>
-			{/if}
 		</div>
 		<div class="card light p-4 space-y-2">
 			<button
@@ -141,7 +154,12 @@
 	<div class="flex h-full flex-col">
 		<h2 class="mb-2 hidden text-lg font-semibold lg:block">Board</h2>
 		<div class="min-h-0 flex-1 overflow-y-auto">
-			<Images {displayImages} selectedImages={revealedCards} selectable={false} />
+			<Images
+				{displayImages}
+				selectedImages={revealedCards}
+				selectable={false}
+				imageAnnotations={revealedCardAnnotations}
+			/>
 		</div>
 		<div class="mt-3 card light p-4">
 			<h2 class="mb-2 font-semibold">Round points</h2>

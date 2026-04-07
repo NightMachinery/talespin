@@ -13,11 +13,17 @@
 		select: string;
 	}>();
 
+	type ImageAnnotation = {
+		label: string;
+		className?: string;
+	};
+
 	export let displayImages: string[];
 	export let selectable = false;
 	export let selectedImages: string[] = [];
 	export let mode: 'hand' | 'board' = 'board';
 	export let disabledImages: string[] = [];
+	export let imageAnnotations: Record<string, ImageAnnotation> = {};
 
 	$: isHandMode = mode === 'hand';
 	$: handDesktopFitEnabled = isHandMode && $cardsFitToHeight;
@@ -54,6 +60,7 @@
 	{#each displayImages as image}
 		{@const isDisabled = disabledImageSet.has(image)}
 		{@const isSelected = selectedImageSet.has(image)}
+		{@const annotation = imageAnnotations[image]}
 		{@const shouldDim = selectedImageSet.size > 0 && !isSelected}
 		{@const containerClass = `card-hover-source group relative block w-full overflow-visible rounded-lg focus-visible:outline-none ${handButtonSizeClass} ${
 			shouldDim ? nonSelectedCardDimClass : ''
@@ -75,10 +82,24 @@
 				on:click={() => selectImage(image, isDisabled)}
 			>
 				<img class={imageClass} src={`${http_host}/cards/${image}`} alt={CARD_IMAGE_ALT_TEXT} />
+				{#if annotation}
+					<div
+						class={`pointer-events-none absolute inset-x-2 bottom-2 z-20 rounded px-2 py-1 text-center text-sm font-bold shadow ${annotation.className ?? 'bg-black/75 text-white'}`}
+					>
+						{annotation.label}
+					</div>
+				{/if}
 			</button>
 		{:else}
 			<div class={containerClass}>
 				<img class={imageClass} src={`${http_host}/cards/${image}`} alt={CARD_IMAGE_ALT_TEXT} />
+				{#if annotation}
+					<div
+						class={`pointer-events-none absolute inset-x-2 bottom-2 z-20 rounded px-2 py-1 text-center text-sm font-bold shadow ${annotation.className ?? 'bg-black/75 text-white'}`}
+					>
+						{annotation.label}
+					</div>
+				{/if}
 			</div>
 		{/if}
 	{/each}

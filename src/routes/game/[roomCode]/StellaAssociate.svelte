@@ -53,11 +53,22 @@
 	export let gameMode: GameMode = 'stella';
 
 	let localSelectedCards: string[] = [];
+	let syncedRoundKey = '';
 	const toastStore = getToastStore();
-	$: localSelectedCards = selectedCards;
 	$: isObserver = !!observers[name];
 	$: isModerator = new Set(moderators).has(name);
 	$: canSubmit = !isObserver && localSelectedCards.length > 0;
+	$: roundKey = `${clueWord}::${displayImages.join('||')}`;
+	$: if (roundKey !== syncedRoundKey) {
+		syncedRoundKey = roundKey;
+		localSelectedCards = [...selectedCards];
+	} else if (selectedCards.length > 0 && !sameSelections(localSelectedCards, selectedCards)) {
+		localSelectedCards = [...selectedCards];
+	}
+
+	function sameSelections(left: string[], right: string[]) {
+		return left.length === right.length && left.every((value, index) => value === right[index]);
+	}
 
 	function toggleCard(card: string) {
 		if (isObserver) return;

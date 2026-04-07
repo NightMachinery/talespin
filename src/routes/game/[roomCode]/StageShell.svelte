@@ -48,6 +48,7 @@
 	export let roundNum = 0;
 	export let cardsRemaining = 0;
 	export let deckRefillFlashToken = 0;
+	export let darkPlayer = '';
 	export let winCondition: WinCondition = {
 		mode: 'points',
 		target_points: 10
@@ -182,6 +183,7 @@
 						{roundNum}
 						{cardsRemaining}
 						{deckRefillFlashToken}
+						{darkPlayer}
 						{winCondition}
 					/>
 

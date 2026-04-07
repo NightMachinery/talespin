@@ -58,10 +58,28 @@
 	$: isObserver = !!observers[name];
 	$: isScout = activePlayer === name && !isObserver;
 	$: revealableCards = selectedCards.filter((card) => !revealedCards.includes(card));
+	$: revealedCardAnnotations = Object.fromEntries(
+		Object.entries(cardPoints).map(([card, points]) => [
+			card,
+			points === 0
+				? {
+						label: 'Fall',
+						className: 'bg-error-500/90 text-white'
+					}
+				: {
+						label: points === 3 ? '★★★' : '★★',
+						className: 'bg-success-500/90 text-black'
+					}
+		])
+	);
 
 	function reveal(card: string) {
 		if (!isScout) return;
 		gameServer.revealStellaCard(card);
+	}
+
+	function handleRevealSelect(event: CustomEvent<string>) {
+		reveal(event.detail);
 	}
 </script>
 
@@ -107,6 +125,7 @@
 	{roundNum}
 	{cardsRemaining}
 	{deckRefillFlashToken}
+	{darkPlayer}
 	{winCondition}
 	{gameMode}
 >
@@ -115,9 +134,6 @@
 			<h1 class="text-xl font-semibold">Stella — Reveal</h1>
 			<p>Clue word: <span class="boujee-text">{clueWord}</span></p>
 			<p>Scout: <span class="font-semibold">{activePlayer}</span></p>
-			{#if darkPlayer}
-				<p class="text-warning-200">In the Dark: {darkPlayer}</p>
-			{/if}
 		</div>
 		<div class="card light space-y-2 p-4">
 			<h2 class="font-semibold">Selection counts</h2>
@@ -128,11 +144,13 @@
 		{#if isScout}
 			<div class="card light space-y-2 p-4">
 				<h2 class="font-semibold">Reveal one of your unrevealed picks</h2>
-				{#each revealableCards as card}
-					<button class="btn variant-filled w-full" on:click={() => reveal(card)}
-						>Reveal {card}</button
-					>
-				{/each}
+				<p class="text-sm opacity-80">Tap a card below to reveal it.</p>
+				<Images
+					displayImages={revealableCards}
+					selectedImages={[]}
+					selectable={isScout}
+					on:select={handleRevealSelect}
+				/>
 			</div>
 		{/if}
 	</svelte:fragment>
@@ -148,21 +166,12 @@
 	<div class="flex h-full flex-col">
 		<h2 class="mb-2 hidden text-lg font-semibold lg:block">Shared board</h2>
 		<div class="min-h-0 flex-1 overflow-y-auto">
-			<Images {displayImages} selectedImages={revealedCards} selectable={false} />
-		</div>
-		<div class="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
-			{#each displayImages as image}
-				{#if cardPoints[image] !== undefined}
-					<div class="card light p-2 text-sm">
-						<div class="font-semibold">{image}</div>
-						<div>
-							{cardPoints[image] === 0
-								? 'Fall'
-								: `Worth ${cardPoints[image]} star${cardPoints[image] === 1 ? '' : 's'}`}
-						</div>
-					</div>
-				{/if}
-			{/each}
+			<Images
+				{displayImages}
+				selectedImages={revealedCards}
+				selectable={false}
+				imageAnnotations={revealedCardAnnotations}
+			/>
 		</div>
 	</div>
 </StageShell>

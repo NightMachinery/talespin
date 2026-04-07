@@ -148,6 +148,7 @@ pub enum ServerMsg {
         selected_counts: HashMap<String, u16>,
         revealed_cards: Vec<String>,
         card_points: HashMap<String, u16>,
+        point_change: HashMap<String, u16>,
         scout: Option<String>,
         dark_player: Option<String>,
     },
@@ -2338,6 +2339,7 @@ impl Room {
                 selected_counts: state.stella_player_selection_counts.clone(),
                 revealed_cards: state.stella_revealed_cards.clone(),
                 card_points: state.stella_card_points.clone(),
+                point_change: self.effective_stella_point_change(state),
                 scout: self.active_player_name(state).map(str::to_string),
                 dark_player: state.stella_dark_player.clone(),
             }),
@@ -2883,25 +2885,7 @@ impl Room {
 
     fn init_stella_results(&self, state: &mut RwLockWriteGuard<'_, RoomState>) -> Result<()> {
         self.set_stage(state, RoomStage::StellaResults);
-        let mut point_change = state.stella_point_change.clone();
-
-        if let Some(dark_player) = state.stella_dark_player.clone() {
-            let selections = state
-                .stella_player_selections
-                .get(&dark_player)
-                .cloned()
-                .unwrap_or_default();
-            let has_mistake = selections
-                .iter()
-                .any(|card| state.stella_card_points.get(card).copied().unwrap_or(0) == 0);
-            if has_mistake {
-                let penalty = state.stella_scored_boxes.get(&dark_player).copied().unwrap_or(0);
-                if penalty > 0 {
-                    let entry = point_change.entry(dark_player).or_insert(0);
-                    *entry = entry.saturating_sub(penalty);
-                }
-            }
-        }
+        let point_change = self.effective_stella_point_change(state);
 
         for (player, info) in state.players.iter_mut() {
             if let Some(delta) = point_change.get(player) {
@@ -2913,6 +2897,37 @@ impl Room {
         self.broadcast_msg(self.get_msg(None, state)?)?;
         self.broadcast_msg(self.room_state(state))?;
         Ok(())
+    }
+
+    fn effective_stella_point_change(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+    ) -> HashMap<String, u16> {
+        let mut point_change = state.stella_point_change.clone();
+
+        if let Some(dark_player) = state.stella_dark_player.as_ref() {
+            let selections = state
+                .stella_player_selections
+                .get(dark_player)
+                .cloned()
+                .unwrap_or_default();
+            let has_mistake = selections
+                .iter()
+                .any(|card| state.stella_card_points.get(card).copied().unwrap_or(0) == 0);
+            if has_mistake {
+                let penalty = state
+                    .stella_scored_boxes
+                    .get(dark_player)
+                    .copied()
+                    .unwrap_or(0);
+                if penalty > 0 {
+                    let entry = point_change.entry(dark_player.clone()).or_insert(0);
+                    *entry = entry.saturating_sub(penalty);
+                }
+            }
+        }
+
+        point_change
     }
 
     async fn init_stella_round(&self, state: &mut RwLockWriteGuard<'_, RoomState>) -> Result<()> {
@@ -8042,6 +8057,113 @@ mod tests {
             Some(2),
             "dark player should keep bonus points from boxes scored before falling"
         );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stella_reveal_message_includes_live_point_change_with_dark_penalty() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        add_player(&mut state, "dark", 0);
+        add_player(&mut state, "b", 0);
+        add_player(&mut state, "c", 0);
+        state.stage = RoomStage::StellaReveal;
+        state.player_order = vec!["dark".into(), "b".into(), "c".into()];
+        state.active_player = 1;
+        state.stella_dark_player = Some("dark".to_string());
+        state.stella_player_selections.insert(
+            "dark".to_string(),
+            vec![
+                "shared-early".into(),
+                "fall-card".into(),
+                "shared-late".into(),
+            ],
+        );
+        state
+            .stella_player_selections
+            .insert("b".to_string(), vec!["shared-early".into()]);
+        state
+            .stella_player_selections
+            .insert("c".to_string(), vec!["shared-late".into()]);
+        state.stella_card_points.insert("shared-early".into(), 3);
+        state.stella_card_points.insert("fall-card".into(), 0);
+        state.stella_point_change.insert("dark".to_string(), 3);
+        state.stella_scored_boxes.insert("dark".to_string(), 1);
+
+        match room.get_msg(Some("b"), &state)? {
+            ServerMsg::StellaReveal {
+                point_change,
+                scout,
+                ..
+            } => {
+                assert_eq!(scout.as_deref(), Some("b"));
+                assert_eq!(
+                    point_change.get("dark").copied(),
+                    Some(2),
+                    "live Stella reveal point changes should include dark-player penalty"
+                );
+            }
+            _ => return Err(anyhow!("Expected StellaReveal")),
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stella_reveal_handoff_updates_next_scout_after_current_finishes() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "a", 0);
+            add_player(&mut state, "b", 0);
+            add_player(&mut state, "c", 0);
+            state.game_mode = GameMode::Stella;
+            state.stage = RoomStage::StellaReveal;
+            state.player_order = vec!["a".into(), "b".into(), "c".into()];
+            state.active_player = 0;
+            state.stella_board_cards = vec!["a-last".into(), "b-next".into()];
+            state
+                .stella_player_selections
+                .insert("a".to_string(), vec!["a-last".into()]);
+            state
+                .stella_player_selections
+                .insert("b".to_string(), vec!["b-next".into()]);
+            state
+                .stella_player_selections
+                .insert("c".to_string(), vec!["b-next".into()]);
+            setup_connected_member(&mut state, "a", "t-a", 701);
+        }
+
+        room.handle_client_msg(
+            "a",
+            701,
+            to_ws(ClientMsg::RevealStellaCard {
+                card: "a-last".to_string(),
+            }),
+        )
+        .await?;
+
+        let state = room.state.write().await;
+        assert!(
+            matches!(state.stage, RoomStage::StellaReveal),
+            "Stella reveal should continue when later scouts still have unrevealed cards"
+        );
+        assert_eq!(
+            state
+                .player_order
+                .get(state.active_player)
+                .map(String::as_str),
+            Some("b"),
+            "after the current scout finishes, the next eligible scout should become active"
+        );
+        match room.get_msg(Some("b"), &state)? {
+            ServerMsg::StellaReveal { scout, .. } => {
+                assert_eq!(scout.as_deref(), Some("b"));
+            }
+            _ => return Err(anyhow!("Expected StellaReveal")),
+        }
 
         Ok(())
     }

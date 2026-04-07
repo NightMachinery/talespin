@@ -3,6 +3,7 @@
 	import type { ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
 	import { OFFLINE_STATUS_LABEL } from '$lib/presence';
 	import { rankPlayersByPoints, type RankedPlayerEntry } from '$lib/ranking';
+	import { formatWinCondition } from '$lib/winCondition';
 
 	export let players: { [key: string]: PlayerInfo } = {};
 	export let observers: { [key: string]: ObserverInfo } = {};
@@ -13,6 +14,7 @@
 	export let roundNum: number;
 	export let cardsRemaining = 0;
 	export let deckRefillFlashToken = 0;
+	export let darkPlayer = '';
 	export let winCondition: WinCondition = {
 		mode: 'points',
 		target_points: 10
@@ -28,17 +30,7 @@
 		rankedPlayers = rankPlayersByPoints(players);
 	}
 
-	$: {
-		if (winCondition.mode === 'points') {
-			winConditionLabel = `First to ${winCondition.target_points} points!`;
-		} else if (winCondition.mode === 'cycles') {
-			winConditionLabel = `${winCondition.target_cycles} full storyteller cycle${winCondition.target_cycles === 1 ? '' : 's'}`;
-		} else if (winCondition.mode === 'fixed_rounds') {
-			winConditionLabel = `${winCondition.target_rounds} fixed round${winCondition.target_rounds === 1 ? '' : 's'}`;
-		} else {
-			winConditionLabel = 'Play until cards finish';
-		}
-	}
+	$: winConditionLabel = formatWinCondition(winCondition);
 
 	$: if (deckRefillFlashToken > previousFlashToken) {
 		previousFlashToken = deckRefillFlashToken;
@@ -56,6 +48,25 @@
 			clearTimeout(cardsRemainingFlashTimeout);
 		}
 	});
+
+	function shouldShowReadyIndicator(playerName: string) {
+		if (
+			stage === 'Joining' ||
+			stage === 'StellaAssociate' ||
+			stage === 'Results' ||
+			stage === 'StellaResults'
+		) {
+			return true;
+		}
+		if ((stage === 'PlayersChoose' || stage === 'Voting') && playerName !== activePlayer) {
+			return true;
+		}
+		return false;
+	}
+
+	function shouldShowPointChange() {
+		return stage === 'Results' || stage === 'StellaReveal' || stage === 'StellaResults';
+	}
 </script>
 
 <div class="w-full">
@@ -71,11 +82,14 @@
 						>
 							{entry.name}
 						</span>
+						{#if darkPlayer !== '' && entry.name === darkPlayer}
+							<span title="In the Dark">🌑</span>
+						{/if}
 						{#if !players[entry.name].connected}
 							<span class="text-error-500">({OFFLINE_STATUS_LABEL})</span>
 						{/if}
 
-						{#if stage === 'Joining' || ((stage === 'PlayersChoose' || stage === 'Voting') && entry.name !== activePlayer) || stage === 'Results'}
+						{#if shouldShowReadyIndicator(entry.name)}
 							{#if players[entry.name].ready}
 								<span>🟢</span>
 							{:else}
@@ -84,7 +98,7 @@
 						{/if}
 					</div>
 					<div class="shrink-0">
-						{#if stage === 'Results' && typeof pointChange[entry.name] === 'number' && pointChange[entry.name] !== 0}
+						{#if shouldShowPointChange() && typeof pointChange[entry.name] === 'number' && pointChange[entry.name] !== 0}
 							<span class="opacity-50">(+{pointChange[entry.name]})</span>
 						{/if}
 						{entry.points}
