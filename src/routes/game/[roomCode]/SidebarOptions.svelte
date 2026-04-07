@@ -1,10 +1,14 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import type GameServer from '$lib/gameServer';
-	import type { ObserverInfo, PlayerInfo } from '$lib/types';
+	import type { GameMode, ObserverInfo, PlayerInfo } from '$lib/types';
 	import { OFFLINE_STATUS_LABEL } from '$lib/presence';
 	import { isStageChangeAudioSupported, unlockStageChangeAudio } from '$lib/stageChangeAudio';
-	import { cardsFitToHeight, stageChangeSoundCuesEnabled } from '$lib/viewOptions';
+	import {
+		cardsFitToHeight,
+		hideNonSelectedStellaRevealCards,
+		stageChangeSoundCuesEnabled
+	} from '$lib/viewOptions';
 	import {
 		DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION,
 		MAX_VOTING_WRONG_CARD_DISABLE_X,
@@ -29,6 +33,7 @@
 	export let moderators: string[] = [];
 	export let stage = '';
 	export let activePlayer = '';
+	export let gameMode: GameMode = 'dixit_plus';
 	export let allowNewPlayersMidgame = true;
 	export let storytellerLossComplement = 0;
 	export let storytellerLossComplementMin = 0;
@@ -68,13 +73,25 @@
 	$: showModeration = stage !== 'End' && (isCreator || isModerator);
 	$: isSelfObserver = !!observers[name];
 	$: selfObserverInfo = observers[name];
+	$: isStellaMode = gameMode === 'stella';
+	$: isDixitMode = gameMode !== 'stella';
 	$: selfObserveBlocked =
 		(stage === 'PlayersChoose' || stage === 'Voting') && activePlayer === name;
 	$: canBecomeObserver =
 		!isSelfObserver && stage !== 'Joining' && stage !== 'End' && !selfObserveBlocked;
-	$: canChangeCardsPerHand = stage === 'ActiveChooses';
-	$: canChangePreVotingSettings = stage === 'ActiveChooses';
-	$: canRefreshHands = stage === 'ActiveChooses';
+	$: canChangeCardsPerHand = isDixitMode && stage === 'ActiveChooses';
+	$: canChangePreVotingSettings = isDixitMode && stage === 'ActiveChooses';
+	$: canRefreshHands = isDixitMode && stage === 'ActiveChooses';
+	$: canChangeStageTimers = isDixitMode && stage === 'ActiveChooses';
+	$: canChangeNumberOverlaySetting = isStellaMode
+		? stage === 'StellaAssociate'
+		: canChangePreVotingSettings;
+	$: settingsEditStageHint = isStellaMode
+		? 'Can only be changed during the Stella associate stage.'
+		: SETTINGS_EDIT_STAGE_HINT;
+	$: timerSettingsEditHint = isStellaMode
+		? 'Can only be changed during game setup.'
+		: SETTINGS_EDIT_STAGE_HINT;
 	$: storytellerWinCondition = storytellerLossComplement + 1;
 	$: storytellerWinConditionMin = storytellerLossComplementMin + 1;
 	$: storytellerWinConditionMax = storytellerLossComplementMax + 1;
@@ -239,7 +256,7 @@
 
 	function updateShowVotingCardNumbers(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
-		if (!isModerator || !canChangePreVotingSettings) {
+		if (!isModerator || !canChangeNumberOverlaySetting) {
 			input.checked = showVotingCardNumbers;
 			return;
 		}
@@ -264,7 +281,7 @@
 		setter: (enabled: boolean) => void
 	) {
 		const input = event.currentTarget as HTMLInputElement;
-		if (!isModerator || !canChangePreVotingSettings) {
+		if (!isModerator || !canChangeStageTimers) {
 			input.checked = currentValue;
 			return;
 		}
@@ -278,7 +295,7 @@
 	) {
 		const input = event.currentTarget as HTMLInputElement;
 		const parsed = Number(input.value);
-		if (!isModerator || !canChangePreVotingSettings) {
+		if (!isModerator || !canChangeStageTimers) {
 			input.value = `${currentValue}`;
 			return;
 		}
@@ -463,6 +480,21 @@
 			{/if}
 		</div>
 	</label>
+	{#if isStellaMode && stage !== 'Joining' && stage !== 'End'}
+		<label class="flex items-start gap-3">
+			<input
+				type="checkbox"
+				class="mt-1 h-4 w-4 cursor-pointer accent-primary-500"
+				bind:checked={$hideNonSelectedStellaRevealCards}
+			/>
+			<div>
+				<span class="block font-medium">Hide non-selected cards during Stella reveal</span>
+				<p class="text-xs opacity-70">
+					Local view option for your reveal turns only; it only affects your device.
+				</p>
+			</div>
+		</label>
+	{/if}
 	{#if stage !== 'Joining' && stage !== 'End'}
 		{#if isSelfObserver}
 			<button class="btn variant-filled w-full" on:click={joinBack}>{selfJoinBackLabel}</button>
@@ -580,85 +612,24 @@
 					</label>
 				</div>
 				<div class="mt-3 rounded border border-white/20 px-2 py-2">
-					<p class="block text-sm font-semibold">Round controls</p>
-					<div class="mt-2 space-y-2">
-						<button
-							class="btn variant-filled w-full"
-							on:click={refreshHands}
-							disabled={!isModerator || !canRefreshHands}
-						>
-							Refresh active player hands
-						</button>
-						{#if !canRefreshHands}
-							<p class="text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
-						{/if}
-					</div>
-				</div>
-				<div class="mt-3 rounded border border-white/20 px-2 py-2">
-					<p class="block text-sm font-semibold">Storyteller win condition (W)</p>
-					<p class="mt-1 text-xs opacity-75">
-						Storyteller wins when at least W people are different from others (for example, right
-						when others are wrong).
-					</p>
-					<label class="mt-2 flex items-start gap-3 text-sm">
-						<input
-							type="checkbox"
-							class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
-							checked={storytellerLossComplementAuto}
-							on:change={updateStorytellerLossComplementAuto}
-							disabled={!isModerator}
-						/>
-						<span>Auto-tune W from the number of actual guessers after voting</span>
-					</label>
-					<div class="mt-2 flex items-center gap-2">
-						<input
-							type="number"
-							class="w-24 rounded border px-2 py-1 text-gray-700 shadow"
-							min={storytellerWinConditionMin}
-							max={storytellerWinConditionMax}
-							step="1"
-							value={storytellerWinCondition}
-							on:change={updateStorytellerLossComplement}
-							disabled={!isModerator || storytellerLossComplementAuto}
-						/>
-						<span class="text-xs opacity-75"
-							>Range: {storytellerWinConditionMin}–{storytellerWinConditionMax}</span
-						>
-					</div>
-				</div>
-				<div class="mt-3 rounded border border-white/20 px-2 py-2">
-					<p class="block text-sm font-semibold">Votes per guesser</p>
-					<p class="mt-1 text-xs opacity-75">
-						How many vote tokens each guesser can cast in voting.
-					</p>
-					<div class="mt-2 flex items-center gap-2">
-						<input
-							type="number"
-							class="w-24 rounded border px-2 py-1 text-gray-700 shadow"
-							min={votesPerGuesserMin}
-							max={votesPerGuesserMax}
-							step="1"
-							value={votesPerGuesser}
-							on:change={updateVotesPerGuesser}
-							disabled={!isModerator || !canChangePreVotingSettings}
-						/>
-						<span class="text-xs opacity-75">Range: {votesPerGuesserMin}–{votesPerGuesserMax}</span>
-					</div>
-					{#if !canChangePreVotingSettings}
-						<p class="mt-1 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
-					{/if}
-				</div>
-				<div class="mt-3 rounded border border-white/20 px-2 py-2">
 					<p class="block text-sm font-semibold">Stage timers</p>
 					<p class="mt-1 text-xs opacity-75">
-						Show shared countdowns for each live stage. Results stays untimed.
+						{isStellaMode
+							? 'Associate and reveal use the Stella stage timers. Results stays untimed.'
+							: 'Show shared countdowns for each live stage. Results stays untimed.'}
 					</p>
 					<div class="mt-3 space-y-3">
 						<div class="rounded border border-white/15 px-2 py-2">
 							<div class="flex items-start justify-between gap-3">
 								<div>
-									<p class="font-medium">Hint / storyteller choosing</p>
-									<p class="text-xs opacity-70">Storyteller chooses a card and clue.</p>
+									<p class="font-medium">
+										{isStellaMode ? 'Associate' : 'Hint / storyteller choosing'}
+									</p>
+									<p class="text-xs opacity-70">
+										{isStellaMode
+											? 'Players pick every board card that matches the clue.'
+											: 'Storyteller chooses a card and clue.'}
+									</p>
 								</div>
 								<label class="flex items-center gap-2 text-sm">
 									<input
@@ -666,7 +637,7 @@
 										class="h-4 w-4 cursor-pointer accent-primary-500"
 										checked={hintChoosingTimerEnabled}
 										on:change={updateHintChoosingTimerEnabled}
-										disabled={!isModerator || !canChangePreVotingSettings}
+										disabled={!isModerator || !canChangeStageTimers}
 									/>
 									<span>Enabled</span>
 								</label>
@@ -680,7 +651,7 @@
 									step="1"
 									value={hintChoosingTimerDurationS}
 									on:change={updateHintChoosingTimerDuration}
-									disabled={!isModerator || !canChangePreVotingSettings}
+									disabled={!isModerator || !canChangeStageTimers}
 								/>
 								<span class="text-xs opacity-75"
 									>{STAGE_TIMER_DURATION_MIN_S}–{STAGE_TIMER_DURATION_MAX_S}s</span
@@ -691,8 +662,12 @@
 						<div class="rounded border border-white/15 px-2 py-2">
 							<div class="flex items-start justify-between gap-3">
 								<div>
-									<p class="font-medium">Card choosing</p>
-									<p class="text-xs opacity-70">Guessers choose matching cards.</p>
+									<p class="font-medium">{isStellaMode ? 'Reveal' : 'Card choosing'}</p>
+									<p class="text-xs opacity-70">
+										{isStellaMode
+											? 'Each scout reveals one highlighted card at a time.'
+											: 'Guessers choose matching cards.'}
+									</p>
 								</div>
 								<label class="flex items-center gap-2 text-sm">
 									<input
@@ -700,7 +675,7 @@
 										class="h-4 w-4 cursor-pointer accent-primary-500"
 										checked={cardChoosingTimerEnabled}
 										on:change={updateCardChoosingTimerEnabled}
-										disabled={!isModerator || !canChangePreVotingSettings}
+										disabled={!isModerator || !canChangeStageTimers}
 									/>
 									<span>Enabled</span>
 								</label>
@@ -714,200 +689,74 @@
 									step="1"
 									value={cardChoosingTimerDurationS}
 									on:change={updateCardChoosingTimerDuration}
-									disabled={!isModerator || !canChangePreVotingSettings}
+									disabled={!isModerator || !canChangeStageTimers}
 								/>
 								<span class="text-xs opacity-75"
 									>{STAGE_TIMER_DURATION_MIN_S}–{STAGE_TIMER_DURATION_MAX_S}s</span
 								>
 							</div>
-							<label class="mt-2 flex items-start gap-3 text-sm">
-								<input
-									type="checkbox"
-									class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
-									checked={forceCardChoosingTimer}
-									on:change={updateForceCardChoosingTimer}
-									disabled={!isModerator || !canChangePreVotingSettings}
-								/>
-								<span>Force timeout by auto-choosing random cards</span>
-							</label>
-						</div>
-
-						<div class="rounded border border-white/15 px-2 py-2">
-							<div class="flex items-start justify-between gap-3">
-								<div>
-									<p class="font-medium">Voting</p>
-									<p class="text-xs opacity-70">Guessers vote on the storyteller's card.</p>
-								</div>
-								<label class="flex items-center gap-2 text-sm">
+							{#if isDixitMode}
+								<label class="mt-2 flex items-start gap-3 text-sm">
 									<input
 										type="checkbox"
-										class="h-4 w-4 cursor-pointer accent-primary-500"
-										checked={votingTimerEnabled}
-										on:change={updateVotingTimerEnabled}
-										disabled={!isModerator || !canChangePreVotingSettings}
+										class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
+										checked={forceCardChoosingTimer}
+										on:change={updateForceCardChoosingTimer}
+										disabled={!isModerator || !canChangeStageTimers}
 									/>
-									<span>Enabled</span>
+									<span>Force timeout by auto-choosing random cards</span>
 								</label>
-							</div>
-							<div class="mt-2 flex items-center gap-2">
-								<input
-									type="number"
-									class="w-24 rounded border px-2 py-1 text-gray-700 shadow"
-									min={STAGE_TIMER_DURATION_MIN_S}
-									max={STAGE_TIMER_DURATION_MAX_S}
-									step="1"
-									value={votingTimerDurationS}
-									on:change={updateVotingTimerDuration}
-									disabled={!isModerator || !canChangePreVotingSettings}
-								/>
-								<span class="text-xs opacity-75"
-									>{STAGE_TIMER_DURATION_MIN_S}–{STAGE_TIMER_DURATION_MAX_S}s</span
-								>
-							</div>
-							<label class="mt-2 flex items-start gap-3 text-sm">
-								<input
-									type="checkbox"
-									class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
-									checked={forceVotingTimer}
-									on:change={updateForceVotingTimer}
-									disabled={!isModerator || !canChangePreVotingSettings}
-								/>
-								<span>Force timeout by auto-submitting random votes</span>
-							</label>
+							{/if}
 						</div>
-					</div>
-					{#if !canChangePreVotingSettings}
-						<p class="mt-2 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
-					{/if}
-				</div>
-				<div class="mt-3 rounded border border-white/20 px-2 py-2">
-					<p class="block text-sm font-semibold">Random wrong-card disabling</p>
-					<p class="mt-1 text-xs opacity-75">
-						During voting, each player may privately have extra wrong cards greyed out and
-						unvotable.
-					</p>
-					<div class="mt-2">
-						<label class="block text-sm font-medium" for="voting-wrong-card-disable-preset">
-							Preset
-						</label>
-						<select
-							id="voting-wrong-card-disable-preset"
-							class="mt-1 w-full rounded border px-3 py-2 text-gray-700 shadow"
-							value={selectedVotingWrongCardDisablePresetId}
-							on:change={updateVotingWrongCardDisablePreset}
-							disabled={!isModerator || !canChangePreVotingSettings}
-						>
-							{#each VOTING_WRONG_CARD_DISABLE_PRESETS as preset}
-								<option value={preset.id}>{preset.label}</option>
-							{/each}
-							<option value="custom">Custom</option>
-						</select>
-					</div>
-					<details class="mt-3 rounded border border-white/20 px-3 py-2">
-						<summary class="cursor-pointer text-sm font-semibold">Advanced editor</summary>
-						<div class="mt-3 space-y-3">
-							<div>
-								<label class="block text-sm font-medium" for="voting-wrong-card-disable-max">
-									Max X
-								</label>
-								<input
-									id="voting-wrong-card-disable-max"
-									type="number"
-									min="0"
-									max={MAX_VOTING_WRONG_CARD_DISABLE_X}
-									step="1"
-									class="mt-1 w-24 rounded border px-2 py-1 text-gray-700 shadow"
-									value={votingWrongCardDisableMax}
-									on:change={updateVotingWrongCardDisableMax}
-									disabled={!isModerator || !canChangePreVotingSettings}
-								/>
-								<p class="mt-1 text-xs opacity-70">Range: 0–{MAX_VOTING_WRONG_CARD_DISABLE_X}</p>
-							</div>
-							<p class="text-xs opacity-70">
-								Editing probabilities auto-normalizes the total to 100% and switches the setting to
-								Custom.
-							</p>
-							{#each normalizedVotingWrongCardDisableDistribution as probability, index}
-								<div class="rounded border border-white/15 px-2 py-2">
-									<div class="flex items-center justify-between gap-2">
-										<span class="text-sm font-semibold">X = {index}</span>
-										<span class="text-xs opacity-75">{formatPercent(probability)}</span>
+
+						{#if isDixitMode}
+							<div class="rounded border border-white/15 px-2 py-2">
+								<div class="flex items-start justify-between gap-3">
+									<div>
+										<p class="font-medium">Voting</p>
+										<p class="text-xs opacity-70">Guessers vote on the storyteller's card.</p>
 									</div>
-									<div class="mt-2 flex items-center gap-2">
+									<label class="flex items-center gap-2 text-sm">
 										<input
-											type="range"
-											min="0"
-											max="100"
-											step="1"
-											class="h-2 flex-1 cursor-pointer accent-primary-500"
-											value={Math.round(probability * 100)}
-											on:change={(event) =>
-												updateVotingWrongCardDisableProbabilityFromEvent(index, event)}
-											disabled={!isModerator ||
-												!canChangePreVotingSettings ||
-												normalizedVotingWrongCardDisableDistribution.length === 1}
+											type="checkbox"
+											class="h-4 w-4 cursor-pointer accent-primary-500"
+											checked={votingTimerEnabled}
+											on:change={updateVotingTimerEnabled}
+											disabled={!isModerator || !canChangeStageTimers}
 										/>
-										<input
-											type="number"
-											min="0"
-											max="100"
-											step="1"
-											class="w-20 rounded border px-2 py-1 text-gray-700 shadow"
-											value={Math.round(probability * 100)}
-											on:change={(event) =>
-												updateVotingWrongCardDisableProbabilityFromEvent(index, event)}
-											disabled={!isModerator ||
-												!canChangePreVotingSettings ||
-												normalizedVotingWrongCardDisableDistribution.length === 1}
-										/>
-										<span class="text-xs opacity-75">%</span>
-									</div>
+										<span>Enabled</span>
+									</label>
 								</div>
-							{/each}
-						</div>
-					</details>
-					{#if !canChangePreVotingSettings}
-						<p class="mt-1 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
-					{/if}
-				</div>
-				<div class="mt-3 rounded border border-white/20 px-2 py-2">
-					<p class="block text-sm font-semibold">Cards per hand</p>
-					<div class="mt-2 flex items-center gap-2">
-						<input
-							type="number"
-							class="w-24 rounded border px-2 py-1 text-gray-700 shadow"
-							min={cardsPerHandMin}
-							max={cardsPerHandMax}
-							step="1"
-							value={cardsPerHand}
-							on:change={updateCardsPerHand}
-							disabled={!isModerator || !canChangeCardsPerHand}
-						/>
-						<span class="text-xs opacity-75">Range: {cardsPerHandMin}–{cardsPerHandMax}</span>
+								<div class="mt-2 flex items-center gap-2">
+									<input
+										type="number"
+										class="w-24 rounded border px-2 py-1 text-gray-700 shadow"
+										min={STAGE_TIMER_DURATION_MIN_S}
+										max={STAGE_TIMER_DURATION_MAX_S}
+										step="1"
+										value={votingTimerDurationS}
+										on:change={updateVotingTimerDuration}
+										disabled={!isModerator || !canChangeStageTimers}
+									/>
+									<span class="text-xs opacity-75"
+										>{STAGE_TIMER_DURATION_MIN_S}–{STAGE_TIMER_DURATION_MAX_S}s</span
+									>
+								</div>
+								<label class="mt-2 flex items-start gap-3 text-sm">
+									<input
+										type="checkbox"
+										class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
+										checked={forceVotingTimer}
+										on:change={updateForceVotingTimer}
+										disabled={!isModerator || !canChangeStageTimers}
+									/>
+									<span>Force timeout by auto-submitting random votes</span>
+								</label>
+							</div>
+						{/if}
 					</div>
-					{#if !canChangeCardsPerHand}
-						<p class="mt-1 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
-					{/if}
-				</div>
-				<div class="mt-3 rounded border border-white/20 px-2 py-2">
-					<p class="block text-sm font-semibold">Nominations per guesser</p>
-					<div class="mt-2 flex items-center gap-2">
-						<input
-							type="number"
-							class="w-24 rounded border px-2 py-1 text-gray-700 shadow"
-							min={nominationsPerGuesserMin}
-							max={nominationsPerGuesserMax}
-							step="1"
-							value={nominationsPerGuesser}
-							on:change={updateNominationsPerGuesser}
-							disabled={!isModerator || !canChangePreVotingSettings}
-						/>
-						<span class="text-xs opacity-75"
-							>Range: {nominationsPerGuesserMin}–{nominationsPerGuesserMax}</span
-						>
-					</div>
-					{#if !canChangePreVotingSettings}
-						<p class="mt-1 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
+					{#if !canChangeStageTimers}
+						<p class="mt-2 text-xs opacity-70">{timerSettingsEditHint}</p>
 					{/if}
 				</div>
 				<div class="mt-3 rounded border border-white/20 px-2 py-2">
@@ -917,66 +766,273 @@
 							class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
 							checked={showVotingCardNumbers}
 							on:change={updateShowVotingCardNumbers}
-							disabled={!isModerator || !canChangePreVotingSettings}
+							disabled={!isModerator || !canChangeNumberOverlaySetting}
 						/>
-						<span>Show card numbers in voting/results stages</span>
+						<span>
+							{isStellaMode
+								? 'Show number overlays in all Stella board stages'
+								: 'Show card numbers in voting/results stages'}
+						</span>
 					</label>
-					{#if !canChangePreVotingSettings}
-						<p class="mt-1 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
+					{#if !canChangeNumberOverlaySetting}
+						<p class="mt-1 text-xs opacity-70">{settingsEditStageHint}</p>
 					{/if}
 				</div>
-				<div class="mt-3 rounded border border-white/20 px-2 py-2">
-					<p class="block text-sm font-semibold">Round-start random discards</p>
-					<p class="mt-1 text-xs opacity-75">
-						Discard N random cards from each active hand at round start, then top up.
-					</p>
-					<div class="mt-2 flex items-center gap-2">
-						<input
-							type="number"
-							class="w-24 rounded border px-2 py-1 text-gray-700 shadow"
-							min="0"
-							max={roundStartDiscardCountMax}
-							step="1"
-							value={roundStartDiscardCount}
-							on:change={updateRoundStartDiscardCount}
-							disabled={!isModerator || !canChangePreVotingSettings}
-						/>
-						<span class="text-xs opacity-75">Range: 0–{roundStartDiscardCountMax}</span>
+				{#if isDixitMode}
+					<div class="mt-3 rounded border border-white/20 px-2 py-2">
+						<p class="block text-sm font-semibold">Round controls</p>
+						<div class="mt-2 space-y-2">
+							<button
+								class="btn variant-filled w-full"
+								on:click={refreshHands}
+								disabled={!isModerator || !canRefreshHands}
+							>
+								Refresh active player hands
+							</button>
+							{#if !canRefreshHands}
+								<p class="text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
+							{/if}
+						</div>
 					</div>
-					{#if !canChangePreVotingSettings}
-						<p class="mt-1 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
-					{/if}
-				</div>
-				<div class="mt-3 rounded border border-white/20 px-2 py-2">
-					<label class="flex items-start gap-3 text-sm">
-						<input
-							type="checkbox"
-							class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
-							checked={bonusCorrectGuessOnThresholdCorrectLoss}
-							on:change={updateBonusCorrectGuessOnThresholdCorrectLoss}
-							disabled={!isModerator || !canChangePreVotingSettings}
-						/>
-						<span> Give +3 correct-guess base in threshold-correct storyteller-loss rounds </span>
-					</label>
-					{#if !canChangePreVotingSettings}
-						<p class="mt-1 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
-					{/if}
-				</div>
-				<div class="mt-3 rounded border border-white/20 px-2 py-2">
-					<label class="flex items-start gap-3 text-sm">
-						<input
-							type="checkbox"
-							class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
-							checked={bonusDoubleVoteOnThresholdCorrectLoss}
-							on:change={updateBonusDoubleVoteOnThresholdCorrectLoss}
-							disabled={!isModerator || !canChangePreVotingSettings}
-						/>
-						<span> Give +1 double-vote bonus in threshold-correct storyteller-loss rounds </span>
-					</label>
-					{#if !canChangePreVotingSettings}
-						<p class="mt-1 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
-					{/if}
-				</div>
+					<div class="mt-3 rounded border border-white/20 px-2 py-2">
+						<p class="block text-sm font-semibold">Storyteller win condition (W)</p>
+						<p class="mt-1 text-xs opacity-75">
+							Storyteller wins when at least W people are different from others (for example, right
+							when others are wrong).
+						</p>
+						<label class="mt-2 flex items-start gap-3 text-sm">
+							<input
+								type="checkbox"
+								class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
+								checked={storytellerLossComplementAuto}
+								on:change={updateStorytellerLossComplementAuto}
+								disabled={!isModerator}
+							/>
+							<span>Auto-tune W from the number of actual guessers after voting</span>
+						</label>
+						<div class="mt-2 flex items-center gap-2">
+							<input
+								type="number"
+								class="w-24 rounded border px-2 py-1 text-gray-700 shadow"
+								min={storytellerWinConditionMin}
+								max={storytellerWinConditionMax}
+								step="1"
+								value={storytellerWinCondition}
+								on:change={updateStorytellerLossComplement}
+								disabled={!isModerator || storytellerLossComplementAuto}
+							/>
+							<span class="text-xs opacity-75">
+								Range: {storytellerWinConditionMin}–{storytellerWinConditionMax}
+							</span>
+						</div>
+					</div>
+					<div class="mt-3 rounded border border-white/20 px-2 py-2">
+						<p class="block text-sm font-semibold">Votes per guesser</p>
+						<p class="mt-1 text-xs opacity-75">
+							How many vote tokens each guesser can cast in voting.
+						</p>
+						<div class="mt-2 flex items-center gap-2">
+							<input
+								type="number"
+								class="w-24 rounded border px-2 py-1 text-gray-700 shadow"
+								min={votesPerGuesserMin}
+								max={votesPerGuesserMax}
+								step="1"
+								value={votesPerGuesser}
+								on:change={updateVotesPerGuesser}
+								disabled={!isModerator || !canChangePreVotingSettings}
+							/>
+							<span class="text-xs opacity-75"
+								>Range: {votesPerGuesserMin}–{votesPerGuesserMax}</span
+							>
+						</div>
+						{#if !canChangePreVotingSettings}
+							<p class="mt-1 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
+						{/if}
+					</div>
+					<div class="mt-3 rounded border border-white/20 px-2 py-2">
+						<p class="block text-sm font-semibold">Random wrong-card disabling</p>
+						<p class="mt-1 text-xs opacity-75">
+							During voting, each player may privately have extra wrong cards greyed out and
+							unvotable.
+						</p>
+						<div class="mt-2">
+							<label class="block text-sm font-medium" for="voting-wrong-card-disable-preset">
+								Preset
+							</label>
+							<select
+								id="voting-wrong-card-disable-preset"
+								class="mt-1 w-full rounded border px-3 py-2 text-gray-700 shadow"
+								value={selectedVotingWrongCardDisablePresetId}
+								on:change={updateVotingWrongCardDisablePreset}
+								disabled={!isModerator || !canChangePreVotingSettings}
+							>
+								{#each VOTING_WRONG_CARD_DISABLE_PRESETS as preset}
+									<option value={preset.id}>{preset.label}</option>
+								{/each}
+								<option value="custom">Custom</option>
+							</select>
+						</div>
+						<details class="mt-3 rounded border border-white/20 px-3 py-2">
+							<summary class="cursor-pointer text-sm font-semibold">Advanced editor</summary>
+							<div class="mt-3 space-y-3">
+								<div>
+									<label class="block text-sm font-medium" for="voting-wrong-card-disable-max">
+										Max X
+									</label>
+									<input
+										id="voting-wrong-card-disable-max"
+										type="number"
+										min="0"
+										max={MAX_VOTING_WRONG_CARD_DISABLE_X}
+										step="1"
+										class="mt-1 w-24 rounded border px-2 py-1 text-gray-700 shadow"
+										value={votingWrongCardDisableMax}
+										on:change={updateVotingWrongCardDisableMax}
+										disabled={!isModerator || !canChangePreVotingSettings}
+									/>
+									<p class="mt-1 text-xs opacity-70">Range: 0–{MAX_VOTING_WRONG_CARD_DISABLE_X}</p>
+								</div>
+								<p class="text-xs opacity-70">
+									Editing probabilities auto-normalizes the total to 100% and switches the setting
+									to Custom.
+								</p>
+								{#each normalizedVotingWrongCardDisableDistribution as probability, index}
+									<div class="rounded border border-white/15 px-2 py-2">
+										<div class="flex items-center justify-between gap-2">
+											<span class="text-sm font-semibold">X = {index}</span>
+											<span class="text-xs opacity-75">{formatPercent(probability)}</span>
+										</div>
+										<div class="mt-2 flex items-center gap-2">
+											<input
+												type="range"
+												min="0"
+												max="100"
+												step="1"
+												class="h-2 flex-1 cursor-pointer accent-primary-500"
+												value={Math.round(probability * 100)}
+												on:change={(event) =>
+													updateVotingWrongCardDisableProbabilityFromEvent(index, event)}
+												disabled={!isModerator ||
+													!canChangePreVotingSettings ||
+													normalizedVotingWrongCardDisableDistribution.length === 1}
+											/>
+											<input
+												type="number"
+												min="0"
+												max="100"
+												step="1"
+												class="w-20 rounded border px-2 py-1 text-gray-700 shadow"
+												value={Math.round(probability * 100)}
+												on:change={(event) =>
+													updateVotingWrongCardDisableProbabilityFromEvent(index, event)}
+												disabled={!isModerator ||
+													!canChangePreVotingSettings ||
+													normalizedVotingWrongCardDisableDistribution.length === 1}
+											/>
+											<span class="text-xs opacity-75">%</span>
+										</div>
+									</div>
+								{/each}
+							</div>
+						</details>
+						{#if !canChangePreVotingSettings}
+							<p class="mt-1 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
+						{/if}
+					</div>
+					<div class="mt-3 rounded border border-white/20 px-2 py-2">
+						<p class="block text-sm font-semibold">Cards per hand</p>
+						<div class="mt-2 flex items-center gap-2">
+							<input
+								type="number"
+								class="w-24 rounded border px-2 py-1 text-gray-700 shadow"
+								min={cardsPerHandMin}
+								max={cardsPerHandMax}
+								step="1"
+								value={cardsPerHand}
+								on:change={updateCardsPerHand}
+								disabled={!isModerator || !canChangeCardsPerHand}
+							/>
+							<span class="text-xs opacity-75">Range: {cardsPerHandMin}–{cardsPerHandMax}</span>
+						</div>
+						{#if !canChangeCardsPerHand}
+							<p class="mt-1 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
+						{/if}
+					</div>
+					<div class="mt-3 rounded border border-white/20 px-2 py-2">
+						<p class="block text-sm font-semibold">Nominations per guesser</p>
+						<div class="mt-2 flex items-center gap-2">
+							<input
+								type="number"
+								class="w-24 rounded border px-2 py-1 text-gray-700 shadow"
+								min={nominationsPerGuesserMin}
+								max={nominationsPerGuesserMax}
+								step="1"
+								value={nominationsPerGuesser}
+								on:change={updateNominationsPerGuesser}
+								disabled={!isModerator || !canChangePreVotingSettings}
+							/>
+							<span class="text-xs opacity-75">
+								Range: {nominationsPerGuesserMin}–{nominationsPerGuesserMax}
+							</span>
+						</div>
+						{#if !canChangePreVotingSettings}
+							<p class="mt-1 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
+						{/if}
+					</div>
+					<div class="mt-3 rounded border border-white/20 px-2 py-2">
+						<p class="block text-sm font-semibold">Round-start random discards</p>
+						<p class="mt-1 text-xs opacity-75">
+							Discard N random cards from each active hand at round start, then top up.
+						</p>
+						<div class="mt-2 flex items-center gap-2">
+							<input
+								type="number"
+								class="w-24 rounded border px-2 py-1 text-gray-700 shadow"
+								min="0"
+								max={roundStartDiscardCountMax}
+								step="1"
+								value={roundStartDiscardCount}
+								on:change={updateRoundStartDiscardCount}
+								disabled={!isModerator || !canChangePreVotingSettings}
+							/>
+							<span class="text-xs opacity-75">Range: 0–{roundStartDiscardCountMax}</span>
+						</div>
+						{#if !canChangePreVotingSettings}
+							<p class="mt-1 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
+						{/if}
+					</div>
+					<div class="mt-3 rounded border border-white/20 px-2 py-2">
+						<label class="flex items-start gap-3 text-sm">
+							<input
+								type="checkbox"
+								class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
+								checked={bonusCorrectGuessOnThresholdCorrectLoss}
+								on:change={updateBonusCorrectGuessOnThresholdCorrectLoss}
+								disabled={!isModerator || !canChangePreVotingSettings}
+							/>
+							<span> Give +3 correct-guess base in threshold-correct storyteller-loss rounds </span>
+						</label>
+						{#if !canChangePreVotingSettings}
+							<p class="mt-1 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
+						{/if}
+					</div>
+					<div class="mt-3 rounded border border-white/20 px-2 py-2">
+						<label class="flex items-start gap-3 text-sm">
+							<input
+								type="checkbox"
+								class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
+								checked={bonusDoubleVoteOnThresholdCorrectLoss}
+								on:change={updateBonusDoubleVoteOnThresholdCorrectLoss}
+								disabled={!isModerator || !canChangePreVotingSettings}
+							/>
+							<span> Give +1 double-vote bonus in threshold-correct storyteller-loss rounds </span>
+						</label>
+						{#if !canChangePreVotingSettings}
+							<p class="mt-1 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
+						{/if}
+					</div>
+				{/if}
 			{/if}
 		</details>
 	{/if}

@@ -60,7 +60,7 @@
 			card,
 			points === 0
 				? {
-						label: 'Fall',
+						label: '☠',
 						className: 'bg-error-500/90 text-white'
 					}
 				: {
@@ -159,6 +159,7 @@
 				selectedImages={revealedCards}
 				selectable={false}
 				imageAnnotations={revealedCardAnnotations}
+				showIndexOverlay={showVotingCardNumbers}
 			/>
 		</div>
 		<div class="mt-3 card light p-4">

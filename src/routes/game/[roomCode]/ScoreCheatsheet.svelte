@@ -26,7 +26,7 @@
 				Super-Spark: if exactly 1 other player matched, both matching non-fallen players get 3.
 			</li>
 			<li>
-				Fall: if nobody else matched, the scout gets 0 and cannot score more reveals this round.
+				☠: if nobody else matched, the scout gets 0 and cannot score more reveals this round.
 			</li>
 			<li>
 				Dark player: if they made any mistakes, each scored Spark/Super-Spark loses 1 base star.

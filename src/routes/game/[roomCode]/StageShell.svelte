@@ -235,6 +235,7 @@
 								{forceVotingTimer}
 								{votingWrongCardDisableDistribution}
 								{activePlayer}
+								{gameMode}
 							/>
 						</div>
 					{/if}
@@ -276,6 +277,7 @@
 							{forceVotingTimer}
 							{votingWrongCardDisableDistribution}
 							{activePlayer}
+							{gameMode}
 						/>
 					</div>
 

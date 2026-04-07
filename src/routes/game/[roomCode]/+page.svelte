@@ -816,6 +816,7 @@
 			{cardsRemaining}
 			{deckRefillFlashToken}
 			{winCondition}
+			{gameMode}
 			reason={pausedReason}
 		/>
 	{:else if stage === 'End'}

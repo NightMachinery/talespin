@@ -54,15 +54,22 @@
 
 	let localSelectedCards: string[] = [];
 	let syncedRoundKey = '';
+	let syncedSelectedKey = '';
 	const toastStore = getToastStore();
 	$: isObserver = !!observers[name];
 	$: isModerator = new Set(moderators).has(name);
 	$: canSubmit = !isObserver && localSelectedCards.length > 0;
-	$: roundKey = `${clueWord}::${displayImages.join('||')}`;
+	$: hasLockedSelection = selectedCards.length > 0;
+	$: selectionDirty = !sameSelections(localSelectedCards, selectedCards);
+	$: submitLabel = hasLockedSelection ? 'Update locked selections' : 'Lock selections';
+	$: roundKey = `${roundNum}::${clueWord}::${displayImages.join('||')}`;
+	$: selectedKey = selectedCards.join('||');
 	$: if (roundKey !== syncedRoundKey) {
 		syncedRoundKey = roundKey;
+		syncedSelectedKey = selectedKey;
 		localSelectedCards = [...selectedCards];
-	} else if (selectedCards.length > 0 && !sameSelections(localSelectedCards, selectedCards)) {
+	} else if (selectedKey !== syncedSelectedKey) {
+		syncedSelectedKey = selectedKey;
 		localSelectedCards = [...selectedCards];
 	}
 
@@ -86,7 +93,11 @@
 	function submitSelection() {
 		if (!canSubmit) return;
 		gameServer.submitStellaSelection(localSelectedCards);
-		toastStore.trigger({ message: '✨ Selections locked in', autohide: true, timeout: 2000 });
+		toastStore.trigger({
+			message: hasLockedSelection ? '✨ Selections updated' : '✨ Selections locked in',
+			autohide: true,
+			timeout: 2000
+		});
 	}
 </script>
 
@@ -141,14 +152,20 @@
 			<h1 class="text-xl font-semibold">Stella — Associate</h1>
 			<p>Clue word: <span class="boujee-text">{clueWord}</span></p>
 			<p class="text-xs opacity-75">
-				Pick every card you want to associate with the clue, then lock in.
+				Pick every card you want to associate with the clue, then lock in. You can adjust and lock
+				again before reveal starts.
 			</p>
 		</div>
 		{#if !isObserver}
 			<div class="card light p-4">
-				<p class="mb-2 text-sm opacity-80">Selected: {localSelectedCards.length}</p>
+				<p class="mb-1 text-sm opacity-80">Draft selected: {localSelectedCards.length}</p>
+				{#if hasLockedSelection}
+					<p class="mb-2 text-xs opacity-70">
+						Locked: {selectedCards.length}{selectionDirty ? ' • draft has changes' : ''}
+					</p>
+				{/if}
 				<button class="btn variant-filled w-full" disabled={!canSubmit} on:click={submitSelection}
-					>Lock selections</button
+					>{submitLabel}</button
 				>
 			</div>
 		{/if}
@@ -174,7 +191,7 @@
 	<svelte:fragment slot="mobileActions">
 		{#if !isObserver}
 			<button class="btn variant-filled w-full" disabled={!canSubmit} on:click={submitSelection}
-				>Lock selections</button
+				>{submitLabel}</button
 			>
 		{/if}
 	</svelte:fragment>
@@ -186,6 +203,7 @@
 				{displayImages}
 				selectedImages={localSelectedCards}
 				selectable={!isObserver}
+				showIndexOverlay={showVotingCardNumbers}
 				on:select={handleSelect}
 			/>
 		</div>

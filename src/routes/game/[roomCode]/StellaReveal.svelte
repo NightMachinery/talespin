@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type GameServer from '$lib/gameServer';
 	import type { GameMode, ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
+	import { hideNonSelectedStellaRevealCards } from '$lib/viewOptions';
 	import Images from './Images.svelte';
 	import StageShell from './StageShell.svelte';
 
@@ -58,12 +59,16 @@
 	$: isObserver = !!observers[name];
 	$: isScout = activePlayer === name && !isObserver;
 	$: revealableCards = selectedCards.filter((card) => !revealedCards.includes(card));
+	$: visibleBoardCards =
+		isScout && $hideNonSelectedStellaRevealCards && selectedCards.length > 0
+			? selectedCards
+			: displayImages;
 	$: revealedCardAnnotations = Object.fromEntries(
 		Object.entries(cardPoints).map(([card, points]) => [
 			card,
 			points === 0
 				? {
-						label: 'Fall',
+						label: '☠',
 						className: 'bg-error-500/90 text-white'
 					}
 				: {
@@ -143,14 +148,15 @@
 		</div>
 		{#if isScout}
 			<div class="card light space-y-2 p-4">
-				<h2 class="font-semibold">Reveal one of your unrevealed picks</h2>
-				<p class="text-sm opacity-80">Tap a card below to reveal it.</p>
-				<Images
-					displayImages={revealableCards}
-					selectedImages={[]}
-					selectable={isScout}
-					on:select={handleRevealSelect}
-				/>
+				<h2 class="font-semibold">Reveal from the board</h2>
+				<p class="text-sm opacity-80">Tap one of your highlighted unrevealed cards on the board.</p>
+			</div>
+		{:else}
+			<div class="card light space-y-2 p-4">
+				<h2 class="font-semibold">Scout action</h2>
+				<p class="text-sm opacity-80">
+					Waiting for <span class="font-semibold">{activePlayer}</span> to reveal one highlighted card.
+				</p>
 			</div>
 		{/if}
 	</svelte:fragment>
@@ -160,6 +166,9 @@
 			<h1 class="text-xl font-semibold">Stella — Reveal</h1>
 			<p>{clueWord}</p>
 			<p>Scout: {activePlayer}</p>
+			{#if isScout}
+				<p class="text-sm opacity-80">Tap a highlighted card on the board to reveal it.</p>
+			{/if}
 		</div>
 	</svelte:fragment>
 
@@ -167,10 +176,13 @@
 		<h2 class="mb-2 hidden text-lg font-semibold lg:block">Shared board</h2>
 		<div class="min-h-0 flex-1 overflow-y-auto">
 			<Images
-				{displayImages}
-				selectedImages={revealedCards}
-				selectable={false}
+				displayImages={visibleBoardCards}
+				selectedImages={selectedCards}
+				selectable={isScout}
+				selectableImages={revealableCards}
 				imageAnnotations={revealedCardAnnotations}
+				showIndexOverlay={showVotingCardNumbers}
+				on:select={handleRevealSelect}
 			/>
 		</div>
 	</div>

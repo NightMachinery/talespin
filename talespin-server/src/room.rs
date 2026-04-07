@@ -3939,7 +3939,7 @@ impl Room {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
-                                "Only moderators can change voting card numbering".to_string(),
+                                "Only moderators can change card number overlays".to_string(),
                             )
                             .into(),
                         )
@@ -3952,11 +3952,14 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
+                if !matches!(
+                    state.stage,
+                    RoomStage::Joining | RoomStage::ActiveChooses | RoomStage::StellaAssociate
+                ) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
-                                "Voting card numbering can only be changed during storyteller choosing stage"
+                                "Card number overlays can only be changed during storyteller choosing or Stella associate stage"
                                     .to_string(),
                             )
                             .into(),
@@ -7935,6 +7938,111 @@ mod tests {
         assert!(
             matches!(state.stage, RoomStage::StellaAssociate),
             "invalid Stella submission should not advance the stage"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stella_submission_can_overwrite_a_players_locked_selection() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "a", 0);
+            add_player(&mut state, "b", 0);
+            add_player(&mut state, "c", 0);
+            state.game_mode = GameMode::Stella;
+            state.stage = RoomStage::StellaAssociate;
+            state.player_order = vec!["a".into(), "b".into(), "c".into()];
+            state.stella_board_cards = vec![
+                "card-1".into(),
+                "card-2".into(),
+                "card-3".into(),
+                "card-4".into(),
+            ];
+            state.stella_selection_min = 1;
+            state.stella_selection_max = 4;
+            setup_connected_member(&mut state, "a", "t-a", 611);
+        }
+
+        room.handle_client_msg(
+            "a",
+            611,
+            to_ws(ClientMsg::SubmitStellaSelection {
+                cards: vec!["card-1".to_string()],
+            }),
+        )
+        .await?;
+        room.handle_client_msg(
+            "a",
+            611,
+            to_ws(ClientMsg::SubmitStellaSelection {
+                cards: vec!["card-2".to_string(), "card-3".to_string()],
+            }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert_eq!(
+            state.stella_player_selections.get("a"),
+            Some(&vec!["card-2".to_string(), "card-3".to_string()]),
+            "re-locking Stella selections should overwrite the player's prior saved picks"
+        );
+        assert!(
+            state.players.get("a").unwrap().ready,
+            "the player should remain ready after updating a locked Stella selection"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stella_associate_allows_card_number_overlay_changes_but_reveal_does_not() -> Result<()>
+    {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            add_player(&mut state, "p2", 0);
+            add_player(&mut state, "p3", 0);
+            state.game_mode = GameMode::Stella;
+            state.stage = RoomStage::StellaAssociate;
+            state.show_voting_card_numbers = false;
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 612);
+        }
+
+        room.handle_client_msg(
+            "host",
+            612,
+            to_ws(ClientMsg::SetShowVotingCardNumbers { enabled: true }),
+        )
+        .await?;
+
+        {
+            let state = room.state.read().await;
+            assert!(
+                state.show_voting_card_numbers,
+                "Stella associate should allow enabling card number overlays"
+            );
+        }
+
+        {
+            let mut state = room.state.write().await;
+            state.stage = RoomStage::StellaReveal;
+        }
+
+        room.handle_client_msg(
+            "host",
+            612,
+            to_ws(ClientMsg::SetShowVotingCardNumbers { enabled: false }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert!(
+            state.show_voting_card_numbers,
+            "Stella reveal should keep card number overlays unchanged once associate is over"
         );
 
         Ok(())

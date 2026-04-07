@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type GameServer from '$lib/gameServer';
-	import type { ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
+	import type { GameMode, ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
 	import StageShell from './StageShell.svelte';
 
 	export let name = '';
@@ -46,6 +46,7 @@
 		mode: 'points',
 		target_points: 10
 	};
+	export let gameMode: GameMode = 'dixit_plus';
 
 	$: moderatorSet = new Set(moderators);
 	$: isModerator = moderatorSet.has(name);
@@ -96,6 +97,7 @@
 	{cardsRemaining}
 	{deckRefillFlashToken}
 	{winCondition}
+	{gameMode}
 	showMobileActions={isModerator}
 >
 	<svelte:fragment slot="leftRail">

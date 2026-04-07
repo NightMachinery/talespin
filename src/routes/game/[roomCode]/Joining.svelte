@@ -52,7 +52,7 @@
 	let newPresetName = '';
 	let savedPresets: StellaWordPackPreset[] = [];
 	let selectedPresetKey = '';
-	let wordPackApplyTimeout: ReturnType<typeof setTimeout> | null = null;
+	let wordPackApplyTimeout: number | null = null;
 	let availableWordPackPresets: StellaWordPackOption[] = [];
 	let selectedWordPackPreset: StellaWordPackOption | null = null;
 
@@ -297,8 +297,9 @@
 	}
 
 	function deleteSelectedPreset() {
-		if (!selectedWordPackPreset || selectedWordPackPreset.builtin) return;
-		savedPresets = savedPresets.filter((preset) => preset.name !== selectedWordPackPreset.name);
+		const preset = selectedWordPackPreset;
+		if (!preset || preset.builtin) return;
+		savedPresets = savedPresets.filter((savedPreset) => savedPreset.name !== preset.name);
 		savePresets();
 		selectedPresetKey = '';
 	}
