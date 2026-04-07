@@ -479,6 +479,8 @@ struct RoomState {
     stella_fallen_players: HashSet<String>,
     // stella per-player round score contribution
     stella_point_change: HashMap<String, u16>,
+    // per-player number of Stella boxes that actually filled stars this round
+    stella_scored_boxes: HashMap<String, u16>,
     // per-player cards that are visible but not votable during voting.
     // This is frozen when voting starts; if the voter set changes mid-round, the original
     // private information has already been revealed and cannot be cleanly recomputed.
@@ -604,6 +606,7 @@ impl Room {
             stella_card_points: HashMap::new(),
             stella_fallen_players: HashSet::new(),
             stella_point_change: HashMap::new(),
+            stella_scored_boxes: HashMap::new(),
             player_to_disabled_voting_cards: HashMap::new(),
             round: 0,
             win_condition,
@@ -2729,8 +2732,28 @@ impl Room {
         state.stella_revealed_cards.clear();
         state.stella_card_points.clear();
         state.stella_point_change.clear();
+        state.stella_scored_boxes.clear();
         state.stella_fallen_players.clear();
         self.clear_ready(state);
+    }
+
+    fn award_stella_points(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+        player: &str,
+        points: u16,
+    ) {
+        let entry = state
+            .stella_point_change
+            .entry(player.to_string())
+            .or_insert(0);
+        *entry = entry.saturating_add(points);
+
+        let scored_boxes = state
+            .stella_scored_boxes
+            .entry(player.to_string())
+            .or_insert(0);
+        *scored_boxes = scored_boxes.saturating_add(1);
     }
 
     fn discard_stella_board(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
@@ -2872,10 +2895,7 @@ impl Room {
                 .iter()
                 .any(|card| state.stella_card_points.get(card).copied().unwrap_or(0) == 0);
             if has_mistake {
-                let penalty = selections
-                    .iter()
-                    .filter(|card| state.stella_card_points.get(*card).copied().unwrap_or(0) >= 2)
-                    .count() as u16;
+                let penalty = state.stella_scored_boxes.get(&dark_player).copied().unwrap_or(0);
                 if penalty > 0 {
                     let entry = point_change.entry(dark_player).or_insert(0);
                     *entry = entry.saturating_sub(penalty);
@@ -4567,33 +4587,20 @@ impl Room {
                     }
                     1 => {
                         state.stella_card_points.insert(card.clone(), 3);
-                        let entry = state
-                            .stella_point_change
-                            .entry(name.to_string())
-                            .or_insert(0);
-                        *entry = entry.saturating_add(3);
+                        self.award_stella_points(&mut state, name, 3);
                         let other_player = &matching_other_players[0];
                         if !state.stella_fallen_players.contains(other_player) {
-                            let entry = state
-                                .stella_point_change
-                                .entry(other_player.clone())
-                                .or_insert(0);
-                            *entry = entry.saturating_add(3);
+                            self.award_stella_points(&mut state, other_player, 3);
                         }
                     }
                     _ => {
                         state.stella_card_points.insert(card.clone(), 2);
-                        let entry = state
-                            .stella_point_change
-                            .entry(name.to_string())
-                            .or_insert(0);
-                        *entry = entry.saturating_add(2);
+                        self.award_stella_points(&mut state, name, 2);
                         for other_player in matching_other_players {
                             if state.stella_fallen_players.contains(&other_player) {
                                 continue;
                             }
-                            let entry = state.stella_point_change.entry(other_player).or_insert(0);
-                            *entry = entry.saturating_add(2);
+                            self.award_stella_points(&mut state, &other_player, 2);
                         }
                     }
                 }
@@ -7992,6 +7999,48 @@ mod tests {
         assert!(
             state.players.get("p3").unwrap().ready,
             "the new submission should still ready the submitting player"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stella_dark_penalty_only_counts_boxes_the_player_scored() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        add_player(&mut state, "dark", 0);
+        add_player(&mut state, "b", 0);
+        add_player(&mut state, "c", 0);
+        state.stage = RoomStage::StellaReveal;
+        state.stella_dark_player = Some("dark".to_string());
+        state.stella_player_selections.insert(
+            "dark".to_string(),
+            vec![
+                "shared-early".into(),
+                "fall-card".into(),
+                "shared-late-1".into(),
+                "shared-late-2".into(),
+            ],
+        );
+        state.stella_card_points.insert("shared-early".into(), 3);
+        state.stella_card_points.insert("fall-card".into(), 0);
+        state.stella_card_points.insert("shared-late-1".into(), 3);
+        state.stella_card_points.insert("shared-late-2".into(), 2);
+        state.stella_point_change.insert("dark".to_string(), 3);
+        state.stella_scored_boxes.insert("dark".to_string(), 1);
+
+        room.init_stella_results(&mut state)?;
+
+        assert_eq!(
+            state.stella_point_change.get("dark").copied(),
+            Some(2),
+            "dark penalty should subtract one star only for the box that actually scored"
+        );
+        assert_eq!(
+            state.players.get("dark").map(|player| player.points),
+            Some(2),
+            "dark player should keep bonus points from boxes scored before falling"
         );
 
         Ok(())
