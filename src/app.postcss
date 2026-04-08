@@ -41,3 +41,119 @@
 			0 16px 30px rgb(0 0 0 / 0.38);
 	}
 }
+
+.stella-card-effect-fall {
+	box-shadow:
+		0 0 0 2px rgb(239 68 68 / 0.35),
+		0 0 28px rgb(239 68 68 / 0.42);
+}
+
+.stella-card-effect-spark {
+	animation: stella-spark-pulse 2.6s ease-in-out infinite;
+	box-shadow:
+		0 0 0 2px rgb(34 197 94 / 0.34),
+		0 0 26px rgb(34 197 94 / 0.42),
+		0 18px 36px rgb(0 0 0 / 0.34);
+}
+
+.stella-card-effect-super-spark {
+	animation:
+		stella-super-spark-pulse 2.8s ease-in-out infinite,
+		stella-super-spark-shimmer 5.5s linear infinite;
+	box-shadow:
+		0 0 0 2px rgb(125 211 252 / 0.5),
+		0 0 18px rgb(59 130 246 / 0.35),
+		0 0 34px rgb(34 211 238 / 0.4),
+		0 0 48px rgb(139 92 246 / 0.34),
+		0 18px 36px rgb(0 0 0 / 0.36);
+}
+
+.stella-card-effect-badge {
+	backdrop-filter: blur(8px);
+	border: 1px solid rgb(255 255 255 / 0.26);
+	color: white;
+	text-shadow: 0 1px 1px rgb(0 0 0 / 0.35);
+}
+
+.stella-card-effect-badge-fall {
+	background: linear-gradient(135deg, rgb(153 27 27 / 0.92), rgb(220 38 38 / 0.86));
+}
+
+.stella-card-effect-badge-spark {
+	background: linear-gradient(135deg, rgb(21 128 61 / 0.94), rgb(34 197 94 / 0.84));
+	box-shadow:
+		0 0 0 1px rgb(255 255 255 / 0.08),
+		0 0 18px rgb(34 197 94 / 0.26);
+}
+
+.stella-card-effect-badge-super-spark {
+	--stella-super-spark-bg-size: 240%;
+	background: linear-gradient(
+			120deg,
+			rgb(59 130 246 / 0.96),
+			rgb(34 211 238 / 0.9),
+			rgb(59 130 246 / 0.96),
+			rgb(139 92 246 / 0.92),
+			rgb(37 99 235 / 0.96)
+		)
+		0 0 / var(--stella-super-spark-bg-size) 100%;
+	animation: stella-super-spark-badge-shift 6s linear infinite;
+	box-shadow:
+		0 0 0 1px rgb(255 255 255 / 0.1),
+		0 0 20px rgb(96 165 250 / 0.3);
+}
+
+@keyframes stella-spark-pulse {
+	0%,
+	100% {
+		box-shadow:
+			0 0 0 2px rgb(34 197 94 / 0.32),
+			0 0 22px rgb(34 197 94 / 0.34),
+			0 18px 36px rgb(0 0 0 / 0.3);
+	}
+
+	50% {
+		box-shadow:
+			0 0 0 2px rgb(74 222 128 / 0.42),
+			0 0 34px rgb(74 222 128 / 0.52),
+			0 20px 38px rgb(0 0 0 / 0.36);
+	}
+}
+
+@keyframes stella-super-spark-pulse {
+	0%,
+	100% {
+		box-shadow:
+			0 0 0 2px rgb(125 211 252 / 0.42),
+			0 0 14px rgb(59 130 246 / 0.28),
+			0 0 26px rgb(34 211 238 / 0.3),
+			0 0 36px rgb(139 92 246 / 0.22),
+			0 18px 36px rgb(0 0 0 / 0.3);
+	}
+
+	50% {
+		box-shadow:
+			0 0 0 2px rgb(191 219 254 / 0.62),
+			0 0 22px rgb(59 130 246 / 0.42),
+			0 0 38px rgb(34 211 238 / 0.42),
+			0 0 54px rgb(139 92 246 / 0.34),
+			0 20px 40px rgb(0 0 0 / 0.38);
+	}
+}
+
+@keyframes stella-super-spark-shimmer {
+	0%,
+	100% {
+		filter: saturate(1.02) hue-rotate(0deg);
+	}
+
+	50% {
+		filter: saturate(1.16) hue-rotate(-10deg);
+	}
+}
+
+@keyframes stella-super-spark-badge-shift {
+	to {
+		background-position: var(--stella-super-spark-bg-size) 0;
+	}
+}

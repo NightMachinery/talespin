@@ -471,6 +471,13 @@
 			{votingTimerDurationS}
 			{forceCardChoosingTimer}
 			{forceVotingTimer}
+			{stellaBoardSize}
+			{stellaBoardSizeMin}
+			{stellaBoardSizeMax}
+			{stellaSelectionMin}
+			{stellaSelectionMax}
+			{stellaSelectionCountMin}
+			{stellaSelectionCountMax}
 			{serverTimeMs}
 			{currentStageDeadlineS}
 			{votingWrongCardDisableDistribution}
@@ -520,6 +527,13 @@
 			{votingTimerDurationS}
 			{forceCardChoosingTimer}
 			{forceVotingTimer}
+			{stellaBoardSize}
+			{stellaBoardSizeMin}
+			{stellaBoardSizeMax}
+			{stellaSelectionMin}
+			{stellaSelectionMax}
+			{stellaSelectionCountMin}
+			{stellaSelectionCountMax}
 			{serverTimeMs}
 			{currentStageDeadlineS}
 			{votingWrongCardDisableDistribution}
@@ -574,6 +588,13 @@
 			{votingTimerDurationS}
 			{forceCardChoosingTimer}
 			{forceVotingTimer}
+			{stellaBoardSize}
+			{stellaBoardSizeMin}
+			{stellaBoardSizeMax}
+			{stellaSelectionMin}
+			{stellaSelectionMax}
+			{stellaSelectionCountMin}
+			{stellaSelectionCountMax}
 			{serverTimeMs}
 			{currentStageDeadlineS}
 			{votingWrongCardDisableDistribution}
@@ -621,6 +642,13 @@
 			{votingTimerDurationS}
 			{forceCardChoosingTimer}
 			{forceVotingTimer}
+			{stellaBoardSize}
+			{stellaBoardSizeMin}
+			{stellaBoardSizeMax}
+			{stellaSelectionMin}
+			{stellaSelectionMax}
+			{stellaSelectionCountMin}
+			{stellaSelectionCountMax}
 			{serverTimeMs}
 			{currentStageDeadlineS}
 			{votingWrongCardDisableDistribution}
@@ -669,6 +697,13 @@
 			{votingTimerDurationS}
 			{forceCardChoosingTimer}
 			{forceVotingTimer}
+			{stellaBoardSize}
+			{stellaBoardSizeMin}
+			{stellaBoardSizeMax}
+			{stellaSelectionMin}
+			{stellaSelectionMax}
+			{stellaSelectionCountMin}
+			{stellaSelectionCountMax}
 			{serverTimeMs}
 			{currentStageDeadlineS}
 			{votingWrongCardDisableDistribution}

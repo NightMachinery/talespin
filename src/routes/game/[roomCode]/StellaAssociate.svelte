@@ -39,6 +39,13 @@
 	export let votingTimerDurationS = 180;
 	export let forceCardChoosingTimer = false;
 	export let forceVotingTimer = false;
+	export let stellaBoardSize = 15;
+	export let stellaBoardSizeMin = 1;
+	export let stellaBoardSizeMax = 100;
+	export let stellaSelectionMin = 1;
+	export let stellaSelectionMax = 10;
+	export let stellaSelectionCountMin = 1;
+	export let stellaSelectionCountMax = 15;
 	export let serverTimeMs: number | null = null;
 	export let currentStageDeadlineS: number | null = null;
 	export let votingWrongCardDisableDistribution: number[] = [1];
@@ -135,6 +142,13 @@
 	{votingTimerDurationS}
 	{forceCardChoosingTimer}
 	{forceVotingTimer}
+	{stellaBoardSize}
+	{stellaBoardSizeMin}
+	{stellaBoardSizeMax}
+	{stellaSelectionMin}
+	{stellaSelectionMax}
+	{stellaSelectionCountMin}
+	{stellaSelectionCountMax}
 	{serverTimeMs}
 	{currentStageDeadlineS}
 	{votingWrongCardDisableDistribution}
@@ -203,6 +217,7 @@
 				{displayImages}
 				selectedImages={localSelectedCards}
 				selectable={!isObserver}
+				desktopFitToHeight={true}
 				showIndexOverlay={showVotingCardNumbers}
 				on:select={handleSelect}
 			/>

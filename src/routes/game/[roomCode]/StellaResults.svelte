@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type GameServer from '$lib/gameServer';
+	import { getStellaCardEffectPresentation } from '$lib/stellaCardEffects';
 	import type { GameMode, ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
 	import Images from './Images.svelte';
 	import StageShell from './StageShell.svelte';
@@ -38,6 +39,13 @@
 	export let votingTimerDurationS = 180;
 	export let forceCardChoosingTimer = false;
 	export let forceVotingTimer = false;
+	export let stellaBoardSize = 15;
+	export let stellaBoardSizeMin = 1;
+	export let stellaBoardSizeMax = 100;
+	export let stellaSelectionMin = 1;
+	export let stellaSelectionMax = 10;
+	export let stellaSelectionCountMin = 1;
+	export let stellaSelectionCountMax = 15;
 	export let serverTimeMs: number | null = null;
 	export let currentStageDeadlineS: number | null = null;
 	export let votingWrongCardDisableDistribution: number[] = [1];
@@ -61,17 +69,26 @@
 			choosers.map((chooser) => ({ name: chooser }))
 		])
 	);
-	$: revealedCardHighlightClasses = Object.fromEntries(
-		Object.entries(cardPoints).map(([card, points]) => {
-			const className =
-				points === 0
-					? 'brightness-95 ring-4 ring-error-500 shadow-[0_0_0_2px_rgba(239,68,68,0.35),0_0_28px_rgba(239,68,68,0.4)]'
-					: points === 3
-						? 'brightness-105 ring-4 ring-success-500 shadow-[0_0_0_2px_rgba(34,197,94,0.35),0_0_28px_rgba(34,197,94,0.4)]'
-						: 'brightness-105 ring-4 ring-warning-400 shadow-[0_0_0_2px_rgba(251,191,36,0.35),0_0_28px_rgba(251,191,36,0.4)]';
-			return [card, className];
-		})
+	$: revealedCardEffectPresentation = Object.fromEntries(
+		Object.entries(cardPoints).map(([card, points]) => [
+			card,
+			getStellaCardEffectPresentation(points)
+		])
 	);
+	$: revealedCardHighlightClasses = Object.fromEntries(
+		Object.entries(revealedCardEffectPresentation).map(([card, presentation]) => [
+			card,
+			presentation.highlightClass
+		])
+	);
+	$: revealedCardAnnotations = Object.entries(revealedCardEffectPresentation).reduce<
+		Record<string, NonNullable<(typeof revealedCardEffectPresentation)[string]['annotation']>>
+	>((annotations, [card, presentation]) => {
+		if (presentation.annotation) {
+			annotations[card] = presentation.annotation;
+		}
+		return annotations;
+	}, {});
 </script>
 
 <StageShell
@@ -108,6 +125,13 @@
 	{votingTimerDurationS}
 	{forceCardChoosingTimer}
 	{forceVotingTimer}
+	{stellaBoardSize}
+	{stellaBoardSizeMin}
+	{stellaBoardSizeMax}
+	{stellaSelectionMin}
+	{stellaSelectionMax}
+	{stellaSelectionCountMin}
+	{stellaSelectionCountMax}
 	{serverTimeMs}
 	{currentStageDeadlineS}
 	{votingWrongCardDisableDistribution}
@@ -160,6 +184,8 @@
 			<Images
 				{displayImages}
 				selectable={false}
+				desktopFitToHeight={true}
+				imageAnnotations={revealedCardAnnotations}
 				imageChooserOverlays={revealedCardChooserEntries}
 				imageHighlightClasses={revealedCardHighlightClasses}
 				showIndexOverlay={showVotingCardNumbers}

@@ -61,6 +61,13 @@
 	export let votingTimerDurationS = 180;
 	export let forceCardChoosingTimer = false;
 	export let forceVotingTimer = false;
+	export let stellaBoardSize = 15;
+	export let stellaBoardSizeMin = 1;
+	export let stellaBoardSizeMax = 100;
+	export let stellaSelectionMin = 1;
+	export let stellaSelectionMax = 10;
+	export let stellaSelectionCountMin = 1;
+	export let stellaSelectionCountMax = 15;
 	export let votingWrongCardDisableDistribution: number[] = [
 		...DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION
 	];
@@ -84,6 +91,7 @@
 	$: canChangePreVotingSettings = isDixitMode && stage === 'ActiveChooses';
 	$: canRefreshHands = isDixitMode && stage === 'ActiveChooses';
 	$: canChangeStageTimers = isDixitMode && stage === 'ActiveChooses';
+	$: canChangeStellaSettings = isStellaMode && stage === 'StellaAssociate';
 	$: canChangeNumberOverlaySetting = isStellaMode
 		? stage === 'StellaAssociate'
 		: canChangePreVotingSettings;
@@ -359,6 +367,62 @@
 		updateStageTimerToggle(event, forceVotingTimer, (enabled) =>
 			gameServer.setForceVotingTimer(enabled)
 		);
+	}
+
+	function updateStellaBoardSize(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const parsed = Number(input.value);
+		if (!isModerator || !canChangeStellaSettings) {
+			input.value = `${stellaBoardSize}`;
+			return;
+		}
+		if (!Number.isInteger(parsed) || parsed < stellaBoardSizeMin || parsed > stellaBoardSizeMax) {
+			input.value = `${stellaBoardSize}`;
+			return;
+		}
+		if (parsed !== stellaBoardSize) {
+			gameServer.setStellaBoardSize(parsed);
+		}
+	}
+
+	function updateStellaSelectionMin(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const parsed = Number(input.value);
+		if (!isModerator || !canChangeStellaSettings) {
+			input.value = `${stellaSelectionMin}`;
+			return;
+		}
+		if (
+			!Number.isInteger(parsed) ||
+			parsed < stellaSelectionCountMin ||
+			parsed > stellaSelectionCountMax
+		) {
+			input.value = `${stellaSelectionMin}`;
+			return;
+		}
+		if (parsed !== stellaSelectionMin) {
+			gameServer.setStellaSelectionMin(parsed);
+		}
+	}
+
+	function updateStellaSelectionMax(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const parsed = Number(input.value);
+		if (!isModerator || !canChangeStellaSettings) {
+			input.value = `${stellaSelectionMax}`;
+			return;
+		}
+		if (
+			!Number.isInteger(parsed) ||
+			parsed < stellaSelectionCountMin ||
+			parsed > stellaSelectionCountMax
+		) {
+			input.value = `${stellaSelectionMax}`;
+			return;
+		}
+		if (parsed !== stellaSelectionMax) {
+			gameServer.setStellaSelectionMax(parsed);
+		}
 	}
 
 	function formatPercent(probability: number) {
@@ -773,6 +837,77 @@
 						<p class="mt-2 text-xs opacity-70">{timerSettingsEditHint}</p>
 					{/if}
 				</div>
+				{#if isStellaMode}
+					<div class="mt-3 rounded border border-white/20 px-2 py-2">
+						<p class="block text-sm font-semibold">Stella settings</p>
+						<p class="mt-1 text-xs opacity-75">Live Stella round limits for the current board.</p>
+						<div class="mt-3 space-y-3">
+							<div>
+								<label class="block text-sm font-medium" for="sidebar-stella-board-size">
+									Board size
+								</label>
+								<div class="mt-2 flex items-center gap-2">
+									<input
+										id="sidebar-stella-board-size"
+										type="number"
+										class="w-24 rounded border px-2 py-1 text-gray-700 shadow"
+										min={stellaBoardSizeMin}
+										max={stellaBoardSizeMax}
+										step="1"
+										value={stellaBoardSize}
+										on:change={updateStellaBoardSize}
+										disabled={!isModerator || !canChangeStellaSettings}
+									/>
+									<span class="text-xs opacity-75">
+										Range: {stellaBoardSizeMin}–{stellaBoardSizeMax}
+									</span>
+								</div>
+							</div>
+							<div class="grid grid-cols-2 gap-3">
+								<div>
+									<label class="block text-sm font-medium" for="sidebar-stella-selection-min">
+										Selection min
+									</label>
+									<input
+										id="sidebar-stella-selection-min"
+										type="number"
+										class="mt-2 w-full rounded border px-2 py-1 text-gray-700 shadow"
+										min={stellaSelectionCountMin}
+										max={stellaSelectionCountMax}
+										step="1"
+										value={stellaSelectionMin}
+										on:change={updateStellaSelectionMin}
+										disabled={!isModerator || !canChangeStellaSettings}
+									/>
+								</div>
+								<div>
+									<label class="block text-sm font-medium" for="sidebar-stella-selection-max">
+										Selection max
+									</label>
+									<input
+										id="sidebar-stella-selection-max"
+										type="number"
+										class="mt-2 w-full rounded border px-2 py-1 text-gray-700 shadow"
+										min={stellaSelectionCountMin}
+										max={stellaSelectionCountMax}
+										step="1"
+										value={stellaSelectionMax}
+										on:change={updateStellaSelectionMax}
+										disabled={!isModerator || !canChangeStellaSettings}
+									/>
+								</div>
+							</div>
+							<p class="text-xs opacity-75">
+								Selection range: {stellaSelectionCountMin}–{stellaSelectionCountMax}
+							</p>
+						</div>
+						{#if !isModerator}
+							<p class="mt-2 text-xs opacity-70">Only moderators can edit live Stella settings.</p>
+						{:else if !canChangeStellaSettings}
+							<p class="mt-2 text-xs opacity-70">{settingsEditStageHint}</p>
+						{/if}
+					</div>
+				{/if}
 				<div class="mt-3 rounded border border-white/20 px-2 py-2">
 					<label class="flex items-start gap-3 text-sm">
 						<input

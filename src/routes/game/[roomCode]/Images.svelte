@@ -35,25 +35,20 @@
 	export let imageHighlightClasses: Record<string, string> = {};
 	export let showIndexOverlay = false;
 	export let indexOverlayPosition: 'left' | 'right' = 'right';
+	export let desktopFitToHeight = false;
 
 	$: isHandMode = mode === 'hand';
-	$: handDesktopFitEnabled = isHandMode && $cardsFitToHeight;
-	$: handDesktopRowCount = getDesktopFitRowCount(displayImages?.length);
-	$: handDesktopGridClass = handDesktopFitEnabled
-		? 'hand-fit-grid lg:h-full lg:grid-cols-3 lg:content-stretch'
+	$: desktopFitEnabled = $cardsFitToHeight && (isHandMode || desktopFitToHeight);
+	$: desktopFitRowCount = getDesktopFitRowCount(displayImages?.length);
+	$: desktopGridClass = desktopFitEnabled
+		? 'desktop-fit-grid lg:h-full lg:grid-cols-3 lg:content-stretch'
 		: 'lg:grid-cols-3 lg:auto-rows-max lg:content-start';
-	$: handButtonSizeClass = handDesktopFitEnabled ? 'lg:h-full' : '';
-	$: handDesktopFitStyle = handDesktopFitEnabled
-		? `--hand-desktop-rows: ${handDesktopRowCount};`
-		: '';
-	$: sectionClass = isHandMode
-		? `grid w-full grid-cols-2 gap-3 overflow-visible p-1 ${handDesktopGridClass}`
-		: 'grid w-full grid-cols-2 gap-3 overflow-visible p-1 lg:grid-cols-3 lg:auto-rows-max lg:content-start';
-	$: imageClassBase = isHandMode
-		? `w-full rounded-lg object-cover object-center aspect-[2/3] ${
-				handDesktopFitEnabled ? 'lg:h-full' : ''
-			}`
-		: 'w-full rounded-lg object-cover object-center aspect-[2/3]';
+	$: desktopButtonSizeClass = desktopFitEnabled ? 'lg:h-full' : '';
+	$: desktopFitStyle = desktopFitEnabled ? `--desktop-fit-rows: ${desktopFitRowCount};` : '';
+	$: sectionClass = `grid w-full grid-cols-2 gap-3 overflow-visible p-1 ${desktopGridClass}`;
+	$: imageClassBase = `w-full rounded-lg object-cover object-center aspect-[2/3] ${
+		desktopFitEnabled ? 'lg:h-full' : ''
+	}`;
 	$: nonSelectedCardDimClass = ENABLE_NON_SELECTED_CARD_DIM ? NON_SELECTED_CARD_DIM_CLASS : '';
 	$: visibleImageSet = new Set(displayImages);
 	$: disabledImageSet = new Set(disabledImages);
@@ -72,7 +67,7 @@
 	}
 </script>
 
-<section class={`${sectionClass} isolate`} style={handDesktopFitStyle}>
+<section class={`${sectionClass} isolate`} style={desktopFitStyle}>
 	{#each displayImages as image, imageIndex}
 		{@const isDisabled = disabledImageSet.has(image)}
 		{@const isSelected = selectedImageSet.has(image)}
@@ -84,7 +79,7 @@
 			selectable &&
 			!isDisabled &&
 			(!hasSelectableImageRestriction || selectableImageSet.has(image))}
-		{@const containerClass = `card-hover-source group relative block w-full overflow-visible rounded-lg focus-visible:outline-none ${handButtonSizeClass} ${
+		{@const containerClass = `card-hover-source group relative block w-full overflow-visible rounded-lg focus-visible:outline-none ${desktopButtonSizeClass} ${
 			shouldDim ? nonSelectedCardDimClass : ''
 		} ${isDisabled ? 'cursor-not-allowed' : canSelect ? '' : 'cursor-default'}`}
 		{@const imageClass = `${imageClassBase} pointer-events-none transition-all duration-150 ease-out ${
@@ -149,8 +144,8 @@
 
 <style>
 	@media (min-width: 1024px) {
-		.hand-fit-grid {
-			grid-template-rows: repeat(var(--hand-desktop-rows, 2), minmax(0, 1fr));
+		.desktop-fit-grid {
+			grid-template-rows: repeat(var(--desktop-fit-rows, 2), minmax(0, 1fr));
 		}
 	}
 </style>
