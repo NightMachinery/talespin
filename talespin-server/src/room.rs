@@ -2325,18 +2325,30 @@ impl Room {
                 return Ok(());
             }
             RoomStage::Results => {
-                if state.players.values().all(|player| player.ready) && !self.should_end_game(state)
-                {
-                    self.init_round(state).await?;
+                if state.players.values().all(|player| player.ready) {
+                    if self.should_end_game(state) {
+                        self.set_stage(state, RoomStage::End);
+                        state.paused_reason = None;
+                        self.broadcast_msg(ServerMsg::EndGame {})?;
+                        self.broadcast_msg(self.room_state(state))?;
+                    } else {
+                        self.init_round(state).await?;
+                    }
                 } else {
                     self.broadcast_msg(self.room_state(state))?;
                 }
                 return Ok(());
             }
             RoomStage::StellaResults => {
-                if state.players.values().all(|player| player.ready) && !self.should_end_game(state)
-                {
-                    self.init_stella_round(state).await?;
+                if state.players.values().all(|player| player.ready) {
+                    if self.should_end_game(state) {
+                        self.set_stage(state, RoomStage::End);
+                        state.paused_reason = None;
+                        self.broadcast_msg(ServerMsg::EndGame {})?;
+                        self.broadcast_msg(self.room_state(state))?;
+                    } else {
+                        self.init_stella_round(state).await?;
+                    }
                 } else {
                     self.broadcast_msg(self.room_state(state))?;
                 }
@@ -3289,15 +3301,14 @@ impl Room {
 
                     self.broadcast_msg(self.room_state(&state))?;
 
-                    if self.should_end_game(&state) {
-                        self.set_stage(&mut state, RoomStage::End);
-                        self.broadcast_msg(self.get_msg(None, &state)?)?;
-                        return Ok(());
-                    }
-
                     // check if everyone is ready for next round
                     if state.players.values().filter(|p| p.ready).count() >= state.players.len() {
-                        if state.players.len() >= 3 {
+                        if self.should_end_game(&state) {
+                            self.set_stage(&mut state, RoomStage::End);
+                            state.paused_reason = None;
+                            self.broadcast_msg(ServerMsg::EndGame {})?;
+                            self.broadcast_msg(self.room_state(&state))?;
+                        } else if state.players.len() >= 3 {
                             self.init_round(&mut state).await?;
                         } else {
                             self.broadcast_msg(
@@ -9745,7 +9756,7 @@ alpha
     }
 
     #[tokio::test]
-    async fn results_wait_for_next_round_click_before_ending_game() -> Result<()> {
+    async fn results_wait_for_next_round_start_attempt_before_ending_game() -> Result<()> {
         let room = test_room_with_condition(WinCondition::Points { target_points: 10 });
 
         {
@@ -9767,26 +9778,50 @@ alpha
             room.after_member_removed_or_observered(&mut state).await?;
             assert!(
                 matches!(state.stage, RoomStage::Results),
-                "results should remain visible until someone clicks Next Round"
+                "results should remain visible until the next round actually tries to start"
             );
 
             setup_connected_member(&mut state, "a", "t-a", 9_001);
+            setup_connected_member(&mut state, "b", "t-b", 9_002);
+            setup_connected_member(&mut state, "c", "t-c", 9_003);
         }
 
         room.handle_client_msg("a", 9_001, to_ws(ClientMsg::Ready {}))
             .await?;
 
+        {
+            let state = room.state.read().await;
+            assert!(
+                matches!(state.stage, RoomStage::Results),
+                "one ready click should not end the game before next-round start is attempted"
+            );
+        }
+
+        room.handle_client_msg("b", 9_002, to_ws(ClientMsg::Ready {}))
+            .await?;
+
+        {
+            let state = room.state.read().await;
+            assert!(
+                matches!(state.stage, RoomStage::Results),
+                "game should stay on Results until all remaining players are ready"
+            );
+        }
+
+        room.handle_client_msg("c", 9_003, to_ws(ClientMsg::Ready {}))
+            .await?;
+
         let state = room.state.read().await;
         assert!(
             matches!(state.stage, RoomStage::End),
-            "game should end after a Results-stage Next Round click"
+            "game should end once next round actually tries to start"
         );
 
         Ok(())
     }
 
     #[tokio::test]
-    async fn stella_results_wait_for_next_round_click_before_ending_game() -> Result<()> {
+    async fn stella_results_wait_for_next_round_start_attempt_before_ending_game() -> Result<()> {
         let room = test_room_with_condition(WinCondition::Points { target_points: 10 });
 
         {
@@ -9812,19 +9847,43 @@ alpha
             room.after_member_removed_or_observered(&mut state).await?;
             assert!(
                 matches!(state.stage, RoomStage::StellaResults),
-                "Stella results should remain visible until someone clicks Next Round"
+                "Stella results should remain visible until the next round actually tries to start"
             );
 
             setup_connected_member(&mut state, "a", "t-a", 9_002);
+            setup_connected_member(&mut state, "b", "t-b", 9_003);
+            setup_connected_member(&mut state, "c", "t-c", 9_004);
         }
 
         room.handle_client_msg("a", 9_002, to_ws(ClientMsg::Ready {}))
             .await?;
 
+        {
+            let state = room.state.read().await;
+            assert!(
+                matches!(state.stage, RoomStage::StellaResults),
+                "one ready click should not end Stella before next-round start is attempted"
+            );
+        }
+
+        room.handle_client_msg("b", 9_003, to_ws(ClientMsg::Ready {}))
+            .await?;
+
+        {
+            let state = room.state.read().await;
+            assert!(
+                matches!(state.stage, RoomStage::StellaResults),
+                "Stella should stay on results until all remaining players are ready"
+            );
+        }
+
+        room.handle_client_msg("c", 9_004, to_ws(ClientMsg::Ready {}))
+            .await?;
+
         let state = room.state.read().await;
         assert!(
             matches!(state.stage, RoomStage::End),
-            "game should end after a StellaResults-stage Next Round click"
+            "Stella should end once next round actually tries to start"
         );
 
         Ok(())
