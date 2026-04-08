@@ -282,7 +282,15 @@ ensure_backend_artifact() {
 }
 
 ensure_prod_frontend_artifacts() {
-	[[ -f "$ROOT_DIR/build/index.html" ]] || die 'Missing build/index.html. Run ./self_host.zsh setup or redeploy first.'
+	if [[ -f "$ROOT_DIR/build/index.html" ]]; then
+		return
+	fi
+	if [[ -f "$ROOT_DIR/build/404.html" ]]; then
+		note 'build/index.html missing; copying build/404.html as the SPA entrypoint.'
+		cp "$ROOT_DIR/build/404.html" "$ROOT_DIR/build/index.html"
+		return
+	fi
+	die 'Missing build/index.html and build/404.html. Run ./self_host.zsh setup or redeploy first.'
 }
 
 render_caddy_block() {
