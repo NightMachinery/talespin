@@ -52,8 +52,8 @@
 	$: showSettings = roomStateLoaded;
 	$: activeWinMode = winCondition.mode;
 	let localTargetPoints = 10;
-	let localTargetCycles = 3;
-	let localTargetRounds = 4;
+	let localTargetCycles = 1;
+	let localTargetRounds = 6;
 	let localWordPackText = '';
 	let newPresetName = '';
 	let savedPresets: StellaWordPackPreset[] = [];
@@ -407,7 +407,9 @@
 						>
 							<option value="cards_finish">Cards finish</option>
 							<option value="points">Points</option>
-							<option value="cycles">Cycles</option>
+							{#if gameMode !== 'stella'}
+								<option value="cycles">Cycles</option>
+							{/if}
 							<option value="fixed_rounds">Fixed rounds</option>
 						</select>
 						{#if activeWinMode === 'points'}

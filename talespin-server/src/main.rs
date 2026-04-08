@@ -997,7 +997,7 @@ fn parse_create_room_win_condition(
 ) -> Result<CreateRoomConfig> {
     if body.is_empty() || body.iter().all(|b| b.is_ascii_whitespace()) {
         return Ok(CreateRoomConfig {
-            win_condition: WinCondition::CardsFinish,
+            win_condition: room::default_win_condition_for_game_mode(room::GameMode::DixitPlus),
             creator_name: None,
             password: None,
         });
@@ -1005,7 +1005,11 @@ fn parse_create_room_win_condition(
 
     let request: CreateRoomRequest =
         serde_json::from_slice(body).context("Failed to parse create-room request payload")?;
-    let requested = request.win_condition.unwrap_or(WinCondition::CardsFinish);
+    let requested = request
+        .win_condition
+        .unwrap_or(room::default_win_condition_for_game_mode(
+            room::GameMode::DixitPlus,
+        ));
     let creator_name = request.creator_name.map(|name| name.trim().to_string());
     let password = request.password.map(|password| password.trim().to_string());
     let password = password.filter(|password| !password.is_empty());
@@ -1296,6 +1300,31 @@ async fn create_room_handler(State(state): State<Arc<ServerState>>, body: Bytes)
             ))
             .unwrap()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn create_room_defaults_to_single_dixit_cycle_when_body_is_empty() {
+        let config = parse_create_room_win_condition(&[], DEFAULT_WIN_POINTS).unwrap();
+        assert_eq!(
+            config.win_condition,
+            room::default_win_condition_for_game_mode(room::GameMode::DixitPlus)
+        );
+    }
+
+    #[test]
+    fn create_room_defaults_to_single_dixit_cycle_when_win_condition_is_omitted() {
+        let config =
+            parse_create_room_win_condition(br#"{"creator_name":"host"}"#, DEFAULT_WIN_POINTS)
+                .unwrap();
+        assert_eq!(
+            config.win_condition,
+            room::default_win_condition_for_game_mode(room::GameMode::DixitPlus)
+        );
     }
 }
 

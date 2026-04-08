@@ -41,13 +41,35 @@ pub enum GameMode {
     Stella,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 #[serde(tag = "mode", rename_all = "snake_case")]
 pub enum WinCondition {
     Points { target_points: u16 },
     Cycles { target_cycles: u16 },
     CardsFinish,
     FixedRounds { target_rounds: u16 },
+}
+
+pub(crate) const DEFAULT_DIXIT_WIN_CONDITION: WinCondition =
+    WinCondition::Cycles { target_cycles: 1 };
+pub(crate) const DEFAULT_STELLA_WIN_CONDITION: WinCondition =
+    WinCondition::FixedRounds { target_rounds: 6 };
+
+pub(crate) fn default_win_condition_for_game_mode(game_mode: GameMode) -> WinCondition {
+    match game_mode {
+        GameMode::DixitPlus => DEFAULT_DIXIT_WIN_CONDITION,
+        GameMode::Stella => DEFAULT_STELLA_WIN_CONDITION,
+    }
+}
+
+pub(crate) fn win_condition_supported_by_game_mode(
+    game_mode: GameMode,
+    win_condition: WinCondition,
+) -> bool {
+    !matches!(
+        (game_mode, win_condition),
+        (GameMode::Stella, WinCondition::Cycles { .. })
+    )
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -3628,7 +3650,10 @@ impl Room {
                     }
                     return Ok(());
                 }
-                state.game_mode = game_mode;
+                if state.game_mode != game_mode {
+                    state.game_mode = game_mode;
+                    state.win_condition = default_win_condition_for_game_mode(game_mode);
+                }
                 self.clamp_stella_settings(&mut state);
                 self.broadcast_msg(self.room_state(&state))?;
             }
@@ -3650,6 +3675,18 @@ impl Room {
                         tx.send(
                             ServerMsg::ErrorMsg(
                                 "Win condition can only be changed in the lobby".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+                if !win_condition_supported_by_game_mode(state.game_mode, win_condition) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Cycles win condition is not available in Resonance".to_string(),
                             )
                             .into(),
                         )
@@ -5410,6 +5447,7 @@ impl Room {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     fn test_default_stella_word_pack() -> Arc<Vec<String>> {
         let path =
@@ -8345,6 +8383,85 @@ alpha
             state.active_player, 2,
             "force-start should choose the lowest-count storyteller for the next round"
         );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn switching_to_stella_resets_win_condition_to_fixed_rounds_default() -> Result<()> {
+        let room = test_room_with_condition(WinCondition::Points { target_points: 12 });
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 200);
+        }
+
+        room.handle_client_msg(
+            "host",
+            200,
+            to_ws(ClientMsg::SetGameMode {
+                game_mode: GameMode::Stella,
+            }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert_eq!(state.game_mode, GameMode::Stella);
+        assert_eq!(state.win_condition, DEFAULT_STELLA_WIN_CONDITION);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn switching_to_dixit_resets_win_condition_to_single_cycle_default() -> Result<()> {
+        let room = test_room_with_condition(DEFAULT_STELLA_WIN_CONDITION);
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            state.game_mode = GameMode::Stella;
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 201);
+        }
+
+        room.handle_client_msg(
+            "host",
+            201,
+            to_ws(ClientMsg::SetGameMode {
+                game_mode: GameMode::DixitPlus,
+            }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert_eq!(state.game_mode, GameMode::DixitPlus);
+        assert_eq!(state.win_condition, DEFAULT_DIXIT_WIN_CONDITION);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stella_rejects_cycle_win_condition() -> Result<()> {
+        let room = test_room_with_condition(DEFAULT_STELLA_WIN_CONDITION);
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            state.game_mode = GameMode::Stella;
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 202);
+        }
+
+        room.handle_client_msg(
+            "host",
+            202,
+            to_ws(ClientMsg::SetWinCondition {
+                win_condition: WinCondition::Cycles { target_cycles: 2 },
+            }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert_eq!(state.win_condition, DEFAULT_STELLA_WIN_CONDITION);
 
         Ok(())
     }

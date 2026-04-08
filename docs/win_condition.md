@@ -5,7 +5,7 @@
 The lobby host can now choose one win mode at game creation:
 
 - `points`: game ends when at least one player reaches configured `target_points`
-- `cycles`: game ends after configured number of **full storyteller cycles**
+- `cycles`: game ends after configured number of **full storyteller cycles** (Dixit/Talespin only)
   - each **active player** must have been the storyteller at least `target_cycles` times
   - storyteller turns are counted when the storyteller submits their card + clue
   - next storyteller is chosen randomly from the active players tied for the lowest storyteller count
@@ -14,7 +14,7 @@ The lobby host can now choose one win mode at game creation:
   - observers do not block cycle completion
 - `cards_finish`: game ends when the server cannot fully deal a new round from the current deck
 
-Only one mode is active per room (single-mode selection).
+Only one mode is active per room (single-mode selection). Resonance/Stella does not offer `cycles`; if you switch to Resonance, the room now defaults to `fixed_rounds` with a target of `6`. Talespin/Dixit now defaults to `cycles` with a target of `1`.
 
 ## Default Points Threshold
 
