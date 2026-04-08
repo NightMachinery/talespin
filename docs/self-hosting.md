@@ -2,49 +2,64 @@
 
 ## Runtime Layout
 
-- Frontend: Svelte dev server at `127.0.0.1:4173`
+- Frontend (production): static files served by Caddy from `~/base/talespin/build`
+- Frontend (development): Vite dev server at `127.0.0.1:4173`
 - Backend: Rust server at `127.0.0.1:8081`
 - Public hostname: `https://talespin.pinky.lilf.ir`
 - Reverse proxy: Caddy (`~/Caddyfile`)
 
 ## Caddy Routing
 
-In `~/Caddyfile`, Talespin is routed as:
+`self_host.zsh` owns a managed Talespin block in `~/Caddyfile`:
 
-- `/create`, `/exists`, `/stats`, `/ws`, `/ws/*`, `/cards`, `/cards/*` -> `127.0.0.1:8081` (backend)
-- all other paths -> `127.0.0.1:4173` (frontend)
+- markers: `# BEGIN talespin self-host` / `# END talespin self-host`
+- `/create`, `/exists`, `/stats`, `/ws`, `/ws/*`, `/cards`, `/cards/*` -> `127.0.0.1:8081`
+- all other paths ->
+  - production: static files from `~/base/talespin/build`
+  - development: `127.0.0.1:4173`
 
-## Startup Scripts
+On first run, the script migrates the previous unmarked Talespin site block so you do not end up with duplicate Talespin host entries.
 
-### Server-wide launcher
+## Startup Script
 
-File: `~/launch.zsh`
+File: `~/base/talespin/self_host.zsh`
 
-This remains the main server launcher and keeps the original shared services:
+Usage:
 
-- `paqet-client`
-- `xray_server`
-- `caddy`
-- `virtualtabletop`
+```bash
+./self_host.zsh [setup|redeploy|start|stop] [public_url]
+```
 
-It then calls the Talespin-local tmux script:
+Commands:
 
-- `~/base/talespin/run_tmux.zsh`
+- `setup`: persist config, build frontend/backend, update Caddy, reload Caddy, and start Talespin
+- `redeploy`: rebuild from the latest local working tree changes, update Caddy, reload Caddy, and restart Talespin
+- `start`: start from existing artifacts and persisted config
+- `stop`: stop the tmux-managed Talespin sessions
 
-### Game-local tmux script
+Default `public_url`: `https://talespin.pinky.lilf.ir`
 
-File: `~/base/talespin/run_tmux.zsh`
+## Runtime Behavior
 
-This script should only manage Talespin sessions:
+The script manages these tmux sessions:
 
 - `talespin_backend`
-- `talespin_frontend`
+- `talespin_frontend` (development mode only)
 
-It also defines `tmuxnew` and exports proxy env vars required for package/network operations.
-It sets `TALESPIN_EXTRA_IMAGE_DIRS` (newline-separated dirs) for loading extra card images.
-You can set `TALESPIN_DISABLE_BUILTIN_IMAGES_P=y` to disable built-in cards.
-It also exports:
+Production is the default when `TALESPIN_PRODUCTION_P` is unset.
+Run in development mode with:
 
+```bash
+TALESPIN_PRODUCTION_P=n zsh self_host.zsh start
+```
+
+The script preserves the existing Talespin self-host env behavior, including:
+
+- proxy exports (`127.0.0.1:1087` by default unless proxy env vars are already set)
+- `TALESPIN_EXTRA_IMAGE_DIRS` (newline-separated dirs) for loading extra card images
+- optional auto-clone of missing extra-image repos when `TALESPIN_AUTO_DOWNLOAD_EXTRA_IMAGES_P=y`
+- `TALESPIN_DISABLE_BUILTIN_IMAGES_P` (default `y`, but forced to `n` if no extra image dirs exist)
+- `TALESPIN_SNIFF_EXTENSIONLESS_IMAGES_P` (default `y`)
 - `TALESPIN_CACHE_DIR` (default `~/.cache/talespin`)
 - `TALESPIN_CARD_ASPECT_RATIO` (default `2:3`)
 - `TALESPIN_CARD_LONG_SIDE` (default `1536`)
@@ -52,20 +67,57 @@ It also exports:
 - `TALESPIN_CARD_AVIF_ENCODER` (default `native`; `native` or `ravif`)
 - `TALESPIN_CARD_AVIF_THREADS` (default `auto`; `auto` uses encoder default, or set a positive integer)
 - `TALESPIN_VALIDATE_CACHE_HITS_P` (default `y`; when `y`, corrupted cache files are detected and rebuilt)
-- `TALESPIN_SNIFF_EXTENSIONLESS_IMAGES_P` (default `n`; when `y`, extensionless files are sniffed and JPEG/PNG/WebP are accepted)
-- `TALESPIN_DEFAULT_WIN_POINTS` (default `10`, used when lobby creates `points` mode without explicit target)
+- any externally supplied `TALESPIN_DEFAULT_WIN_POINTS` / `TALESPIN_MAX_MEMBERS`
 
-Production mode is the default when `TALESPIN_PRODUCTION_P` is unset.
-Run in development mode with:
+## Build Commands
+
+Backend rebuilds use:
 
 ```bash
-TALESPIN_PRODUCTION_P=n zsh run_tmux.zsh
+( cd talespin-server && cargo build --release )
+```
+
+Cargo automatically skips work when the backend is already up to date.
+
+Frontend rebuilds use Node 20 through `nvm-load; nvm use 20` and then:
+
+```bash
+npm run build
+```
+
+## Compatibility Note
+
+`run_tmux.zsh` now exists only as a deprecated compatibility shim. With no arguments it forwards to:
+
+```bash
+zsh self_host.zsh redeploy
+```
+
+## Server-Wide Launcher Follow-Up
+
+If you use `~/launch.zsh`, update the Talespin stanza manually from:
+
+```bash
+cd ~/base/talespin
+zsh run_tmux.zsh
+```
+
+to:
+
+```bash
+cd ~/base/talespin
+zsh self_host.zsh start
 ```
 
 ## Dependencies
 
-- Node: use `nvm-load` then `nvm use 20`
+- Node: `nvm-load` then `nvm use 20`
 - Rust: stable toolchain via `rustup`
+- `tmux`
+- `caddy`
+- `python3`
+- `git`
+- `ss` (from `iproute2`)
 - Ubuntu packages for AVIF encode/decode support (required by backend build with `avif-native` and native encoder path):
   - `pkg-config`
   - `libdav1d-dev`
