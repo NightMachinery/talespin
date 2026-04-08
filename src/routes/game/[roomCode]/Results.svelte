@@ -247,7 +247,10 @@
 						</div>
 					{/if}
 					{#if cardToVoterCounts[image]}
-						<ChooserNameOverlay entries={cardToChooserEntries[image]} />
+						<ChooserNameOverlay
+							entries={cardToChooserEntries[image]}
+							avoidTopLeftBadge={showVotingCardNumbers}
+						/>
 					{/if}
 					<div
 						style="bottom: 0;"

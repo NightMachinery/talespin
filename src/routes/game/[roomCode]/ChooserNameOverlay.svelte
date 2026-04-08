@@ -7,6 +7,7 @@
 	};
 
 	export let entries: ChooserOverlayEntry[] = [];
+	export let avoidTopLeftBadge = false;
 
 	$: entryCount = entries.length;
 	$: usesTwoColumns = entryCount >= 4;
@@ -17,10 +18,13 @@
 	$: chipClass = $transparentCardNameOverlays
 		? 'border border-white/55 bg-black/10 text-white'
 		: 'bg-black/75 text-white';
+	$: containerClass = avoidTopLeftBadge
+		? 'pointer-events-none absolute left-14 right-2 top-2 z-20'
+		: 'pointer-events-none absolute right-2 top-2 z-20 max-w-[calc(100%-1rem)]';
 </script>
 
 {#if entries.length > 0}
-	<div class="pointer-events-none absolute right-2 top-2 z-20 max-w-[calc(100%-1rem)]">
+	<div class={containerClass}>
 		<div class={`grid ${overlayGridClass} gap-1`}>
 			{#each entries as entry}
 				<div
