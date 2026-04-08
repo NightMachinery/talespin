@@ -2325,15 +2325,8 @@ impl Room {
                 return Ok(());
             }
             RoomStage::Results => {
-                if self.should_end_game(state) {
-                    self.set_stage(state, RoomStage::End);
-                    state.paused_reason = None;
-                    self.broadcast_msg(ServerMsg::EndGame {})?;
-                    self.broadcast_msg(self.room_state(state))?;
-                    return Ok(());
-                }
-
-                if state.players.values().all(|player| player.ready) {
+                if state.players.values().all(|player| player.ready) && !self.should_end_game(state)
+                {
                     self.init_round(state).await?;
                 } else {
                     self.broadcast_msg(self.room_state(state))?;
@@ -2341,15 +2334,8 @@ impl Room {
                 return Ok(());
             }
             RoomStage::StellaResults => {
-                if self.should_end_game(state) {
-                    self.set_stage(state, RoomStage::End);
-                    state.paused_reason = None;
-                    self.broadcast_msg(ServerMsg::EndGame {})?;
-                    self.broadcast_msg(self.room_state(state))?;
-                    return Ok(());
-                }
-
-                if state.players.values().all(|player| player.ready) {
+                if state.players.values().all(|player| player.ready) && !self.should_end_game(state)
+                {
                     self.init_stella_round(state).await?;
                 } else {
                     self.broadcast_msg(self.room_state(state))?;
@@ -9753,6 +9739,92 @@ alpha
         assert!(
             room.should_end_game(&state),
             "observer scores should satisfy the points win condition"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn results_wait_for_next_round_click_before_ending_game() -> Result<()> {
+        let room = test_room_with_condition(WinCondition::Points { target_points: 10 });
+
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "a", 10);
+            add_player(&mut state, "b", 4);
+            add_player(&mut state, "c", 3);
+            add_player(&mut state, "d", 2);
+            state.stage = RoomStage::Results;
+            state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into()];
+
+            let removed = room.remove_player(&mut state, "d", None).await?;
+            assert!(removed, "expected player d to be removed during Results");
+            assert!(
+                room.should_end_game(&state),
+                "win condition should already be satisfied on Results"
+            );
+
+            room.after_member_removed_or_observered(&mut state).await?;
+            assert!(
+                matches!(state.stage, RoomStage::Results),
+                "results should remain visible until someone clicks Next Round"
+            );
+
+            setup_connected_member(&mut state, "a", "t-a", 9_001);
+        }
+
+        room.handle_client_msg("a", 9_001, to_ws(ClientMsg::Ready {}))
+            .await?;
+
+        let state = room.state.read().await;
+        assert!(
+            matches!(state.stage, RoomStage::End),
+            "game should end after a Results-stage Next Round click"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stella_results_wait_for_next_round_click_before_ending_game() -> Result<()> {
+        let room = test_room_with_condition(WinCondition::Points { target_points: 10 });
+
+        {
+            let mut state = room.state.write().await;
+            state.game_mode = GameMode::Stella;
+            add_player(&mut state, "a", 10);
+            add_player(&mut state, "b", 4);
+            add_player(&mut state, "c", 3);
+            add_player(&mut state, "d", 2);
+            state.stage = RoomStage::StellaResults;
+            state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into()];
+
+            let removed = room.remove_player(&mut state, "d", None).await?;
+            assert!(
+                removed,
+                "expected player d to be removed during StellaResults"
+            );
+            assert!(
+                room.should_end_game(&state),
+                "win condition should already be satisfied on StellaResults"
+            );
+
+            room.after_member_removed_or_observered(&mut state).await?;
+            assert!(
+                matches!(state.stage, RoomStage::StellaResults),
+                "Stella results should remain visible until someone clicks Next Round"
+            );
+
+            setup_connected_member(&mut state, "a", "t-a", 9_002);
+        }
+
+        room.handle_client_msg("a", 9_002, to_ws(ClientMsg::Ready {}))
+            .await?;
+
+        let state = room.state.read().await;
+        assert!(
+            matches!(state.stage, RoomStage::End),
+            "game should end after a StellaResults-stage Next Round click"
         );
 
         Ok(())
