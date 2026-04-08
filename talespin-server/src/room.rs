@@ -1190,11 +1190,6 @@ impl Room {
         default_votes.clamp(min_votes, max_votes)
     }
 
-    fn default_cards_per_hand_on_game_start(&self, state: &RwLockWriteGuard<'_, RoomState>) -> u16 {
-        let (min_cards, max_cards) = self.cards_per_hand_bounds(state);
-        DEFAULT_CARDS_PER_HAND.clamp(min_cards, max_cards)
-    }
-
     fn default_nominations_per_guesser_on_game_start(
         &self,
         state: &RwLockWriteGuard<'_, RoomState>,
@@ -3142,7 +3137,6 @@ impl Room {
             state.storyteller_loss_complement =
                 self.default_storyteller_loss_complement_on_game_start(state);
             state.votes_per_guesser = self.default_votes_per_guesser_on_game_start(state);
-            state.cards_per_hand = self.default_cards_per_hand_on_game_start(state);
             state.nominations_per_guesser =
                 self.default_nominations_per_guesser_on_game_start(state);
         }
@@ -5523,6 +5517,15 @@ mod tests {
         state
             .connection_generation
             .insert(name.to_string(), generation);
+    }
+
+    fn attach_test_socket(
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+        name: &str,
+    ) -> mpsc::Receiver<ServerMsg> {
+        let (tx, rx) = mpsc::channel(256);
+        state.player_to_socket.insert(name.to_string(), tx);
+        rx
     }
 
     fn to_ws(msg: ClientMsg) -> WsMessage {
@@ -8085,6 +8088,92 @@ alpha
             state.cards_per_hand, 99,
             "cards per hand should accept values up to the current maximum of 100"
         );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn start_game_preserves_lobby_selected_cards_per_hand() -> Result<()> {
+        let room = test_room();
+        let mut test_sockets = Vec::new();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            add_player(&mut state, "p2", 0);
+            add_player(&mut state, "p3", 0);
+            state.cards_per_hand = 8;
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 11_002);
+            for player in ["host", "p2", "p3"] {
+                test_sockets.push(attach_test_socket(&mut state, player));
+            }
+        }
+
+        room.handle_client_msg("host", 11_002, to_ws(ClientMsg::StartGame {}))
+            .await?;
+
+        let state = room.state.read().await;
+        assert_eq!(
+            state.cards_per_hand, 8,
+            "starting the first round should preserve the lobby-selected cards per hand"
+        );
+        for player in ["host", "p2", "p3"] {
+            assert_eq!(
+                state.player_hand.get(player).map(|hand| hand.len()),
+                Some(8),
+                "first-round dealing should use the lobby-selected cards per hand"
+            );
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn start_game_clamps_preserved_lobby_cards_per_hand_instead_of_resetting_to_default(
+    ) -> Result<()> {
+        let room = test_room();
+        let mut test_sockets = Vec::new();
+        {
+            let mut state = room.state.write().await;
+            for i in 0..25 {
+                let player = format!("p{}", i);
+                add_player(&mut state, &player, 0);
+                test_sockets.push(attach_test_socket(&mut state, &player));
+            }
+            state.cards_per_hand = 99;
+            room.clamp_cards_per_hand(&mut state);
+            state.moderators.insert("p0".to_string());
+            setup_connected_member(&mut state, "p0", "t-host", 11_003);
+            assert_eq!(
+                state.cards_per_hand, 20,
+                "lobby update should clamp to the current max before extra players join"
+            );
+        }
+
+        {
+            let mut state = room.state.write().await;
+            for i in 25..30 {
+                let player = format!("p{}", i);
+                add_player(&mut state, &player, 0);
+                test_sockets.push(attach_test_socket(&mut state, &player));
+            }
+        }
+
+        room.handle_client_msg("p0", 11_003, to_ws(ClientMsg::StartGame {}))
+            .await?;
+
+        let state = room.state.read().await;
+        assert_eq!(
+            state.cards_per_hand, 17,
+            "first-round start should clamp the preserved lobby setting to the new max instead of resetting to 12"
+        );
+        for player in ["p0", "p1", "p29"] {
+            assert_eq!(
+                state.player_hand.get(player).map(|hand| hand.len()),
+                Some(17),
+                "first-round dealing should use the clamped preserved lobby setting"
+            );
+        }
 
         Ok(())
     }
