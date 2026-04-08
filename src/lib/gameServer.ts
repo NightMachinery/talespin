@@ -121,6 +121,14 @@ class GameServer {
 		});
 	}
 
+	raiseScoreToActiveMin(player: string) {
+		this.send({
+			RaiseScoreToActiveMin: {
+				player
+			}
+		});
+	}
+
 	setModerator(player: string, enabled: boolean) {
 		this.send({
 			SetModerator: {

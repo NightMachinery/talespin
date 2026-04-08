@@ -187,6 +187,9 @@ pub enum ClientMsg {
     KickPlayer {
         player: String,
     },
+    RaiseScoreToActiveMin {
+        player: String,
+    },
     SetModerator {
         player: String,
         enabled: bool,
@@ -1634,6 +1637,20 @@ impl Room {
 
     fn midgame_join_score_floor(&self, state: &RwLockWriteGuard<'_, RoomState>) -> u16 {
         state.players.values().map(|p| p.points).min().unwrap_or(0)
+    }
+
+    fn active_player_score_floor_for_target(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+        target_name: &str,
+    ) -> Option<u16> {
+        let target_is_player = state.players.contains_key(target_name);
+        state
+            .players
+            .iter()
+            .filter(|(name, _)| !target_is_player || name.as_str() != target_name)
+            .map(|(_, player)| player.points)
+            .min()
     }
 
     fn midgame_join_storyteller_floor(&self, state: &RwLockWriteGuard<'_, RoomState>) -> u16 {
@@ -3387,6 +3404,45 @@ impl Room {
                     )
                     .await?;
                 if removed_observer {
+                    self.broadcast_msg(self.room_state(&state))?;
+                }
+            }
+            ClientMsg::RaiseScoreToActiveMin { player } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg("Only moderators can raise scores".to_string())
+                                .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                let target = canonical_member_name(&player);
+                if target.is_empty() {
+                    return Ok(());
+                }
+
+                let Some(floor) = self.active_player_score_floor_for_target(&state, target) else {
+                    return Ok(());
+                };
+
+                let mut changed = false;
+                if let Some(player) = state.players.get_mut(target) {
+                    if player.points < floor {
+                        player.points = floor;
+                        changed = true;
+                    }
+                } else if let Some(observer) = state.observers.get_mut(target) {
+                    let current_points = observer.points.unwrap_or(0);
+                    if current_points < floor {
+                        observer.points = Some(floor);
+                        changed = true;
+                    }
+                }
+
+                if changed {
                     self.broadcast_msg(self.room_state(&state))?;
                 }
             }
@@ -6401,6 +6457,259 @@ mod tests {
             "moderator join action should promote observer immediately outside voting"
         );
         assert!(state.players.contains_key("obs"));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn moderator_raise_score_to_active_min_updates_player_using_other_active_players(
+    ) -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 9);
+            add_player(&mut state, "p2", 1);
+            add_player(&mut state, "p3", 5);
+            add_player(&mut state, "p4", 11);
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 18_101);
+        }
+
+        room.handle_client_msg(
+            "host",
+            18_101,
+            to_ws(ClientMsg::RaiseScoreToActiveMin {
+                player: "p2".to_string(),
+            }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert_eq!(
+            state.players.get("p2").map(|player| player.points),
+            Some(5),
+            "target player should rise to the minimum of the other active players"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn moderator_raise_score_to_active_min_updates_observer_with_numeric_points() -> Result<()>
+    {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 7);
+            add_player(&mut state, "p2", 4);
+            add_player(&mut state, "p3", 10);
+            state.observers.insert(
+                "obs".to_string(),
+                ObserverInfo {
+                    connected: true,
+                    points: Some(1),
+                    join_requested: false,
+                    auto_join_on_next_round: false,
+                },
+            );
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 18_102);
+        }
+
+        room.handle_client_msg(
+            "host",
+            18_102,
+            to_ws(ClientMsg::RaiseScoreToActiveMin {
+                player: "obs".to_string(),
+            }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert_eq!(
+            state
+                .observers
+                .get("obs")
+                .and_then(|observer| observer.points),
+            Some(4),
+            "observer should rise to the minimum active-player score"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn moderator_raise_score_to_active_min_sets_observer_without_points() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 8);
+            add_player(&mut state, "p2", 3);
+            add_player(&mut state, "p3", 6);
+            state.observers.insert(
+                "obs".to_string(),
+                ObserverInfo {
+                    connected: true,
+                    points: None,
+                    join_requested: false,
+                    auto_join_on_next_round: false,
+                },
+            );
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 18_103);
+        }
+
+        room.handle_client_msg(
+            "host",
+            18_103,
+            to_ws(ClientMsg::RaiseScoreToActiveMin {
+                player: "obs".to_string(),
+            }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert_eq!(
+            state
+                .observers
+                .get("obs")
+                .and_then(|observer| observer.points),
+            Some(3),
+            "observer without points should be assigned the active-player minimum"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn non_moderator_cannot_raise_scores() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 8);
+            add_player(&mut state, "p2", 1);
+            add_player(&mut state, "p3", 4);
+            setup_connected_member(&mut state, "p3", "t-p3", 18_104);
+        }
+
+        room.handle_client_msg(
+            "p3",
+            18_104,
+            to_ws(ClientMsg::RaiseScoreToActiveMin {
+                player: "p2".to_string(),
+            }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert_eq!(
+            state.players.get("p2").map(|player| player.points),
+            Some(1),
+            "non-moderator request should not change scores"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn raise_score_to_active_min_is_noop_when_target_is_already_at_or_above_floor(
+    ) -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 5);
+            add_player(&mut state, "p2", 8);
+            add_player(&mut state, "p3", 12);
+            state.observers.insert(
+                "obs".to_string(),
+                ObserverInfo {
+                    connected: true,
+                    points: Some(5),
+                    join_requested: false,
+                    auto_join_on_next_round: false,
+                },
+            );
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 18_105);
+        }
+
+        room.handle_client_msg(
+            "host",
+            18_105,
+            to_ws(ClientMsg::RaiseScoreToActiveMin {
+                player: "p2".to_string(),
+            }),
+        )
+        .await?;
+        room.handle_client_msg(
+            "host",
+            18_105,
+            to_ws(ClientMsg::RaiseScoreToActiveMin {
+                player: "obs".to_string(),
+            }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert_eq!(
+            state.players.get("p2").map(|player| player.points),
+            Some(8),
+            "player already above the floor should be unchanged"
+        );
+        assert_eq!(
+            state
+                .observers
+                .get("obs")
+                .and_then(|observer| observer.points),
+            Some(5),
+            "observer already at the floor should be unchanged"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn raise_score_to_active_min_is_noop_without_an_eligible_active_floor() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 8);
+            state.observers.insert(
+                "obs".to_string(),
+                ObserverInfo {
+                    connected: true,
+                    points: Some(1),
+                    join_requested: false,
+                    auto_join_on_next_round: false,
+                },
+            );
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 18_106);
+        }
+
+        room.handle_client_msg(
+            "host",
+            18_106,
+            to_ws(ClientMsg::RaiseScoreToActiveMin {
+                player: "host".to_string(),
+            }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert_eq!(
+            state.players.get("host").map(|player| player.points),
+            Some(8),
+            "sole active player should remain unchanged because there is no peer floor"
+        );
+        assert_eq!(
+            state
+                .observers
+                .get("obs")
+                .and_then(|observer| observer.points),
+            Some(1),
+            "observer should be unchanged when the request targets an ineligible player floor"
+        );
 
         Ok(())
     }

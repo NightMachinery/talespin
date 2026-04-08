@@ -120,6 +120,9 @@
 		(selfObserverInfo.join_requested || selfObserverInfo.auto_join_on_next_round);
 	$: selfJoinBackLabel =
 		stage === 'Voting' ? (selfJoinPending ? 'Cancel pending join' : 'Join next round') : 'Join now';
+	$: activePlayerPoints = Object.fromEntries(
+		Object.entries(players).map(([playerName, info]) => [playerName, info.points])
+	);
 	const supportsStageChangeAudio = isStageChangeAudioSupported();
 
 	function isPlayerModerator(playerName: string) {
@@ -151,6 +154,30 @@
 
 	function setObserver(playerName: string, enabled: boolean) {
 		gameServer.setObserver(playerName, enabled);
+	}
+
+	function getActivePlayerScoreFloor(targetName: string, isObserverTarget: boolean) {
+		const eligibleScores = Object.entries(activePlayerPoints)
+			.filter(([playerName]) => isObserverTarget || playerName !== targetName)
+			.map(([, points]) => points);
+		if (eligibleScores.length === 0) return null;
+		return Math.min(...eligibleScores);
+	}
+
+	function getRaiseScoreFloor(
+		playerName: string,
+		currentPoints: number | null,
+		isObserverTarget: boolean
+	) {
+		const floor = getActivePlayerScoreFloor(playerName, isObserverTarget);
+		if (floor === null) return null;
+		const effectivePoints = currentPoints ?? 0;
+		return floor > effectivePoints ? floor : null;
+	}
+
+	function raiseScoreToActiveMin(playerName: string) {
+		if (!isModerator) return;
+		gameServer.raiseScoreToActiveMin(playerName);
 	}
 
 	function becomeObserver() {
@@ -616,6 +643,16 @@
 										Kick
 									</button>
 								{/if}
+								{#if isModerator && getRaiseScoreFloor(playerName, players[playerName]?.points ?? 0, false) !== null}
+									<button
+										class="btn variant-filled shrink-0 px-2 py-0.5 text-xs"
+										title="Raise score to active-player floor"
+										aria-label="Raise score to active-player floor"
+										on:click={() => raiseScoreToActiveMin(playerName)}
+									>
+										⏫
+									</button>
+								{/if}
 								{#if playerName !== creator}
 									{#if isCreator && isPlayerModerator(playerName)}
 										<button
@@ -662,6 +699,16 @@
 										on:click={() => setObserver(observerName, false)}
 									>
 										{observerJoinActionLabel(info)}
+									</button>
+								{/if}
+								{#if isModerator && getRaiseScoreFloor(observerName, info.points, true) !== null}
+									<button
+										class="btn variant-filled shrink-0 px-2 py-0.5 text-xs"
+										title="Raise score to active-player floor"
+										aria-label="Raise score to active-player floor"
+										on:click={() => raiseScoreToActiveMin(observerName)}
+									>
+										⏫
 									</button>
 								{/if}
 								{#if isModerator}
