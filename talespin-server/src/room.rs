@@ -5300,7 +5300,8 @@ mod tests {
     use super::*;
 
     fn test_default_stella_word_pack() -> Arc<Vec<String>> {
-        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../wordpacks/Persian_1.txt");
+        let path =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../wordpacks/Resonance_Persian_1.txt");
         let raw_words = std::fs::read_to_string(&path).unwrap_or_else(|err| {
             panic!("Failed to read test word pack {}: {}", path.display(), err)
         });
@@ -7135,15 +7136,28 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn parse_stella_word_pack_trims_lines_and_skips_blank_entries() {
+        let words = Room::parse_stella_word_pack(
+            "  alpha  
+
+ beta	
+   
+alpha
+  gamma  ",
+        );
+        assert_eq!(words, vec!["alpha", "beta", "gamma"]);
+    }
+
     #[tokio::test]
-    async fn new_room_uses_persian_default_stella_word_pack() -> Result<()> {
+    async fn new_room_uses_resonance_persian_default_stella_word_pack() -> Result<()> {
         let room = test_room();
         let state = room.state.write().await;
 
         assert_eq!(
             state.stella_word_pack,
             (*test_default_stella_word_pack()).clone(),
-            "new rooms should start with the Persian_1 Resonance word pack"
+            "new rooms should start with the Resonance_Persian_1 word pack"
         );
 
         Ok(())

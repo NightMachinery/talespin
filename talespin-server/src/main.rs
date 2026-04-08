@@ -267,7 +267,7 @@ fn load_word_pack_presets(dir: &Path) -> Result<Vec<LoadedWordPackPreset>> {
 fn choose_default_word_pack(presets: &[LoadedWordPackPreset]) -> Result<&LoadedWordPackPreset> {
     presets
         .iter()
-        .find(|preset| preset.name == "Persian_1")
+        .find(|preset| preset.name == "Resonance_Persian_1")
         .or_else(|| presets.first())
         .ok_or_else(|| anyhow!("No word-pack presets available"))
 }
