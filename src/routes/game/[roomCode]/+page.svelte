@@ -91,6 +91,7 @@
 	let stellaSelectionCountMax = 15;
 	let stellaActiveClue = '';
 	let stellaWordPackSize = 0;
+	let stellaWordPackWords: string[] = [];
 	let stellaDarkPlayer = '';
 	let activePlayer = '';
 	let description = '';
@@ -278,6 +279,7 @@
 				stellaSelectionCountMax = data.RoomState.stella_selection_count_max ?? 15;
 				stellaActiveClue = data.RoomState.stella_active_clue || '';
 				stellaWordPackSize = data.RoomState.stella_word_pack_size ?? 0;
+				stellaWordPackWords = data.RoomState.stella_word_pack_words || [];
 				stellaDarkPlayer = data.RoomState.stella_dark_player || '';
 				activePlayer = data.RoomState.active_player || '';
 				roundNum = data.RoomState.round;
@@ -432,6 +434,7 @@
 				{stellaSelectionCountMin}
 				{stellaSelectionCountMax}
 				{stellaWordPackSize}
+				{stellaWordPackWords}
 				roomStateLoaded={hasReceivedRoomState}
 			/>
 		</div>

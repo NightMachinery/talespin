@@ -68,10 +68,18 @@
 	$: isObserver = !!observers[name];
 	$: isScout = activePlayer === name && !isObserver;
 	$: revealableCards = selectedCards.filter((card) => !revealedCards.includes(card));
+	$: selectedCardSet = new Set(selectedCards);
 	$: visibleBoardCards =
 		isScout && $hideNonSelectedStellaRevealCards && selectedCards.length > 0
-			? selectedCards
+			? displayImages.filter((card) => selectedCardSet.has(card))
 			: displayImages;
+	$: visibleBoardIndexOverlayLabels =
+		isScout && $hideNonSelectedStellaRevealCards && selectedCards.length > 0
+			? displayImages.reduce<Array<string | number>>((labels, card, index) => {
+					if (selectedCardSet.has(card)) labels.push(index + 1);
+					return labels;
+				}, [])
+			: [];
 	$: revealedCardChooserEntries = Object.fromEntries(
 		Object.entries(revealedCardChoosers).map(([card, choosers]) => [
 			card,
@@ -164,7 +172,7 @@
 >
 	<svelte:fragment slot="leftRail">
 		<div class="card light space-y-2 p-4">
-			<h1 class="text-xl font-semibold">Stella — Reveal</h1>
+			<h1 class="text-xl font-semibold">Resonance — Reveal</h1>
 			<p>Clue word: <span class="boujee-text">{clueWord}</span></p>
 			<p>Scout: <span class="font-semibold">{activePlayer}</span></p>
 		</div>
@@ -191,7 +199,7 @@
 
 	<svelte:fragment slot="mobileTop">
 		<div class="card light space-y-2 p-4">
-			<h1 class="text-xl font-semibold">Stella — Reveal</h1>
+			<h1 class="text-xl font-semibold">Resonance — Reveal</h1>
 			<p>{clueWord}</p>
 			<p>Scout: {activePlayer}</p>
 			{#if isScout}
@@ -214,6 +222,7 @@
 				imageHighlightClasses={revealedCardHighlightClasses}
 				showIndexOverlay={showVotingCardNumbers}
 				indexOverlayPosition="left"
+				indexOverlayLabels={visibleBoardIndexOverlayLabels}
 				on:select={handleRevealSelect}
 			/>
 		</div>

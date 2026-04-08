@@ -40,5 +40,5 @@ export const transparentCardNameOverlays = createPersistentBooleanStore(
 );
 export const hideNonSelectedStellaRevealCards = createPersistentBooleanStore(
 	'hide_non_selected_stella_reveal_cards',
-	false
+	true
 );

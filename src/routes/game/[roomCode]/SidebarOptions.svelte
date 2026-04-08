@@ -96,7 +96,7 @@
 		? stage === 'StellaAssociate'
 		: canChangePreVotingSettings;
 	$: settingsEditStageHint = isStellaMode
-		? 'Can only be changed during the Stella associate stage.'
+		? 'Can only be changed during the Resonance associate stage.'
 		: SETTINGS_EDIT_STAGE_HINT;
 	$: timerSettingsEditHint = isStellaMode
 		? 'Can only be changed during game setup.'
@@ -554,7 +554,7 @@
 		<div>
 			<span class="block font-medium">Transparent card name overlays</span>
 			<p class="text-xs opacity-70">
-				Local view option for Dixit results and Stella revealed-card chooser labels.
+				Local view option for Talespin results and Resonance revealed-card chooser labels.
 			</p>
 		</div>
 	</label>
@@ -566,7 +566,7 @@
 				bind:checked={$hideNonSelectedStellaRevealCards}
 			/>
 			<div>
-				<span class="block font-medium">Hide non-selected cards during Stella reveal</span>
+				<span class="block font-medium">Hide non-selected cards during Resonance reveal</span>
 				<p class="text-xs opacity-70">
 					Local view option for your reveal turns only; it only affects your device.
 				</p>
@@ -693,7 +693,7 @@
 					<p class="block text-sm font-semibold">Stage timers</p>
 					<p class="mt-1 text-xs opacity-75">
 						{isStellaMode
-							? 'Associate and reveal use the Stella stage timers. Results stays untimed.'
+							? 'Associate and reveal use the Resonance stage timers. Results stays untimed.'
 							: 'Show shared countdowns for each live stage. Results stays untimed.'}
 					</p>
 					<div class="mt-3 space-y-3">
@@ -839,8 +839,10 @@
 				</div>
 				{#if isStellaMode}
 					<div class="mt-3 rounded border border-white/20 px-2 py-2">
-						<p class="block text-sm font-semibold">Stella settings</p>
-						<p class="mt-1 text-xs opacity-75">Live Stella round limits for the current board.</p>
+						<p class="block text-sm font-semibold">Resonance settings</p>
+						<p class="mt-1 text-xs opacity-75">
+							Live Resonance round limits for the current board.
+						</p>
 						<div class="mt-3 space-y-3">
 							<div>
 								<label class="block text-sm font-medium" for="sidebar-stella-board-size">
@@ -902,7 +904,9 @@
 							</p>
 						</div>
 						{#if !isModerator}
-							<p class="mt-2 text-xs opacity-70">Only moderators can edit live Stella settings.</p>
+							<p class="mt-2 text-xs opacity-70">
+								Only moderators can edit live Resonance settings.
+							</p>
 						{:else if !canChangeStellaSettings}
 							<p class="mt-2 text-xs opacity-70">{settingsEditStageHint}</p>
 						{/if}
@@ -919,7 +923,7 @@
 						/>
 						<span>
 							{isStellaMode
-								? 'Show number overlays in all Stella board stages'
+								? 'Show number overlays in all Resonance board stages'
 								: 'Show card numbers in voting/results stages'}
 						</span>
 					</label>

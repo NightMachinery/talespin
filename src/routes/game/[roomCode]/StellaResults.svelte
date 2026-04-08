@@ -146,7 +146,7 @@
 >
 	<svelte:fragment slot="leftRail">
 		<div class="card light space-y-2 p-4">
-			<h1 class="text-xl font-semibold">Stella — Results</h1>
+			<h1 class="text-xl font-semibold">Resonance — Results</h1>
 			<p>Clue word: <span class="boujee-text">{clueWord}</span></p>
 		</div>
 		<div class="card light p-4 space-y-2">
@@ -165,7 +165,7 @@
 
 	<svelte:fragment slot="mobileTop">
 		<div class="card light space-y-2 p-4">
-			<h1 class="text-xl font-semibold">Stella — Results</h1>
+			<h1 class="text-xl font-semibold">Resonance — Results</h1>
 			<p>{clueWord}</p>
 		</div>
 	</svelte:fragment>

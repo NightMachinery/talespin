@@ -3,6 +3,7 @@
 	import { getDesktopFitRowCount } from '$lib/cardGrid';
 	import { http_host } from '$lib/gameServer';
 	import { CARD_IMAGE_ALT_TEXT } from '$lib/cardImageText';
+	import CardImage from '$lib/CardImage.svelte';
 	import { cardsFitToHeight } from '$lib/viewOptions';
 	import ChooserNameOverlay from './ChooserNameOverlay.svelte';
 
@@ -35,6 +36,7 @@
 	export let imageHighlightClasses: Record<string, string> = {};
 	export let showIndexOverlay = false;
 	export let indexOverlayPosition: 'left' | 'right' = 'right';
+	export let indexOverlayLabels: Array<string | number> = [];
 	export let desktopFitToHeight = false;
 
 	$: isHandMode = mode === 'hand';
@@ -74,12 +76,13 @@
 		{@const annotation = imageAnnotations[image]}
 		{@const chooserEntries = imageChooserOverlays[image] ?? []}
 		{@const highlightClass = imageHighlightClasses[image] ?? ''}
+		{@const indexOverlayLabel = indexOverlayLabels[imageIndex] ?? imageIndex + 1}
 		{@const shouldDim = selectedImageSet.size > 0 && !isSelected}
 		{@const canSelect =
 			selectable &&
 			!isDisabled &&
 			(!hasSelectableImageRestriction || selectableImageSet.has(image))}
-		{@const containerClass = `card-hover-source group relative block w-full overflow-visible rounded-lg focus-visible:outline-none ${desktopButtonSizeClass} ${
+		{@const containerClass = `card-hover-source group relative block w-full overflow-visible rounded-lg bg-slate-900/35 focus-visible:outline-none ${desktopButtonSizeClass} ${
 			shouldDim ? nonSelectedCardDimClass : ''
 		} ${isDisabled ? 'cursor-not-allowed' : canSelect ? '' : 'cursor-default'}`}
 		{@const imageClass = `${imageClassBase} pointer-events-none transition-all duration-150 ease-out ${
@@ -102,12 +105,16 @@
 				tabindex={canSelect ? 0 : -1}
 				on:click={() => selectImage(image, isDisabled, canSelect)}
 			>
-				<img class={imageClass} src={`${http_host}/cards/${image}`} alt={CARD_IMAGE_ALT_TEXT} />
+				<CardImage
+					className={imageClass}
+					src={`${http_host}/cards/${image}`}
+					alt={CARD_IMAGE_ALT_TEXT}
+				/>
 				{#if showIndexOverlay}
 					<div
 						class={`pointer-events-none absolute ${indexOverlayPositionClass} top-2 z-20 rounded bg-black/70 px-2 py-0.5 text-xs font-bold text-white shadow`}
 					>
-						#{imageIndex + 1}
+						#{indexOverlayLabel}
 					</div>
 				{/if}
 				<ChooserNameOverlay entries={chooserEntries} />
@@ -121,12 +128,16 @@
 			</button>
 		{:else}
 			<div class={containerClass}>
-				<img class={imageClass} src={`${http_host}/cards/${image}`} alt={CARD_IMAGE_ALT_TEXT} />
+				<CardImage
+					className={imageClass}
+					src={`${http_host}/cards/${image}`}
+					alt={CARD_IMAGE_ALT_TEXT}
+				/>
 				{#if showIndexOverlay}
 					<div
 						class={`pointer-events-none absolute ${indexOverlayPositionClass} top-2 z-20 rounded bg-black/70 px-2 py-0.5 text-xs font-bold text-white shadow`}
 					>
-						#{imageIndex + 1}
+						#{indexOverlayLabel}
 					</div>
 				{/if}
 				<ChooserNameOverlay entries={chooserEntries} />

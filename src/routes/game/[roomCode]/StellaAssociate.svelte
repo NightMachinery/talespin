@@ -163,7 +163,7 @@
 >
 	<svelte:fragment slot="leftRail">
 		<div class="card light space-y-2 p-4">
-			<h1 class="text-xl font-semibold">Stella — Associate</h1>
+			<h1 class="text-xl font-semibold">Resonance — Associate</h1>
 			<p>Clue word: <span class="boujee-text">{clueWord}</span></p>
 			<p class="text-xs opacity-75">
 				Pick every card you want to associate with the clue, then lock in. You can adjust and lock
@@ -197,7 +197,7 @@
 
 	<svelte:fragment slot="mobileTop">
 		<div class="card light space-y-2 p-4">
-			<h1 class="text-xl font-semibold">Stella — Associate</h1>
+			<h1 class="text-xl font-semibold">Resonance — Associate</h1>
 			<p>Clue word: <span class="boujee-text">{clueWord}</span></p>
 		</div>
 	</svelte:fragment>

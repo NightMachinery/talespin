@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { getDesktopFitRowCount } from '$lib/cardGrid';
 	import { CARD_IMAGE_ALT_TEXT } from '$lib/cardImageText';
+	import CardImage from '$lib/CardImage.svelte';
 	import { http_host } from '$lib/gameServer';
 	import { cardsFitToHeight } from '$lib/viewOptions';
 	import type GameServer from '$lib/gameServer';
@@ -84,7 +85,7 @@
 		? `--results-desktop-rows: ${resultsDesktopRowCount};`
 		: '';
 	$: resultsCardClass = (isActiveCard: boolean) =>
-		`${isActiveCard ? 'boujee-border' : ''} relative overflow-hidden rounded-lg ${resultsDesktopFitClass}`;
+		`${isActiveCard ? 'boujee-border' : ''} relative overflow-hidden rounded-lg bg-slate-900/35 ${resultsDesktopFitClass}`;
 	$: resultsImageClass = `relative w-full object-cover object-center aspect-[2/3] ${resultsDesktopFitClass}`;
 
 	$: {
@@ -233,10 +234,10 @@
 		<section class={resultsSectionClass} style={resultsDesktopFitStyle}>
 			{#each displayImages as image, cardIndex}
 				<div class={resultsCardClass(activeCard == image)}>
-					<img
+					<CardImage
 						src={`${http_host}/cards/${image}`}
 						alt={CARD_IMAGE_ALT_TEXT}
-						class={resultsImageClass}
+						className={resultsImageClass}
 					/>
 					{#if showVotingCardNumbers}
 						<div

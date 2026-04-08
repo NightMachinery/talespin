@@ -3,6 +3,7 @@
 
 	import { getDesktopFitRowCount } from '$lib/cardGrid';
 	import { CARD_IMAGE_ALT_TEXT } from '$lib/cardImageText';
+	import CardImage from '$lib/CardImage.svelte';
 	import { http_host } from '$lib/gameServer';
 	import type GameServer from '$lib/gameServer';
 	import type { ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
@@ -85,8 +86,8 @@
 		? 'pointer-events-none aspect-[2/3] w-full rounded-lg object-cover object-center transition-all duration-150 ease-out lg:h-full'
 		: 'pointer-events-none aspect-[2/3] w-full rounded-lg object-cover object-center transition-all duration-150 ease-out';
 	$: tableButtonClass = tableDesktopFitEnabled
-		? 'card-hover-source group relative block w-full overflow-visible rounded-lg focus-visible:outline-none lg:h-full'
-		: 'card-hover-source group relative block w-full overflow-visible rounded-lg focus-visible:outline-none';
+		? 'card-hover-source group relative block w-full overflow-visible rounded-lg bg-slate-900/35 focus-visible:outline-none lg:h-full'
+		: 'card-hover-source group relative block w-full overflow-visible rounded-lg bg-slate-900/35 focus-visible:outline-none';
 	$: tableDesktopFitStyle = tableDesktopFitEnabled
 		? `--voting-desktop-rows: ${tableDesktopRowCount};`
 		: '';
@@ -284,8 +285,8 @@
 					disabled={!isVoter || isDisabled}
 					on:click={() => cycleCardVote(image)}
 				>
-					<img
-						class={`${tableImageClass} ${voteImageClass(selectedCount, isDisabled)}`}
+					<CardImage
+						className={`${tableImageClass} ${voteImageClass(selectedCount, isDisabled)}`}
 						src={`${http_host}/cards/${image}`}
 						alt={CARD_IMAGE_ALT_TEXT}
 					/>

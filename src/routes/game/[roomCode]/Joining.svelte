@@ -31,6 +31,7 @@
 	export let stellaSelectionCountMin = 1;
 	export let stellaSelectionCountMax = 15;
 	export let stellaWordPackSize = 0;
+	export let stellaWordPackWords: string[] = [];
 
 	const toastStore = getToastStore();
 	const LOCAL_STELLA_PACKS_KEY = 'stella_word_pack_presets';
@@ -55,6 +56,7 @@
 	let wordPackApplyTimeout: number | null = null;
 	let availableWordPackPresets: StellaWordPackOption[] = [];
 	let selectedWordPackPreset: StellaWordPackOption | null = null;
+	let lastServerWordPackText = '';
 
 	type StellaWordPackOption = StellaWordPackPreset & {
 		key: string;
@@ -79,6 +81,22 @@
 	$: if (winCondition.mode === 'points') localTargetPoints = winCondition.target_points;
 	$: if (winCondition.mode === 'cycles') localTargetCycles = winCondition.target_cycles;
 	$: if (winCondition.mode === 'fixed_rounds') localTargetRounds = winCondition.target_rounds;
+	$: serverWordPackText = normalizeWordPackText(stellaWordPackWords.join('\n'));
+	$: if (roomStateLoaded && serverWordPackText !== lastServerWordPackText) {
+		const normalizedLocalWordPackText = normalizeWordPackText(localWordPackText);
+		const canSyncLocalWordPack =
+			normalizedLocalWordPackText === '' || normalizedLocalWordPackText === lastServerWordPackText;
+		if (canSyncLocalWordPack) {
+			localWordPackText = serverWordPackText;
+		}
+		lastServerWordPackText = serverWordPackText;
+	}
+	$: if (roomStateLoaded && normalizeWordPackText(localWordPackText) === serverWordPackText) {
+		selectedPresetKey =
+			availableWordPackPresets.find(
+				(preset) => normalizeWordPackText(preset.words) === serverWordPackText
+			)?.key ?? '';
+	}
 
 	function loadPresets() {
 		if (!browser) return;
@@ -408,8 +426,8 @@
 							on:change={updateGameMode}
 							disabled={!canEditSettings}
 						>
-							<option value="dixit_plus">Dixit+</option>
-							<option value="stella">Stella</option>
+							<option value="dixit_plus">Talespin</option>
+							<option value="stella">Resonance</option>
 						</select>
 					</div>
 					<div>

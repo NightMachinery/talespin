@@ -5,11 +5,8 @@
 		<!-- <a href="/" class="link underline">Start playing</a>
 		<br /><br /> -->
 		<p>
-			Talespin (inspired by <a
-				href="https://en.wikipedia.org/wiki/Dixit_(board_game)"
-				class="link underline">Dixit</a
-			>) is a simple-to-learn card game that emphasizes creativity and abstract thinking. Here's how
-			to play:
+			Talespin is a simple-to-learn card game that emphasizes creativity and abstract thinking.
+			Here's how to play:
 		</p>
 		<br />
 
