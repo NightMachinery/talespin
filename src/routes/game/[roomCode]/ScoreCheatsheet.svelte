@@ -26,10 +26,10 @@
 				Super-Spark: if exactly 1 other player matched, both matching non-fallen players get 3.
 			</li>
 			<li>
-				☠: if nobody else matched, the scout gets 0 and cannot score more reveals this round.
+				Fallen: if nobody else matched, the scout "falls", gets 0 and cannot score more reveals this round.
 			</li>
 			<li>
-				Dark player: if they made any mistakes, each scored Spark/Super-Spark loses 1 base star.
+				Dark player: the player with most associated cards is "in the dark." If they made any mistakes, each scored Spark/Super-Spark loses 1 base star.
 			</li>
 		</ul>
 	{:else}
