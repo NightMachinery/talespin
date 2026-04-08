@@ -47,6 +47,7 @@
 	export let stellaSelectionMax = 10;
 	export let stellaSelectionCountMin = 1;
 	export let stellaSelectionCountMax = 15;
+	export let stellaWordPackWords: string[] = [];
 	export let serverTimeMs: number | null = null;
 	export let currentStageDeadlineS: number | null = null;
 	export let votingWrongCardDisableDistribution: number[] = [1];
@@ -158,6 +159,7 @@
 	{stellaSelectionMax}
 	{stellaSelectionCountMin}
 	{stellaSelectionCountMax}
+	{stellaWordPackWords}
 	{serverTimeMs}
 	{currentStageDeadlineS}
 	{votingWrongCardDisableDistribution}

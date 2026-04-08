@@ -1,6 +1,16 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import type GameServer from '$lib/gameServer';
+	import {
+		LOCAL_STELLA_PACKS_KEY,
+		buildStellaWordPackOptions,
+		findStellaWordPackOptionByWords,
+		formatStellaWordPackOptionLabel,
+		normalizeWordPackText,
+		parseSavedStellaWordPackPresets,
+		type StellaWordPackOption,
+		type StellaWordPackPreset
+	} from '$lib/stellaWordPacks';
 	import type { GameMode, ObserverInfo, PlayerInfo } from '$lib/types';
 	import { OFFLINE_STATUS_LABEL } from '$lib/presence';
 	import { isStageChangeAudioSupported, unlockStageChangeAudio } from '$lib/stageChangeAudio';
@@ -68,10 +78,15 @@
 	export let stellaSelectionMax = 10;
 	export let stellaSelectionCountMin = 1;
 	export let stellaSelectionCountMax = 15;
+	export let stellaWordPackWords: string[] = [];
 	export let votingWrongCardDisableDistribution: number[] = [
 		...DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION
 	];
 	export let gameServer: GameServer;
+
+	let savedStellaWordPackPresets: StellaWordPackPreset[] = [];
+	let availableStellaWordPackOptions: StellaWordPackOption[] = [];
+	let selectedStellaWordPackKey = '';
 
 	$: moderatorSet = new Set(moderators);
 	$: sortedPlayerEntries = Object.entries(players).sort(([a], [b]) => a.localeCompare(b));
@@ -92,6 +107,9 @@
 	$: canRefreshHands = isDixitMode && stage === 'ActiveChooses';
 	$: canChangeStageTimers = isDixitMode && stage === 'ActiveChooses';
 	$: canChangeStellaSettings = isStellaMode && stage === 'StellaAssociate';
+	$: canSwitchStellaWordPack =
+		isStellaMode &&
+		(stage === 'StellaAssociate' || stage === 'StellaReveal' || stage === 'StellaResults');
 	$: canChangeNumberOverlaySetting = isStellaMode
 		? stage === 'StellaAssociate'
 		: canChangePreVotingSettings;
@@ -105,6 +123,14 @@
 	$: storytellerWinConditionMin = storytellerLossComplementMin + 1;
 	$: storytellerWinConditionMax = storytellerLossComplementMax + 1;
 	$: roundStartDiscardCountMax = Math.max(0, cardsPerHand - 1);
+	$: serverStellaWordPackText = normalizeWordPackText(stellaWordPackWords.join('\n'));
+	$: availableStellaWordPackOptions = buildStellaWordPackOptions(
+		savedStellaWordPackPresets,
+		serverStellaWordPackText
+	);
+	$: selectedStellaWordPackKey =
+		findStellaWordPackOptionByWords(availableStellaWordPackOptions, serverStellaWordPackText)
+			?.key ?? '';
 	$: normalizedVotingWrongCardDisableDistribution = normalizeVotingWrongCardDisableDistribution(
 		votingWrongCardDisableDistribution
 	);
@@ -124,6 +150,17 @@
 		Object.entries(players).map(([playerName, info]) => [playerName, info.points])
 	);
 	const supportsStageChangeAudio = isStageChangeAudioSupported();
+
+	function loadSavedStellaWordPackPresets() {
+		if (!browser) return;
+		savedStellaWordPackPresets = parseSavedStellaWordPackPresets(
+			window.localStorage.getItem(LOCAL_STELLA_PACKS_KEY)
+		);
+	}
+
+	if (browser) {
+		loadSavedStellaWordPackPresets();
+	}
 
 	function isPlayerModerator(playerName: string) {
 		return moderatorSet.has(playerName);
@@ -450,6 +487,24 @@
 		if (parsed !== stellaSelectionMax) {
 			gameServer.setStellaSelectionMax(parsed);
 		}
+	}
+
+	function updateStellaWordPack(event: Event) {
+		const select = event.currentTarget as HTMLSelectElement;
+		if (!isModerator || !canSwitchStellaWordPack) {
+			select.value = selectedStellaWordPackKey;
+			return;
+		}
+		const nextOption =
+			availableStellaWordPackOptions.find((option) => option.key === select.value) ?? null;
+		if (!nextOption) {
+			select.value = selectedStellaWordPackKey;
+			return;
+		}
+		if (normalizeWordPackText(nextOption.words) === serverStellaWordPackText) {
+			return;
+		}
+		gameServer.setStellaWordPack(nextOption.words);
 	}
 
 	function formatPercent(probability: number) {
@@ -888,7 +943,7 @@
 					<div class="mt-3 rounded border border-white/20 px-2 py-2">
 						<p class="block text-sm font-semibold">Resonance settings</p>
 						<p class="mt-1 text-xs opacity-75">
-							Live Resonance round limits for the current board.
+							Live Resonance settings for the current board and the next clue reset.
 						</p>
 						<div class="mt-3 space-y-3">
 							<div>
@@ -949,12 +1004,41 @@
 							<p class="text-xs opacity-75">
 								Selection range: {stellaSelectionCountMin}–{stellaSelectionCountMax}
 							</p>
+							{#if canSwitchStellaWordPack}
+								<div>
+									<label class="block text-sm font-medium" for="sidebar-stella-word-pack">
+										Word pack
+									</label>
+									<p class="mt-1 text-xs opacity-75">
+										Switches the pack for the next clue reset or next Resonance round.
+									</p>
+									<div class="mt-2 flex items-center gap-2">
+										<select
+											id="sidebar-stella-word-pack"
+											class="min-w-0 flex-1 rounded border px-2 py-1 text-gray-700 shadow"
+											value={selectedStellaWordPackKey}
+											on:change={updateStellaWordPack}
+											disabled={!isModerator}
+										>
+											<option value="" disabled={!selectedStellaWordPackKey}>
+												Choose a word pack preset
+											</option>
+											{#each availableStellaWordPackOptions as option}
+												<option value={option.key}>
+													{formatStellaWordPackOptionLabel(option)}
+												</option>
+											{/each}
+										</select>
+										<span class="text-xs opacity-75">{stellaWordPackWords.length} words</span>
+									</div>
+								</div>
+							{/if}
 						</div>
 						{#if !isModerator}
 							<p class="mt-2 text-xs opacity-70">
 								Only moderators can edit live Resonance settings.
 							</p>
-						{:else if !canChangeStellaSettings}
+						{:else if !canChangeStellaSettings && !canSwitchStellaWordPack}
 							<p class="mt-2 text-xs opacity-70">{settingsEditStageHint}</p>
 						{/if}
 					</div>

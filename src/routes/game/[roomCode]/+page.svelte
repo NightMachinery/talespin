@@ -537,6 +537,7 @@
 			{stellaSelectionMax}
 			{stellaSelectionCountMin}
 			{stellaSelectionCountMax}
+			{stellaWordPackWords}
 			{serverTimeMs}
 			{currentStageDeadlineS}
 			{votingWrongCardDisableDistribution}
@@ -803,6 +804,14 @@
 			{votingTimerDurationS}
 			{forceCardChoosingTimer}
 			{forceVotingTimer}
+			{stellaBoardSize}
+			{stellaBoardSizeMin}
+			{stellaBoardSizeMax}
+			{stellaSelectionMin}
+			{stellaSelectionMax}
+			{stellaSelectionCountMin}
+			{stellaSelectionCountMax}
+			{stellaWordPackWords}
 			{serverTimeMs}
 			{currentStageDeadlineS}
 			{votingWrongCardDisableDistribution}

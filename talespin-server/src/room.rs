@@ -3776,9 +3776,6 @@ impl Room {
                     return Ok(());
                 }
                 state.stella_word_pack = words;
-                if matches!(state.stage, RoomStage::StellaAssociate) {
-                    self.reset_stella_round_state(&mut state);
-                }
                 self.broadcast_msg(self.room_state(&state))?;
             }
             ClientMsg::ResetStellaClue {} => {
@@ -8580,6 +8577,127 @@ alpha
         assert!(
             state.players.get("p3").unwrap().ready,
             "the new submission should still ready the submitting player"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stella_word_pack_change_mid_associate_preserves_current_round_state() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            add_player(&mut state, "p2", 0);
+            add_player(&mut state, "p3", 0);
+            state.game_mode = GameMode::Stella;
+            state.stage = RoomStage::StellaAssociate;
+            state.player_order = vec!["host".into(), "p2".into(), "p3".into()];
+            state.active_player = 0;
+            state.stella_clue_word = "before".into();
+            state.stella_word_pack = vec!["before".into(), "after".into()];
+            state.stella_board_cards = vec![
+                "card-1".into(),
+                "card-2".into(),
+                "card-3".into(),
+                "card-4".into(),
+            ];
+            state
+                .stella_player_selections
+                .insert("host".into(), vec!["card-1".into(), "card-3".into()]);
+            state
+                .stella_player_selection_counts
+                .insert("host".into(), 2);
+            state.players.get_mut("host").unwrap().ready = true;
+            state.players.get_mut("p2").unwrap().ready = true;
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 605);
+        }
+
+        room.handle_client_msg(
+            "host",
+            605,
+            to_ws(ClientMsg::SetStellaWordPack {
+                words: "delta\nepsilon".to_string(),
+            }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert!(matches!(state.stage, RoomStage::StellaAssociate));
+        assert_eq!(state.stella_clue_word, "before");
+        assert_eq!(
+            state.stella_board_cards,
+            vec![
+                "card-1".to_string(),
+                "card-2".to_string(),
+                "card-3".to_string(),
+                "card-4".to_string(),
+            ]
+        );
+        assert_eq!(
+            state.stella_player_selections.get("host"),
+            Some(&vec!["card-1".to_string(), "card-3".to_string()])
+        );
+        assert_eq!(
+            state.stella_player_selection_counts.get("host"),
+            Some(&2),
+            "changing the pack should not clear locked selection counts"
+        );
+        assert!(
+            state.players.get("host").unwrap().ready && state.players.get("p2").unwrap().ready,
+            "changing the pack should preserve ready flags"
+        );
+        assert_eq!(
+            state.stella_word_pack,
+            vec!["delta".to_string(), "epsilon".to_string()]
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn reset_stella_clue_uses_newly_switched_word_pack() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            add_player(&mut state, "p2", 0);
+            add_player(&mut state, "p3", 0);
+            state.game_mode = GameMode::Stella;
+            state.stage = RoomStage::StellaAssociate;
+            state.player_order = vec!["host".into(), "p2".into(), "p3".into()];
+            state.active_player = 0;
+            state.stella_clue_word = "before".into();
+            state.stella_word_pack = vec!["before".into()];
+            state.stella_board_cards = vec![
+                "card-1".into(),
+                "card-2".into(),
+                "card-3".into(),
+                "card-4".into(),
+            ];
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 606);
+            setup_connected_member(&mut state, "p2", "t-p2", 607);
+            setup_connected_member(&mut state, "p3", "t-p3", 608);
+        }
+
+        room.handle_client_msg(
+            "host",
+            606,
+            to_ws(ClientMsg::SetStellaWordPack {
+                words: "after".to_string(),
+            }),
+        )
+        .await?;
+        room.handle_client_msg("host", 606, to_ws(ClientMsg::ResetStellaClue {}))
+            .await?;
+
+        let state = room.state.read().await;
+        assert_eq!(state.stella_word_pack, vec!["after".to_string()]);
+        assert_eq!(
+            state.stella_clue_word, "after",
+            "reset clue should draw from the newly selected pack"
         );
 
         Ok(())

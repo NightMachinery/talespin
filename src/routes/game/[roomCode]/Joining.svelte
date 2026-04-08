@@ -3,6 +3,14 @@
 	import type GameServer from '$lib/gameServer';
 	import {
 		BUILTIN_STELLA_WORD_PACK_PRESETS,
+		LOCAL_PRESET_KEY_PREFIX,
+		LOCAL_STELLA_PACKS_KEY,
+		buildStellaWordPackOptions,
+		findStellaWordPackOptionByWords,
+		formatStellaWordPackOptionLabel,
+		normalizeWordPackText,
+		parseSavedStellaWordPackPresets,
+		type StellaWordPackOption,
 		type StellaWordPackPreset
 	} from '$lib/stellaWordPacks';
 	import type { GameMode, PlayerInfo, WinCondition } from '$lib/types';
@@ -34,9 +42,6 @@
 	export let stellaWordPackWords: string[] = [];
 
 	const toastStore = getToastStore();
-	const LOCAL_STELLA_PACKS_KEY = 'stella_word_pack_presets';
-	const LOCAL_PRESET_KEY_PREFIX = 'local:';
-	const BUILTIN_PRESET_KEY_PREFIX = 'builtin:';
 	const WORD_PACK_APPLY_DEBOUNCE_MS = 350;
 	$: playerEntries = Object.entries(players);
 	$: moderatorSet = new Set(moderators);
@@ -57,24 +62,7 @@
 	let availableWordPackPresets: StellaWordPackOption[] = [];
 	let selectedWordPackPreset: StellaWordPackOption | null = null;
 	let lastServerWordPackText = '';
-
-	type StellaWordPackOption = StellaWordPackPreset & {
-		key: string;
-		builtin: boolean;
-	};
-
-	$: availableWordPackPresets = [
-		...BUILTIN_STELLA_WORD_PACK_PRESETS.map((preset) => ({
-			...preset,
-			key: `${BUILTIN_PRESET_KEY_PREFIX}${preset.name}`,
-			builtin: true
-		})),
-		...savedPresets.map((preset) => ({
-			...preset,
-			key: `${LOCAL_PRESET_KEY_PREFIX}${preset.name}`,
-			builtin: false
-		}))
-	].sort((a, b) => a.name.localeCompare(b.name));
+	$: availableWordPackPresets = buildStellaWordPackOptions(savedPresets, serverWordPackText);
 	$: selectedWordPackPreset =
 		availableWordPackPresets.find((preset) => preset.key === selectedPresetKey) ?? null;
 
@@ -93,24 +81,14 @@
 	}
 	$: if (roomStateLoaded && normalizeWordPackText(localWordPackText) === serverWordPackText) {
 		selectedPresetKey =
-			availableWordPackPresets.find(
-				(preset) => normalizeWordPackText(preset.words) === serverWordPackText
-			)?.key ?? '';
+			findStellaWordPackOptionByWords(availableWordPackPresets, serverWordPackText)?.key ?? '';
 	}
 
 	function loadPresets() {
 		if (!browser) return;
-		try {
-			const parsed = JSON.parse(window.localStorage.getItem(LOCAL_STELLA_PACKS_KEY) || '[]');
-			savedPresets = Array.isArray(parsed)
-				? parsed.filter(
-						(entry): entry is StellaWordPackPreset =>
-							typeof entry?.name === 'string' && typeof entry?.words === 'string'
-					)
-				: [];
-		} catch {
-			savedPresets = [];
-		}
+		savedPresets = parseSavedStellaWordPackPresets(
+			window.localStorage.getItem(LOCAL_STELLA_PACKS_KEY)
+		);
 	}
 
 	function savePresets() {
@@ -253,14 +231,6 @@
 		gameServer.setStellaSelectionMax(value);
 	}
 
-	function normalizeWordPackText(rawWords: string) {
-		return rawWords
-			.split(/\r?\n/u)
-			.map((word) => word.trim())
-			.filter((word) => word.length > 0)
-			.join('\n');
-	}
-
 	function queueWordPackApply(words = localWordPackText) {
 		if (!browser || !canEditSettings || gameMode !== 'stella') return;
 		const normalizedWords = normalizeWordPackText(words);
@@ -277,10 +247,6 @@
 	function updateSelectedWordPack(words: string) {
 		localWordPackText = words;
 		queueWordPackApply(words);
-	}
-
-	function getWordPackPresetByKey(key: string) {
-		return availableWordPackPresets.find((preset) => preset.key === key) ?? null;
 	}
 
 	function saveCurrentPreset() {
@@ -308,7 +274,7 @@
 	function handlePresetSelectionChange(event: Event) {
 		const nextKey = (event.currentTarget as HTMLSelectElement).value;
 		selectedPresetKey = nextKey;
-		const preset = getWordPackPresetByKey(nextKey);
+		const preset = availableWordPackPresets.find((option) => option.key === nextKey) ?? null;
 		if (preset) {
 			updateSelectedWordPack(preset.words);
 		}
@@ -577,9 +543,7 @@
 									>
 										<option value="">Choose a word pack preset</option>
 										{#each availableWordPackPresets as preset}
-											<option value={preset.key}>
-												{preset.name}{preset.builtin ? ' (built-in)' : ''}
-											</option>
+											<option value={preset.key}>{formatStellaWordPackOptionLabel(preset)}</option>
 										{/each}
 									</select>
 									<button
@@ -590,8 +554,9 @@
 									<button
 										class="btn variant-filled"
 										on:click={deleteSelectedPreset}
-										disabled={!selectedWordPackPreset || selectedWordPackPreset.builtin}
-										>Delete</button
+										disabled={!selectedWordPackPreset ||
+											selectedWordPackPreset.builtin ||
+											selectedWordPackPreset.unsaved}>Delete</button
 									>
 								</div>
 							</div>
