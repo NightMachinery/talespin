@@ -17,12 +17,13 @@ readonly DEFAULT_PROXY_URL='http://127.0.0.1:1087'
 
 usage() {
 	cat <<USAGE
-Usage: ./self_host.zsh [setup|redeploy|start|stop] [public_url]
+Usage: ./self_host.zsh [setup|setup-caddy|redeploy|start|stop] [public_url]
 
-setup     Persist config, build frontend/backend, update ~/Caddyfile, reload Caddy, and start Talespin.
-redeploy  Rebuild from the latest local working tree changes, reload Caddy, and restart Talespin.
-start     Start Talespin from existing artifacts and persisted config.
-stop      Stop the tmux-managed Talespin sessions.
+setup        Persist config, build frontend/backend, update ~/Caddyfile, reload Caddy, and start Talespin.
+setup-caddy  Persist config, update ~/Caddyfile, and reload Caddy without rebuilding or restarting Talespin.
+redeploy     Rebuild from the latest local working tree changes, reload Caddy, and restart Talespin.
+start        Start Talespin from existing artifacts and persisted config.
+stop         Stop the tmux-managed Talespin sessions.
 
 Default public_url: $DEFAULT_PUBLIC_URL
 Set TALESPIN_PRODUCTION_P=n to run the frontend dev server behind Caddy.
@@ -336,77 +337,25 @@ update_caddyfile() {
 	block_contents="$(render_caddy_block "$site_address")"
 	[[ -f "$CADDYFILE" ]] || touch "$CADDYFILE"
 
-	TARGET_CADDYFILE="$CADDYFILE" \
-	OUTPUT_PATH="$candidate_file" \
-	BLOCK_BEGIN="$CADDY_BEGIN" \
-	BLOCK_END="$CADDY_END" \
-	BLOCK_CONTENTS="$block_contents" \
-	SITE_ADDRESS="$site_address" \
-	DEFAULT_PUBLIC_URL="$DEFAULT_PUBLIC_URL" \
+	CADDYFILE_PATH="$CADDYFILE" \
+	CANDIDATE_PATH="$candidate_file" \
+	MANAGED_BLOCK_BEGIN="$CADDY_BEGIN" \
+	MANAGED_BLOCK_END="$CADDY_END" \
+	MANAGED_BLOCK_CONTENTS="$block_contents" \
 	python3 - <<'PY'
 import os
 import pathlib
 import re
-from urllib.parse import urlparse
 
-caddyfile = pathlib.Path(os.environ['TARGET_CADDYFILE']).expanduser()
-output_path = pathlib.Path(os.environ['OUTPUT_PATH'])
+caddyfile = pathlib.Path(os.environ['CADDYFILE_PATH']).expanduser()
+output_path = pathlib.Path(os.environ['CANDIDATE_PATH'])
 text = caddyfile.read_text() if caddyfile.exists() else ''
-begin = os.environ['BLOCK_BEGIN']
-end = os.environ['BLOCK_END']
-block = os.environ['BLOCK_CONTENTS'].rstrip() + '\n'
-site_address = os.environ['SITE_ADDRESS']
-default_public_url = os.environ['DEFAULT_PUBLIC_URL']
+begin = os.environ['MANAGED_BLOCK_BEGIN']
+end = os.environ['MANAGED_BLOCK_END']
+block = os.environ['MANAGED_BLOCK_CONTENTS'].rstrip() + '\n'
 
 managed_pattern = re.compile(re.escape(begin) + r'.*?' + re.escape(end) + r'\n?', re.S)
 text = managed_pattern.sub('', text)
-
-def legacy_labels() -> list[str]:
-    labels = {site_address}
-    parsed = urlparse(default_public_url)
-    labels.add(parsed.netloc)
-    labels.add(default_public_url)
-    return [label for label in labels if label]
-
-def remove_labeled_block(source: str, label: str) -> tuple[str, bool]:
-    pattern = re.compile(rf'(?m)^[ \t]*{re.escape(label)}[ \t]*\{{')
-    match = pattern.search(source)
-    if not match:
-        return source, False
-    brace_start = source.find('{', match.start())
-    if brace_start == -1:
-        return source, False
-    depth = 0
-    index = brace_start
-    while index < len(source):
-        char = source[index]
-        if char == '{':
-            depth += 1
-        elif char == '}':
-            depth -= 1
-            if depth == 0:
-                index += 1
-                while index < len(source) and source[index] == '\n':
-                    index += 1
-                block_text = source[match.start():index]
-                markers = (
-                    '/create /exists /stats /ws /ws/* /cards /cards/*',
-                    'import talespin_front_{$TALESPIN_PRODUCTION_P:y}',
-                    'reverse_proxy 127.0.0.1:8081',
-                )
-                if any(marker in block_text for marker in markers):
-                    new_text = (source[:match.start()].rstrip() + '\n\n' + source[index:].lstrip('\n')).strip('\n')
-                    if new_text:
-                        new_text += '\n'
-                    return new_text, True
-                return source, False
-        index += 1
-    return source, False
-
-for label in legacy_labels():
-    changed = True
-    while changed:
-        text, changed = remove_labeled_block(text, label)
 
 managed_block = f'{begin}\n{block.rstrip()}\n{end}\n'
 text = text.rstrip()
@@ -416,6 +365,7 @@ text += managed_block
 output_path.write_text(text)
 PY
 
+	caddy fmt --overwrite "$candidate_file" >/dev/null
 	caddy validate --config "$candidate_file" --adapter caddyfile >/dev/null
 	cp "$candidate_file" "$CADDYFILE"
 }
@@ -424,6 +374,14 @@ reload_caddy() {
 	note 'Reloading Caddy...'
 	caddy reload --config "$CADDYFILE" --adapter caddyfile >/dev/null \
 		|| die "Failed to reload Caddy with $CADDYFILE. Ensure Caddy is running."
+}
+
+setup_caddy_cmd() {
+	local public_url="$1"
+	persist_config "$public_url"
+	update_caddyfile "$public_url"
+	reload_caddy
+	note "Caddy setup complete for $public_url"
 }
 
 stop_app() {
@@ -492,34 +450,28 @@ ensure_stop_prereqs() {
 
 setup_cmd() {
 	local public_url="$1"
-	persist_config "$public_url"
 	prepare_talespin_env
 	build_backend
 	build_frontend
-	update_caddyfile "$public_url"
-	reload_caddy
+	setup_caddy_cmd "$public_url"
 	start_app
 	note "Setup complete for $public_url"
 }
 
 redeploy_cmd() {
 	local public_url="$1"
-	persist_config "$public_url"
 	prepare_talespin_env
 	build_backend
 	build_frontend
-	update_caddyfile "$public_url"
-	reload_caddy
+	setup_caddy_cmd "$public_url"
 	start_app
 	note "Redeploy complete for $public_url"
 }
 
 start_cmd() {
 	local public_url="$1"
-	persist_config "$public_url"
 	prepare_talespin_env
-	update_caddyfile "$public_url"
-	reload_caddy
+	setup_caddy_cmd "$public_url"
 	start_app
 	note "Start complete for $public_url"
 }
@@ -541,6 +493,12 @@ main() {
 			ensure_build_prereqs
 			resolved_url="$(resolve_configured_url "$supplied_url")"
 			setup_cmd "$resolved_url"
+			;;
+		setup-caddy)
+			(( $# <= 2 )) || die 'setup-caddy accepts at most one public_url argument.'
+			ensure_common_prereqs
+			resolved_url="$(resolve_configured_url "$supplied_url")"
+			setup_caddy_cmd "$resolved_url"
 			;;
 		redeploy)
 			(( $# <= 2 )) || die 'redeploy accepts at most one public_url argument.'

@@ -18,7 +18,7 @@
   - production: static files from `~/base/talespin/build`
   - development: `127.0.0.1:4173`
 
-On first run, the script migrates the previous unmarked Talespin site block so you do not end up with duplicate Talespin host entries.
+`setup-caddy` only updates that managed block, or inserts it if missing. Any legacy unmanaged Talespin snippets should be removed manually.
 
 ## Startup Script
 
@@ -27,12 +27,13 @@ File: `~/base/talespin/self_host.zsh`
 Usage:
 
 ```bash
-./self_host.zsh [setup|redeploy|start|stop] [public_url]
+./self_host.zsh [setup|setup-caddy|redeploy|start|stop] [public_url]
 ```
 
 Commands:
 
 - `setup`: persist config, build frontend/backend, update Caddy, reload Caddy, and start Talespin
+- `setup-caddy`: persist config, update Caddy, and reload Caddy without rebuilding or restarting Talespin
 - `redeploy`: rebuild from the latest local working tree changes, update Caddy, reload Caddy, and restart Talespin
 - `start`: start from existing artifacts and persisted config
 - `stop`: stop the tmux-managed Talespin sessions
