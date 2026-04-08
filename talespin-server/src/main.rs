@@ -42,6 +42,7 @@ const ROOM_MAINTENANCE_INTERVAL: std::time::Duration = std::time::Duration::from
 const GC_ROOM_TIMEOUT_S: u64 = 60 * 60; // 1 hour
 
 const BUILTIN_IMAGE_DIR: &str = "../static/assets/cards/";
+const WORD_PACKS_DIR: &str = "../wordpacks";
 const LEGACY_EXTRA_CARD_PREFIX: &str = "extra_dir__";
 
 const EXTRA_IMAGE_DIRS_ENV: &str = "TALESPIN_EXTRA_IMAGE_DIRS";
@@ -213,6 +214,62 @@ impl SourceKind {
             Self::Extra => "extra",
         }
     }
+}
+
+#[derive(Debug, Clone)]
+struct LoadedWordPackPreset {
+    name: String,
+    words: Vec<String>,
+}
+
+fn load_word_pack_presets(dir: &Path) -> Result<Vec<LoadedWordPackPreset>> {
+    let mut presets = Vec::new();
+    let entries = fs::read_dir(dir)
+        .with_context(|| format!("Failed to read word-pack directory {}", dir.display()))?;
+
+    for entry in entries {
+        let entry =
+            entry.with_context(|| format!("Failed to read an entry from {}", dir.display()))?;
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        if path.extension().and_then(|ext| ext.to_str()) != Some("txt") {
+            continue;
+        }
+
+        let raw_words = fs::read_to_string(&path)
+            .with_context(|| format!("Failed to read word pack {}", path.display()))?;
+        let words = Room::parse_stella_word_pack(&raw_words);
+        if words.is_empty() {
+            continue;
+        }
+
+        let name = path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .ok_or_else(|| anyhow!("Invalid word-pack filename {}", path.display()))?
+            .to_string();
+        presets.push(LoadedWordPackPreset { name, words });
+    }
+
+    presets.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    if presets.is_empty() {
+        return Err(anyhow!(
+            "No non-empty .txt word packs were found in {}",
+            dir.display()
+        ));
+    }
+
+    Ok(presets)
+}
+
+fn choose_default_word_pack(presets: &[LoadedWordPackPreset]) -> Result<&LoadedWordPackPreset> {
+    presets
+        .iter()
+        .find(|preset| preset.name == "Persian_1")
+        .or_else(|| presets.first())
+        .ok_or_else(|| anyhow!("No word-pack presets available"))
 }
 
 fn create_normalization_progress(total_sources: usize) -> ProgressBar {
@@ -973,6 +1030,7 @@ struct ServerState {
     base_deck: Arc<Vec<String>>,
     cards: Arc<HashMap<String, PathBuf>>,
     card_content_type: &'static str,
+    default_stella_word_pack: Arc<Vec<String>>,
     default_win_points_target: u16,
     max_members: usize,
 }
@@ -984,6 +1042,8 @@ impl ServerState {
         let config = NormalizationConfig::from_env()?;
         let default_win_points_target = parse_default_win_points_from_env();
         let max_members = parse_max_members_from_env();
+        let word_pack_presets = load_word_pack_presets(Path::new(WORD_PACKS_DIR))?;
+        let default_word_pack = choose_default_word_pack(&word_pack_presets)?;
         let extra_image_dirs = get_extra_image_dirs();
         let disable_builtin_images = env_is_y(DISABLE_BUILTIN_IMAGES_ENV);
         let sniff_extensionless_images = env_is_y(SNIFF_EXTENSIONLESS_IMAGES_ENV);
@@ -996,7 +1056,7 @@ impl ServerState {
         )?;
 
         println!(
-            "Loaded {} cards ({} built-in, {} extra, {} failed; builtins {}; extensionless sniff {}; ratio {}:{}, long side {}; cache format {}; avif encoder {}; avif threads {}; cache validation {}; cache {}; default points target {}; max members {})",
+            "Loaded {} cards ({} built-in, {} extra, {} failed; builtins {}; extensionless sniff {}; ratio {}:{}, long side {}; cache format {}; avif encoder {}; avif threads {}; cache validation {}; cache {}; default word pack {}; loaded word packs {}; default points target {}; max members {})",
             loaded_cards.deck.len(),
             loaded_cards.loaded_builtin,
             loaded_cards.loaded_extra,
@@ -1015,6 +1075,8 @@ impl ServerState {
             config.avif_threads.env_value(),
             config.cache_validation_status_label(),
             config.cards_cache_dir.display(),
+            default_word_pack.name,
+            word_pack_presets.len(),
             default_win_points_target,
             max_members
         );
@@ -1024,6 +1086,7 @@ impl ServerState {
             base_deck: Arc::new(loaded_cards.deck),
             cards: Arc::new(loaded_cards.cards),
             card_content_type: config.cache_format.mime_type(),
+            default_stella_word_pack: Arc::new(default_word_pack.words.clone()),
             default_win_points_target,
             max_members,
         })
@@ -1051,6 +1114,7 @@ impl ServerState {
             creator_name,
             self.max_members,
             room_password_hash,
+            self.default_stella_word_pack.clone(),
         );
         let msg = room.get_room_state().await;
         self.rooms.insert(room_id.clone(), Arc::new(room));
