@@ -25,10 +25,12 @@
 	let previousFlashToken = 0;
 	let cardsRemainingFlashing = false;
 	let cardsRemainingFlashTimeout: ReturnType<typeof setTimeout> | undefined = undefined;
+	let sortedObserverEntries: [string, ObserverInfo][] = [];
 
 	$: {
 		rankedPlayers = rankPlayersByPoints(players);
 	}
+	$: sortedObserverEntries = Object.entries(observers).sort(([a], [b]) => a.localeCompare(b));
 
 	$: winConditionLabel = formatWinCondition(winCondition);
 
@@ -66,6 +68,10 @@
 
 	function shouldShowPointChange() {
 		return stage === 'Results' || stage === 'StellaReveal' || stage === 'StellaResults';
+	}
+
+	function formatObserverPoints(points: number | null) {
+		return points === null ? 'NA' : `${points}`;
 	}
 </script>
 
@@ -116,19 +122,29 @@
 		{#if Object.keys(observers).length > 0}
 			<div class="mt-3 text-sm opacity-80">
 				<p class="font-semibold">Observers</p>
-				<ul class="ml-4 list-disc">
-					{#each Object.entries(observers).sort( ([a], [b]) => a.localeCompare(b) ) as [observerName, info]}
-						<li class={!info.connected ? 'opacity-50' : ''}>
-							{observerName}
-							{#if info.join_requested || info.auto_join_on_next_round}
-								<span class="opacity-70"> (joining next round)</span>
-							{/if}
-							{#if !info.connected}
-								<span class="opacity-70"> ({OFFLINE_STATUS_LABEL})</span>
-							{/if}
-						</li>
+				<div class="mt-1 space-y-1">
+					{#each sortedObserverEntries as [observerName, info]}
+						<div
+							class={`flex items-center justify-between gap-2 ${!info.connected ? 'opacity-50' : ''}`}
+						>
+							<div class="min-w-0 flex-auto break-words">
+								{observerName}
+								{#if info.join_requested || info.auto_join_on_next_round}
+									<span class="opacity-70"> (joining next round)</span>
+								{/if}
+								{#if !info.connected}
+									<span class="opacity-70"> ({OFFLINE_STATUS_LABEL})</span>
+								{/if}
+							</div>
+							<div class="shrink-0">
+								{#if shouldShowPointChange() && typeof pointChange[observerName] === 'number' && pointChange[observerName] !== 0}
+									<span class="opacity-50">(+{pointChange[observerName]})</span>
+								{/if}
+								{formatObserverPoints(info.points)}
+							</div>
+						</div>
 					{/each}
-				</ul>
+				</div>
 			</div>
 		{/if}
 	</div>

@@ -347,7 +347,7 @@ pub struct PlayerInfo {
 #[derive(Debug, Serialize, Clone)]
 pub struct ObserverInfo {
     connected: bool,
-    points: u16,
+    points: Option<u16>,
     join_requested: bool,
     auto_join_on_next_round: bool,
 }
@@ -739,7 +739,8 @@ impl Room {
             .keys()
             .filter(|player| {
                 active_player != Some(player.as_str())
-                    && state.players.contains_key(player.as_str())
+                    && (state.players.contains_key(player.as_str())
+                        || state.observers.contains_key(player.as_str()))
             })
             .count();
 
@@ -1277,17 +1278,12 @@ impl Room {
             | RoomStage::StellaReveal
             | RoomStage::Voting
             | RoomStage::Results => {
-                let points = self.midgame_join_score_floor(state);
-                let storyteller_count = self.midgame_join_storyteller_floor(state);
-                state
-                    .storyteller_counts
-                    .insert(name.to_string(), storyteller_count);
                 let observer_since_round = state.round;
                 state.observers.insert(
                     name.to_string(),
                     ObserverInfo {
                         connected: true,
-                        points,
+                        points: None,
                         join_requested: false,
                         auto_join_on_next_round: true,
                     },
@@ -1591,13 +1587,13 @@ impl Room {
             return min_active;
         }
 
-        let all_points = state
+        state
             .players
             .values()
             .map(|p| p.points)
-            .chain(state.observers.values().map(|o| o.points))
-            .collect::<Vec<u16>>();
-        all_points.into_iter().min().unwrap_or(0)
+            .chain(state.observers.values().filter_map(|o| o.points))
+            .min()
+            .unwrap_or(0)
     }
 
     fn storyteller_count_for_member(
@@ -1625,7 +1621,12 @@ impl Room {
         state
             .players
             .keys()
-            .chain(state.observers.keys())
+            .chain(
+                state
+                    .observers
+                    .keys()
+                    .filter(|name| state.storyteller_counts.contains_key(*name)),
+            )
             .map(|name| self.storyteller_count_for_member(state, name))
             .min()
             .unwrap_or(0)
@@ -1735,23 +1736,35 @@ impl Room {
             return 0;
         }
 
-        let floor = self.observer_floor_score(state);
-        let storyteller_floor = self.observer_floor_storyteller_count(state);
+        let observer_floor = self.observer_floor_score(state);
+        let observer_storyteller_floor = self.observer_floor_storyteller_count(state);
+        let pending_join_floor = self.midgame_join_score_floor(state);
+        let pending_join_storyteller_floor = self.midgame_join_storyteller_floor(state);
         let mut promoted = 0usize;
         for name in to_promote {
             let floor_eligible = self.observer_is_floor_eligible(state, &name);
             if let Some(observer) = state.observers.remove(&name) {
                 state.observer_since_round.remove(&name);
-                let promoted_points = if floor_eligible {
-                    observer.points.max(floor)
-                } else {
-                    observer.points
+                let promoted_points = match observer.points {
+                    Some(points) => {
+                        if floor_eligible {
+                            points.max(observer_floor)
+                        } else {
+                            points
+                        }
+                    }
+                    None => pending_join_floor,
                 };
-                let promoted_storyteller_count = if floor_eligible {
-                    self.storyteller_count_for_member(state, &name)
-                        .max(storyteller_floor)
-                } else {
-                    self.storyteller_count_for_member(state, &name)
+                let promoted_storyteller_count = match observer.points {
+                    Some(_) => {
+                        if floor_eligible {
+                            self.storyteller_count_for_member(state, &name)
+                                .max(observer_storyteller_floor)
+                        } else {
+                            self.storyteller_count_for_member(state, &name)
+                        }
+                    }
+                    None => pending_join_storyteller_floor,
                 };
                 state.players.insert(
                     name.clone(),
@@ -1792,23 +1805,35 @@ impl Room {
             return Ok(false);
         }
 
-        let floor = self.observer_floor_score(state);
-        let storyteller_floor = self.observer_floor_storyteller_count(state);
+        let observer_floor = self.observer_floor_score(state);
+        let observer_storyteller_floor = self.observer_floor_storyteller_count(state);
+        let pending_join_floor = self.midgame_join_score_floor(state);
+        let pending_join_storyteller_floor = self.midgame_join_storyteller_floor(state);
         let floor_eligible = self.observer_is_floor_eligible(state, observer_name);
         let Some(observer) = state.observers.remove(observer_name) else {
             return Ok(false);
         };
         state.observer_since_round.remove(observer_name);
-        let promoted_points = if floor_eligible {
-            observer.points.max(floor)
-        } else {
-            observer.points
+        let promoted_points = match observer.points {
+            Some(points) => {
+                if floor_eligible {
+                    points.max(observer_floor)
+                } else {
+                    points
+                }
+            }
+            None => pending_join_floor,
         };
-        let promoted_storyteller_count = if floor_eligible {
-            self.storyteller_count_for_member(state, observer_name)
-                .max(storyteller_floor)
-        } else {
-            self.storyteller_count_for_member(state, observer_name)
+        let promoted_storyteller_count = match observer.points {
+            Some(_) => {
+                if floor_eligible {
+                    self.storyteller_count_for_member(state, observer_name)
+                        .max(observer_storyteller_floor)
+                } else {
+                    self.storyteller_count_for_member(state, observer_name)
+                }
+            }
+            None => pending_join_storyteller_floor,
         };
 
         let ready = matches!(state.stage, RoomStage::Joining);
@@ -1883,10 +1908,18 @@ impl Room {
             .map(|p| p.connected)
             .unwrap_or(false);
 
-        let hand = state.player_hand.remove(player_name).unwrap_or_default();
+        let played_cards = state
+            .player_to_current_cards
+            .get(player_name)
+            .cloned()
+            .unwrap_or_default();
+        let mut hand = state.player_hand.remove(player_name).unwrap_or_default();
+        for played_card in played_cards {
+            if let Some(pos) = hand.iter().position(|card| card == &played_card) {
+                hand.remove(pos);
+            }
+        }
         state.observer_hand.insert(player_name.to_string(), hand);
-        state.player_to_current_cards.remove(player_name);
-        state.player_to_votes.remove(player_name);
 
         if let Some(pos) = state
             .player_order
@@ -1907,7 +1940,7 @@ impl Room {
             player_name.to_string(),
             ObserverInfo {
                 connected,
-                points,
+                points: Some(points),
                 join_requested: false,
                 auto_join_on_next_round,
             },
@@ -2165,17 +2198,12 @@ impl Room {
                 return Ok(());
             }
             RoomStage::StellaAssociate => {
-                let active_exists = self
-                    .active_player_name(state)
-                    .map(|name| state.players.contains_key(name))
-                    .unwrap_or(false);
-                if !active_exists {
-                    self.sync_player_order_with_players(state);
-                    state.active_player = self
-                        .choose_random_lowest_storyteller_index(state)
-                        .unwrap_or(0);
+                self.sync_player_order_with_players(state);
+                if state.players.values().all(|player| player.ready) {
+                    self.init_stella_reveal(state).await?;
+                } else {
+                    self.broadcast_msg(self.room_state(state))?;
                 }
-                self.init_stella_round(state).await?;
                 return Ok(());
             }
             RoomStage::PlayersChoose => {
@@ -2201,11 +2229,19 @@ impl Room {
                 return Ok(());
             }
             RoomStage::StellaReveal => {
-                let active_exists = self
+                let active_scout_is_eligible = self
                     .active_player_name(state)
                     .map(|name| state.players.contains_key(name))
-                    .unwrap_or(false);
-                if !active_exists {
+                    .unwrap_or(false)
+                    && self
+                        .active_player_name(state)
+                        .map(|name| !state.stella_fallen_players.contains(name))
+                        .unwrap_or(false)
+                    && self
+                        .active_player_name(state)
+                        .map(|name| self.stella_player_has_unrevealed_selection(state, name))
+                        .unwrap_or(false);
+                if !active_scout_is_eligible {
                     if !self.advance_stella_scout(state) {
                         self.init_stella_results(state)?;
                     } else {
@@ -2665,6 +2701,11 @@ impl Room {
                 info.points += points;
             }
         });
+        state.observers.iter_mut().for_each(|(player, info)| {
+            if let Some(points) = point_change.get(player) {
+                info.points = Some(info.points.unwrap_or(0).saturating_add(*points));
+            }
+        });
 
         self.clear_ready(state);
         state.player_to_disabled_voting_cards.clear();
@@ -2926,6 +2967,11 @@ impl Room {
         for (player, info) in state.players.iter_mut() {
             if let Some(delta) = point_change.get(player) {
                 info.points = info.points.saturating_add(*delta);
+            }
+        }
+        for (player, info) in state.observers.iter_mut() {
+            if let Some(delta) = point_change.get(player) {
+                info.points = Some(info.points.unwrap_or(0).saturating_add(*delta));
             }
         }
         state.stella_point_change = point_change;
@@ -4795,12 +4841,20 @@ impl Room {
         let too_many_correct = correct_guessers >= threshold;
         let too_many_wrong = wrong_guesses >= threshold;
         let storyteller_loses = too_many_correct || too_many_wrong;
+        let round_participants = state
+            .player_to_current_cards
+            .keys()
+            .chain(state.player_to_votes.keys())
+            .filter(|player| {
+                player.as_str() != active_player
+                    && (state.players.contains_key(player.as_str())
+                        || state.observers.contains_key(player.as_str()))
+            })
+            .cloned()
+            .collect::<HashSet<_>>();
 
         if storyteller_loses {
-            for player in state.players.keys() {
-                if player == &active_player {
-                    continue;
-                }
+            for player in round_participants.iter() {
                 let has_correct_vote = state
                     .player_to_votes
                     .get(player)
@@ -4819,10 +4873,7 @@ impl Room {
             }
             point_change.insert(active_player.clone(), 0);
         } else {
-            for player in state.players.keys() {
-                if player == &active_player {
-                    continue;
-                }
+            for player in round_participants.iter() {
                 let has_correct_vote = state
                     .player_to_votes
                     .get(player)
@@ -4852,7 +4903,10 @@ impl Room {
 
         // decoy bonus is always applied for non-storyteller cards, capped at 3 per round
         for (player, cards) in state.player_to_current_cards.iter() {
-            if player == &active_player {
+            if player == &active_player
+                || (!state.players.contains_key(player.as_str())
+                    && !state.observers.contains_key(player.as_str()))
+            {
                 continue;
             }
             let total_bonus = cards
@@ -4874,6 +4928,12 @@ impl Room {
                     .players
                     .values()
                     .map(|p| p.points)
+                    .chain(
+                        state
+                            .observers
+                            .values()
+                            .filter_map(|observer| observer.points),
+                    )
                     .max()
                     .unwrap_or_default();
                 max_points >= target_points
@@ -5603,7 +5663,7 @@ mod tests {
                 "obs".to_string(),
                 ObserverInfo {
                     connected: true,
-                    points: 1,
+                    points: Some(1),
                     join_requested: false,
                     auto_join_on_next_round: false,
                 },
@@ -5652,7 +5712,7 @@ mod tests {
                 "obs".to_string(),
                 ObserverInfo {
                     connected: true,
-                    points: 1,
+                    points: Some(1),
                     join_requested: false,
                     auto_join_on_next_round: false,
                 },
@@ -5919,7 +5979,7 @@ mod tests {
                 "obs".to_string(),
                 ObserverInfo {
                     connected: true,
-                    points: 1,
+                    points: Some(1),
                     join_requested: false,
                     auto_join_on_next_round: false,
                 },
@@ -5974,7 +6034,7 @@ mod tests {
                 "obs".to_string(),
                 ObserverInfo {
                     connected: true,
-                    points: 1,
+                    points: Some(1),
                     join_requested: false,
                     auto_join_on_next_round: false,
                 },
@@ -6317,7 +6377,7 @@ mod tests {
                 "obs".to_string(),
                 ObserverInfo {
                     connected: true,
-                    points: 1,
+                    points: Some(1),
                     join_requested: false,
                     auto_join_on_next_round: false,
                 },
@@ -6553,7 +6613,7 @@ mod tests {
             "low".to_string(),
             ObserverInfo {
                 connected: true,
-                points: 2,
+                points: Some(2),
                 join_requested: true,
                 auto_join_on_next_round: false,
             },
@@ -6564,7 +6624,7 @@ mod tests {
             "high".to_string(),
             ObserverInfo {
                 connected: true,
-                points: 14,
+                points: Some(14),
                 join_requested: true,
                 auto_join_on_next_round: false,
             },
@@ -8458,7 +8518,7 @@ alpha
                 "obs".to_string(),
                 ObserverInfo {
                     connected: true,
-                    points: 0,
+                    points: Some(0),
                     join_requested: false,
                     auto_join_on_next_round: false,
                 },
@@ -8639,7 +8699,7 @@ alpha
             "obs".to_string(),
             ObserverInfo {
                 connected: true,
-                points: 0,
+                points: Some(0),
                 join_requested: false,
                 auto_join_on_next_round: false,
             },
@@ -8771,8 +8831,8 @@ alpha
     }
 
     #[tokio::test]
-    async fn new_midgame_voting_join_is_seeded_to_minimums_and_preserved_on_promotion() -> Result<()>
-    {
+    async fn new_midgame_voting_join_stays_pending_until_promotion_then_uses_current_minimums(
+    ) -> Result<()> {
         let room = test_room();
         let mut state = room.state.write().await;
 
@@ -8792,14 +8852,17 @@ alpha
                 .observers
                 .get("newbie")
                 .map(|observer| observer.points),
-            Some(4),
-            "new voting-stage joiner should be seeded to the minimum active score"
+            Some(None),
+            "new voting-stage joiner should remain scoreless until they actually become active"
         );
         assert_eq!(
             state.storyteller_counts.get("newbie").copied(),
-            Some(3),
-            "new voting-stage joiner should be seeded to the minimum active storyteller count"
+            None,
+            "new voting-stage joiner should not get a storyteller count until promotion"
         );
+
+        state.players.get_mut("a").unwrap().points = 1;
+        set_storyteller_count(&mut state, "a", 1);
 
         let promoted = room.promote_requested_observers(&mut state);
         assert_eq!(
@@ -8808,13 +8871,256 @@ alpha
         );
         assert_eq!(
             state.players.get("newbie").map(|player| player.points),
-            Some(4),
-            "new joiner should keep the seeded score when promoted"
+            Some(1),
+            "new joiner should take the active-player minimum score at promotion time"
         );
         assert_eq!(
             state.storyteller_counts.get("newbie").copied(),
-            Some(3),
-            "new joiner should keep the seeded storyteller count when promoted"
+            Some(1),
+            "new joiner should take the active-player minimum storyteller count at promotion time"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn observered_voter_keeps_submitted_card_and_scores_in_results() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "a", 0);
+            add_player(&mut state, "b", 5);
+            add_player(&mut state, "c", 0);
+            add_player(&mut state, "d", 0);
+            state.stage = RoomStage::Voting;
+            state.storyteller_loss_complement_auto = false;
+            state.storyteller_loss_complement = 0;
+            state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into()];
+            state.active_player = 0;
+            state
+                .player_to_current_cards
+                .insert("a".into(), vec!["ca".into()]);
+            state
+                .player_to_current_cards
+                .insert("b".into(), vec!["cb".into()]);
+            state
+                .player_to_current_cards
+                .insert("c".into(), vec!["cc".into()]);
+            state
+                .player_to_current_cards
+                .insert("d".into(), vec!["cd".into()]);
+            state.player_to_votes.insert("b".into(), vec!["ca".into()]);
+            state.player_to_votes.insert("c".into(), vec!["ca".into()]);
+            state.player_to_votes.insert("d".into(), vec!["cb".into()]);
+            state.players.get_mut("c").unwrap().ready = true;
+            state.players.get_mut("d").unwrap().ready = true;
+            setup_connected_member(&mut state, "b", "t-b", 8_101);
+        }
+
+        room.handle_client_msg(
+            "b",
+            8_101,
+            to_ws(ClientMsg::SetObserver {
+                player: "b".to_string(),
+                enabled: true,
+            }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert!(
+            matches!(state.stage, RoomStage::Results),
+            "voting should still resolve after a voter becomes observer"
+        );
+        assert_eq!(
+            state.player_to_current_cards.get("b"),
+            Some(&vec!["cb".to_string()]),
+            "observered player's submitted card should remain in the round"
+        );
+        assert_eq!(
+            state
+                .observers
+                .get("b")
+                .and_then(|observer| observer.points),
+            Some(9),
+            "observered player should receive both their guess points and decoy bonus"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stella_observer_keeps_selection_scores_and_never_reveals_as_scout() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "a", 0);
+            add_player(&mut state, "b", 0);
+            add_player(&mut state, "c", 0);
+            add_player(&mut state, "d", 0);
+            state.game_mode = GameMode::Stella;
+            state.stage = RoomStage::StellaAssociate;
+            state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into()];
+            state.active_player = 1;
+            state.stella_board_cards = vec!["shared".into()];
+            state
+                .stella_player_selections
+                .insert("a".to_string(), vec!["shared".into()]);
+            state
+                .stella_player_selections
+                .insert("b".to_string(), vec!["shared".into()]);
+            state
+                .stella_player_selections
+                .insert("c".to_string(), vec!["shared".into()]);
+            state
+                .stella_player_selections
+                .insert("d".to_string(), vec!["shared".into()]);
+            for player in ["a", "b", "c", "d"] {
+                state.players.get_mut(player).unwrap().ready = true;
+            }
+            setup_connected_member(&mut state, "b", "t-b", 8_102);
+            setup_connected_member(&mut state, "c", "t-c", 8_103);
+        }
+
+        room.handle_client_msg(
+            "b",
+            8_102,
+            to_ws(ClientMsg::SetObserver {
+                player: "b".to_string(),
+                enabled: true,
+            }),
+        )
+        .await?;
+
+        {
+            let state = room.state.read().await;
+            assert!(
+                matches!(state.stage, RoomStage::StellaReveal),
+                "observering during associate should continue the current Stella round"
+            );
+            assert!(
+                state.observers.contains_key("b"),
+                "player should become observer"
+            );
+            assert_eq!(
+                state.stella_player_selections.get("b"),
+                Some(&vec!["shared".to_string()]),
+                "observer should keep their saved Stella selection for the current round"
+            );
+            assert_ne!(
+                state
+                    .player_order
+                    .get(state.active_player)
+                    .map(String::as_str),
+                Some("b"),
+                "observer should not remain the active scout"
+            );
+        }
+
+        room.handle_client_msg(
+            "c",
+            8_103,
+            to_ws(ClientMsg::RevealStellaCard {
+                card: "shared".to_string(),
+            }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert!(
+            matches!(state.stage, RoomStage::StellaResults),
+            "shared reveal should still complete the Stella round"
+        );
+        assert_eq!(
+            state
+                .observers
+                .get("b")
+                .and_then(|observer| observer.points),
+            Some(2),
+            "observer should still score from their preserved association"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stella_current_scout_becoming_observer_passes_scout_role() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "a", 0);
+            add_player(&mut state, "b", 0);
+            add_player(&mut state, "c", 0);
+            add_player(&mut state, "d", 0);
+            state.game_mode = GameMode::Stella;
+            state.stage = RoomStage::StellaReveal;
+            state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into()];
+            state.active_player = 0;
+            state.stella_board_cards = vec!["a-card".into(), "b-card".into()];
+            state
+                .stella_player_selections
+                .insert("a".to_string(), vec!["a-card".into()]);
+            state
+                .stella_player_selections
+                .insert("b".to_string(), vec!["b-card".into()]);
+            state
+                .stella_player_selections
+                .insert("c".to_string(), vec!["b-card".into()]);
+            setup_connected_member(&mut state, "a", "t-a", 8_104);
+        }
+
+        room.handle_client_msg(
+            "a",
+            8_104,
+            to_ws(ClientMsg::SetObserver {
+                player: "a".to_string(),
+                enabled: true,
+            }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert!(
+            matches!(state.stage, RoomStage::StellaReveal),
+            "Stella reveal should continue after the current scout becomes observer"
+        );
+        assert_eq!(
+            state
+                .player_order
+                .get(state.active_player)
+                .map(String::as_str),
+            Some("b"),
+            "scout role should pass to the next eligible active player"
+        );
+        assert!(
+            state.observers.contains_key("a"),
+            "old scout should now be an observer"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn point_win_condition_counts_observer_scores() -> Result<()> {
+        let room = test_room_with_condition(WinCondition::Points { target_points: 10 });
+        let mut state = room.state.write().await;
+
+        add_player(&mut state, "a", 9);
+        add_player(&mut state, "b", 4);
+        add_player(&mut state, "c", 3);
+        state.observers.insert(
+            "obs".to_string(),
+            ObserverInfo {
+                connected: true,
+                points: Some(10),
+                join_requested: false,
+                auto_join_on_next_round: false,
+            },
+        );
+
+        assert!(
+            room.should_end_game(&state),
+            "observer scores should satisfy the points win condition"
         );
 
         Ok(())

@@ -864,7 +864,7 @@
 		/>
 	{:else if stage === 'End'}
 		<div class="pt-10">
-			<End {players} />
+			<End {players} {observers} />
 		</div>
 	{/if}
 	{#if stage === 'Joining' || stage === 'End'}

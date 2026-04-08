@@ -6,7 +6,7 @@ export interface PlayerInfo {
 
 export interface ObserverInfo {
 	connected: boolean;
-	points: number;
+	points: number | null;
 	join_requested: boolean;
 	auto_join_on_next_round: boolean;
 }
