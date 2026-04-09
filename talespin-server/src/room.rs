@@ -24,6 +24,8 @@ const DEFAULT_STELLA_SELECTION_MAX: u16 = 10;
 const DEFAULT_STELLA_QUEUE_DURING_ASSOCIATION: bool = true;
 const DEFAULT_STELLA_SCOUT_TIMER_DURATION_S: u16 = 10;
 const STELLA_AUTOPLAY_REVEAL_STEP_DURATION_S: u16 = 1;
+const MAX_CUSTOM_STELLA_WORD_PACK_BYTES: usize = 3 * 1024 * 1024;
+const CURRENT_GAME_STELLA_WORD_PACK_NAME: &str = "Custom (this game)";
 const MIN_STAGE_TIMER_DURATION_S: u16 = 1;
 const MAX_STAGE_TIMER_DURATION_S: u16 = 60 * 60;
 const DEFAULT_HINT_CHOOSING_TIMER_DURATION_S: u16 = 60;
@@ -525,6 +527,8 @@ struct RoomState {
     stella_clue_word: String,
     // selectable words for stella rooms
     stella_word_pack: Vec<String>,
+    // custom word pack preserved for the current Stella game only
+    stella_saved_game_word_pack: Option<Vec<String>>,
     // stella board size target
     stella_board_size: u16,
     // stella min picks required
@@ -689,6 +693,7 @@ impl Room {
             stella_board_cards: Vec::new(),
             stella_clue_word: String::new(),
             stella_word_pack: (*default_stella_word_pack).clone(),
+            stella_saved_game_word_pack: None,
             stella_board_size: DEFAULT_STELLA_BOARD_SIZE,
             stella_selection_min: DEFAULT_STELLA_SELECTION_MIN,
             stella_selection_max: DEFAULT_STELLA_SELECTION_MAX,
@@ -962,6 +967,9 @@ impl Room {
 
     fn set_stage(&self, state: &mut RwLockWriteGuard<'_, RoomState>, stage: RoomStage) {
         state.stage = stage;
+        if matches!(stage, RoomStage::Joining | RoomStage::End) {
+            self.clear_stella_saved_game_word_pack(state);
+        }
         state.stage_started_at_s = Some(get_time_s());
         self.refresh_current_stage_deadline(state);
     }
@@ -1051,25 +1059,79 @@ impl Room {
         seconds.min(MAX_STAGE_TIMER_DURATION_S)
     }
 
-    fn stella_word_pack_preset_names(&self) -> Vec<String> {
+    fn builtin_stella_word_pack_preset_names(&self) -> Vec<String> {
         self.stella_word_pack_presets
             .iter()
             .map(|preset| preset.name.clone())
             .collect()
     }
 
-    fn stella_word_pack_preset_name_for_words(&self, words: &[String]) -> Option<String> {
+    fn builtin_stella_word_pack_preset_name_for_words(&self, words: &[String]) -> Option<String> {
         self.stella_word_pack_presets
             .iter()
             .find(|preset| preset.words == words)
             .map(|preset| preset.name.clone())
     }
 
-    fn stella_word_pack_words_for_preset(&self, name: &str) -> Option<Vec<String>> {
+    fn stella_word_pack_preset_names(&self, state: &RoomState) -> Vec<String> {
+        let mut preset_names = self.builtin_stella_word_pack_preset_names();
+        if state.stella_saved_game_word_pack.is_some()
+            && !preset_names
+                .iter()
+                .any(|name| name == CURRENT_GAME_STELLA_WORD_PACK_NAME)
+        {
+            preset_names.push(CURRENT_GAME_STELLA_WORD_PACK_NAME.to_string());
+        }
+        preset_names
+    }
+
+    fn stella_word_pack_preset_name_for_words(
+        &self,
+        state: &RoomState,
+        words: &[String],
+    ) -> Option<String> {
+        self.builtin_stella_word_pack_preset_name_for_words(words)
+            .or_else(|| {
+                state
+                    .stella_saved_game_word_pack
+                    .as_ref()
+                    .filter(|saved_words| saved_words.as_slice() == words)
+                    .map(|_| CURRENT_GAME_STELLA_WORD_PACK_NAME.to_string())
+            })
+    }
+
+    fn stella_word_pack_words_for_preset(
+        &self,
+        state: &RoomState,
+        name: &str,
+    ) -> Option<Vec<String>> {
         self.stella_word_pack_presets
             .iter()
             .find(|preset| preset.name == name)
             .map(|preset| preset.words.clone())
+            .or_else(|| {
+                (name == CURRENT_GAME_STELLA_WORD_PACK_NAME)
+                    .then(|| state.stella_saved_game_word_pack.clone())
+                    .flatten()
+            })
+    }
+
+    fn save_stella_word_pack_for_current_game(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+        words: &[String],
+    ) {
+        if self
+            .builtin_stella_word_pack_preset_name_for_words(words)
+            .is_some()
+        {
+            return;
+        }
+        state.stella_saved_game_word_pack = Some(words.to_vec());
+    }
+
+    fn clear_stella_saved_game_word_pack(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
+        state.stella_saved_game_word_pack = None;
     }
 
     pub(crate) fn parse_stella_word_pack(raw_words: &str) -> Vec<String> {
@@ -3238,15 +3300,23 @@ impl Room {
     }
 
     fn redraw_stella_board(&self, state: &mut RwLockWriteGuard<'_, RoomState>) -> Result<()> {
-        self.discard_stella_board(state);
         self.clamp_stella_settings(state);
         let board_size = usize::from(state.stella_board_size);
+        let previous_board = state.stella_board_cards.clone();
+        let previous_deck = state.deck.clone();
+        let previous_discard_pile = state.discard_pile.clone();
+
+        state.discard_pile.extend(previous_board.iter().cloned());
         self.ensure_deck_size(state, board_size);
         if state.deck.len() < board_size {
+            state.stella_board_cards = previous_board;
+            state.deck = previous_deck;
+            state.discard_pile = previous_discard_pile;
             return Err(anyhow!(
                 "Not enough cards in the deck to redraw the Stella board"
             ));
         }
+        state.stella_board_cards.clear();
         for _ in 0..board_size {
             let Some(card) = state.deck.pop() else {
                 break;
@@ -3421,6 +3491,13 @@ impl Room {
         }
 
         self.clamp_stella_settings(state);
+        if self
+            .builtin_stella_word_pack_preset_name_for_words(&state.stella_word_pack)
+            .is_none()
+        {
+            let words = state.stella_word_pack.clone();
+            self.save_stella_word_pack_for_current_game(state, &words);
+        }
         self.clamp_stage_timer_settings(state);
         self.discard_stella_board(state);
         self.reset_stella_round_state(state);
@@ -4282,7 +4359,26 @@ impl Room {
                 if !matches!(state.game_mode, GameMode::Stella) {
                     return Ok(());
                 }
-                if !matches!(state.stage, RoomStage::Joining) {
+                if !matches!(
+                    state.stage,
+                    RoomStage::Joining
+                        | RoomStage::StellaAssociate
+                        | RoomStage::StellaReveal
+                        | RoomStage::StellaResults
+                ) {
+                    return Ok(());
+                }
+                if words.len() > MAX_CUSTOM_STELLA_WORD_PACK_BYTES {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(format!(
+                                "Word pack must be at most {} MB",
+                                MAX_CUSTOM_STELLA_WORD_PACK_BYTES / (1024 * 1024)
+                            ))
+                            .into(),
+                        )
+                        .await?;
+                    }
                     return Ok(());
                 }
                 let words = Self::parse_stella_word_pack(&words);
@@ -4299,6 +4395,12 @@ impl Room {
                     return Ok(());
                 }
                 state.stella_word_pack = words;
+                if matches!(state.stage, RoomStage::Joining) {
+                    self.clear_stella_saved_game_word_pack(&mut state);
+                } else {
+                    let words = state.stella_word_pack.clone();
+                    self.save_stella_word_pack_for_current_game(&mut state, &words);
+                }
                 self.broadcast_msg(self.room_state(&state))?;
             }
             ClientMsg::SetStellaWordPackPreset { name: preset_name } => {
@@ -4326,7 +4428,8 @@ impl Room {
                 ) {
                     return Ok(());
                 }
-                let Some(words) = self.stella_word_pack_words_for_preset(&preset_name) else {
+                let Some(words) = self.stella_word_pack_words_for_preset(&state, &preset_name)
+                else {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg("Unknown Stella word pack preset".to_string())
@@ -4337,6 +4440,9 @@ impl Room {
                     return Ok(());
                 };
                 state.stella_word_pack = words;
+                if matches!(state.stage, RoomStage::Joining) {
+                    self.clear_stella_saved_game_word_pack(&mut state);
+                }
                 self.broadcast_msg(self.room_state(&state))?;
             }
             ClientMsg::ResetStellaClue {} => {
@@ -5815,7 +5921,7 @@ impl Room {
         let stella_scout_timer_duration_s =
             Self::clamp_stella_scout_timer_duration_s(state.stella_scout_timer_duration_s);
         let stella_selected_word_pack_name =
-            self.stella_word_pack_preset_name_for_words(&state.stella_word_pack);
+            self.stella_word_pack_preset_name_for_words(state, &state.stella_word_pack);
         let stella_word_pack_words = if matches!(state.stage, RoomStage::Joining) {
             state.stella_word_pack.clone()
         } else {
@@ -5889,7 +5995,7 @@ impl Room {
             stella_active_clue: state.stella_clue_word.clone(),
             stella_word_pack_size: state.stella_word_pack.len().min(usize::from(u16::MAX)) as u16,
             stella_word_pack_words,
-            stella_word_pack_preset_names: self.stella_word_pack_preset_names(),
+            stella_word_pack_preset_names: self.stella_word_pack_preset_names(state),
             stella_selected_word_pack_name: stella_selected_word_pack_name.clone(),
             stella_word_pack_is_unsaved: stella_selected_word_pack_name.is_none(),
             stella_dark_player: state.stella_dark_player.clone(),
@@ -6156,7 +6262,7 @@ mod tests {
         room.handle_client_msg("host", 13, to_ws(ClientMsg::ResumeGame {}))
             .await?;
 
-        let state = room.state.read().await;
+        let state = room.state.write().await;
         assert!(
             matches!(state.stage, RoomStage::ActiveChooses),
             "resume should restart the current round"
@@ -6198,7 +6304,7 @@ mod tests {
         room.handle_client_msg("host", 14, to_ws(ClientMsg::ResumeGame {}))
             .await?;
 
-        let state = room.state.read().await;
+        let state = room.state.write().await;
         assert!(
             matches!(state.stage, RoomStage::ActiveChooses),
             "resume should restart into storyteller choosing"
@@ -6244,7 +6350,7 @@ mod tests {
         room.handle_client_msg("obs", 15, to_ws(ClientMsg::RequestJoinFromObserver {}))
             .await?;
 
-        let state = room.state.read().await;
+        let state = room.state.write().await;
         assert!(
             !state.observers.contains_key("obs"),
             "observer should be promoted immediately in paused stage"
@@ -6293,7 +6399,7 @@ mod tests {
         room.handle_client_msg("obs", 16, to_ws(ClientMsg::RequestJoinFromObserver {}))
             .await?;
 
-        let state = room.state.read().await;
+        let state = room.state.write().await;
         assert!(
             !state.observers.contains_key("obs"),
             "observer should be promoted immediately outside voting"
@@ -9180,6 +9286,274 @@ alpha
         assert!(
             state.show_voting_card_numbers,
             "Stella reveal should keep card number overlays unchanged once associate is over"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn redraw_stella_board_preserves_existing_board_when_redraw_fails() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        state.game_mode = GameMode::Stella;
+        state.stage = RoomStage::StellaAssociate;
+        state.win_condition = WinCondition::CardsFinish;
+        state.stella_board_size = 4;
+        state.stella_board_cards = vec![
+            "board-1".into(),
+            "board-2".into(),
+            "board-3".into(),
+            "board-4".into(),
+        ];
+        state.deck = vec!["deck-1".into()];
+        state.discard_pile = vec!["discard-1".into()];
+
+        let err = room.redraw_stella_board(&mut state).unwrap_err();
+
+        assert!(
+            err.to_string().contains("Not enough cards"),
+            "redraw failure should surface the deck exhaustion error"
+        );
+        assert_eq!(
+            state.stella_board_cards,
+            vec![
+                "board-1".to_string(),
+                "board-2".to_string(),
+                "board-3".to_string(),
+                "board-4".to_string(),
+            ],
+            "failed redraws must leave the existing board intact"
+        );
+        assert_eq!(
+            state.deck,
+            vec!["deck-1".to_string()],
+            "failed redraws must restore the prior deck state"
+        );
+        assert_eq!(
+            state.discard_pile,
+            vec!["discard-1".to_string()],
+            "failed redraws must not leak the current board into the discard pile"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stella_custom_word_pack_edits_are_accepted_midgame_and_saved_for_reselection(
+    ) -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            add_player(&mut state, "p2", 0);
+            add_player(&mut state, "p3", 0);
+            state.game_mode = GameMode::Stella;
+            state.stage = RoomStage::StellaAssociate;
+            state.player_order = vec!["host".into(), "p2".into(), "p3".into()];
+            state.stella_clue_word = "before".into();
+            state.stella_word_pack = vec!["before".into(), "after".into()];
+            state.stella_board_cards = vec![
+                "card-1".into(),
+                "card-2".into(),
+                "card-3".into(),
+                "card-4".into(),
+            ];
+            state
+                .stella_player_selections
+                .insert("host".into(), vec!["card-1".into(), "card-3".into()]);
+            state.players.get_mut("host").unwrap().ready = true;
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 612_001);
+        }
+
+        room.handle_client_msg(
+            "host",
+            612_001,
+            to_ws(ClientMsg::SetStellaWordPack {
+                words: "custom alpha\ncustom beta".to_string(),
+            }),
+        )
+        .await?;
+
+        let state = room.state.write().await;
+        assert_eq!(
+            state.stella_word_pack,
+            vec!["custom alpha".to_string(), "custom beta".to_string()],
+            "midgame custom edits should update the active pack instead of being dropped"
+        );
+        assert_eq!(
+            state.stella_player_selections.get("host"),
+            Some(&vec!["card-1".to_string(), "card-3".to_string()]),
+            "changing the pack mid-associate should not wipe current submissions"
+        );
+        assert!(
+            state.players.get("host").unwrap().ready,
+            "changing the pack mid-associate should preserve ready flags"
+        );
+
+        match room.room_state(&state) {
+            ServerMsg::RoomState {
+                stella_word_pack_preset_names,
+                stella_selected_word_pack_name,
+                stella_word_pack_is_unsaved,
+                ..
+            } => {
+                assert!(
+                    stella_word_pack_preset_names
+                        .contains(&CURRENT_GAME_STELLA_WORD_PACK_NAME.to_string()),
+                    "the current game's custom pack should remain selectable for the rest of the game"
+                );
+                assert_eq!(
+                    stella_selected_word_pack_name,
+                    Some(CURRENT_GAME_STELLA_WORD_PACK_NAME.to_string()),
+                    "room state should treat the saved game pack as the active preset"
+                );
+                assert!(
+                    !stella_word_pack_is_unsaved,
+                    "game-saved custom packs should be reselectable presets, not one-off unsaved state"
+                );
+            }
+            _ => return Err(anyhow!("Expected RoomState")),
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stella_custom_word_pack_from_lobby_can_be_reselected_midgame() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            add_player(&mut state, "p2", 0);
+            add_player(&mut state, "p3", 0);
+            state.game_mode = GameMode::Stella;
+            state.stage = RoomStage::Joining;
+            state.stella_word_pack = vec!["custom alpha".into(), "custom beta".into()];
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 612_002);
+
+            room.init_stella_round(&mut state).await?;
+        }
+
+        {
+            let state = room.state.write().await;
+            match room.room_state(&state) {
+                ServerMsg::RoomState {
+                    stella_word_pack_preset_names,
+                    stella_selected_word_pack_name,
+                    stella_word_pack_is_unsaved,
+                    stella_word_pack_words,
+                    ..
+                } => {
+                    assert!(
+                        stella_word_pack_preset_names
+                            .contains(&CURRENT_GAME_STELLA_WORD_PACK_NAME.to_string()),
+                        "starting a game with a custom pack should save it for that game's preset picker"
+                    );
+                    assert_eq!(
+                        stella_selected_word_pack_name,
+                        Some(CURRENT_GAME_STELLA_WORD_PACK_NAME.to_string()),
+                    );
+                    assert!(!stella_word_pack_is_unsaved);
+                    assert!(
+                        stella_word_pack_words.is_empty(),
+                        "midgame room state should still avoid echoing the raw custom word list"
+                    );
+                }
+                _ => return Err(anyhow!("Expected RoomState")),
+            }
+        }
+
+        room.handle_client_msg(
+            "host",
+            612_002,
+            to_ws(ClientMsg::SetStellaWordPackPreset {
+                name: "Delta".to_string(),
+            }),
+        )
+        .await?;
+        room.handle_client_msg(
+            "host",
+            612_002,
+            to_ws(ClientMsg::SetStellaWordPackPreset {
+                name: CURRENT_GAME_STELLA_WORD_PACK_NAME.to_string(),
+            }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert_eq!(
+            state.stella_word_pack,
+            vec!["custom alpha".to_string(), "custom beta".to_string()],
+            "the saved game-local pack should remain available after switching away and back"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stella_custom_word_pack_size_is_limited() -> Result<()> {
+        let room = test_room();
+        let mut socket_rx = {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            state.game_mode = GameMode::Stella;
+            state.stage = RoomStage::Joining;
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 612_003);
+            attach_test_socket(&mut state, "host")
+        };
+
+        let oversized = "a".repeat(MAX_CUSTOM_STELLA_WORD_PACK_BYTES + 1);
+        room.handle_client_msg(
+            "host",
+            612_003,
+            to_ws(ClientMsg::SetStellaWordPack { words: oversized }),
+        )
+        .await?;
+
+        let error = socket_rx
+            .recv()
+            .await
+            .ok_or_else(|| anyhow!("Expected size-limit error"))?;
+        match error {
+            ServerMsg::ErrorMsg(message) => assert_eq!(
+                message, "Word pack must be at most 3 MB",
+                "oversized custom packs should be rejected before the server stores them"
+            ),
+            other => {
+                return Err(anyhow!(
+                    "Expected size-limit error message, got {:?}",
+                    other
+                ))
+            }
+        }
+
+        let state = room.state.read().await;
+        assert_eq!(
+            state.stella_word_pack,
+            (*test_default_stella_word_pack()).clone(),
+            "rejecting an oversized pack should leave the active pack unchanged"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stella_saved_game_word_pack_is_cleared_when_the_game_ends() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        state.game_mode = GameMode::Stella;
+        state.stella_saved_game_word_pack = Some(vec!["custom alpha".into()]);
+
+        room.set_stage(&mut state, RoomStage::End);
+
+        assert!(
+            state.stella_saved_game_word_pack.is_none(),
+            "game-scoped custom packs should be garbage-collected after the game ends"
         );
 
         Ok(())
