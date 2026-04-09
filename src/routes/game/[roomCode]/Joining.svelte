@@ -13,7 +13,7 @@
 		type StellaWordPackOption,
 		type StellaWordPackPreset
 	} from '$lib/stellaWordPacks';
-	import type { GameMode, PlayerInfo, WinCondition } from '$lib/types';
+	import type { GameMode, PlayerInfo, StellaQueuedRevealMode, WinCondition } from '$lib/types';
 	import { formatWinCondition } from '$lib/winCondition';
 	import { Avatar, getToastStore } from '@skeletonlabs/skeleton';
 	import { onDestroy } from 'svelte';
@@ -38,8 +38,12 @@
 	export let stellaSelectionMax = 10;
 	export let stellaSelectionCountMin = 1;
 	export let stellaSelectionCountMax = 15;
-	export let stellaWordPackSize = 0;
 	export let stellaWordPackWords: string[] = [];
+	export let stellaQueueDuringAssociation = true;
+	export let stellaQueuedRevealMode: StellaQueuedRevealMode = 'animated';
+	export let stellaScoutTimerEnabled = true;
+	export let stellaScoutTimerDurationS = 10;
+	export let forceStellaScoutTimer = false;
 
 	const toastStore = getToastStore();
 	const WORD_PACK_APPLY_DEBOUNCE_MS = 350;
@@ -229,6 +233,37 @@
 		const value = Number(input.value);
 		if (!canEditSettings || !Number.isInteger(value)) return;
 		gameServer.setStellaSelectionMax(value);
+	}
+
+	function updateStellaQueueDuringAssociation(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		if (!canEditSettings) return;
+		gameServer.setStellaQueueDuringAssociation(input.checked);
+	}
+
+	function updateStellaQueuedRevealMode(event: Event) {
+		const input = event.currentTarget as HTMLSelectElement;
+		if (!canEditSettings) return;
+		gameServer.setStellaQueuedRevealMode(input.value as StellaQueuedRevealMode);
+	}
+
+	function updateStellaScoutTimerEnabled(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		if (!canEditSettings) return;
+		gameServer.setStellaScoutTimerEnabled(input.checked);
+	}
+
+	function updateStellaScoutTimerDuration(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const value = Number(input.value);
+		if (!canEditSettings || !Number.isInteger(value) || value < 0) return;
+		gameServer.setStellaScoutTimerDuration(value);
+	}
+
+	function updateForceStellaScoutTimer(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		if (!canEditSettings) return;
+		gameServer.setForceStellaScoutTimer(input.checked);
 	}
 
 	function queueWordPackApply(words = localWordPackText) {
@@ -506,11 +541,82 @@
 									/>
 								</div>
 							</div>
-							<div class="rounded border border-white/20 p-3 space-y-2">
-								<div class="flex items-center justify-between gap-2">
-									<h3 class="font-semibold">Word pack</h3>
-									<span class="text-xs opacity-70">Current pack size: {stellaWordPackSize}</span>
+							<div class="rounded border border-white/20 p-3 space-y-3">
+								<label class="flex items-start gap-3 text-sm">
+									<input
+										type="checkbox"
+										class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
+										checked={stellaQueueDuringAssociation}
+										on:change={updateStellaQueueDuringAssociation}
+										disabled={!canEditSettings}
+									/>
+									<div>
+										<span class="block font-semibold">Queue during Association</span>
+										<p class="text-xs opacity-70">
+											Players order reveals while selecting cards. This is the default.
+										</p>
+									</div>
+								</label>
+								<div>
+									<label class="text-sm font-semibold" for="stellaQueuedRevealMode">
+										Queued reveal playback
+									</label>
+									<select
+										id="stellaQueuedRevealMode"
+										class="mt-1 w-full rounded border px-3 py-2 text-gray-700"
+										value={stellaQueuedRevealMode}
+										on:change={updateStellaQueuedRevealMode}
+										disabled={!canEditSettings || !stellaQueueDuringAssociation}
+									>
+										<option value="animated">Animated reveal</option>
+										<option value="fast">Fast reveal</option>
+									</select>
 								</div>
+								<div class="rounded border border-white/15 p-3 space-y-3">
+									<p class="font-semibold">Manual reveal fallback</p>
+									<p class="text-xs opacity-70">
+										These only apply when Queue during Association is turned off.
+									</p>
+									<label class="flex items-center gap-3 text-sm">
+										<input
+											type="checkbox"
+											class="h-4 w-4 cursor-pointer accent-primary-500"
+											checked={stellaScoutTimerEnabled}
+											on:change={updateStellaScoutTimerEnabled}
+											disabled={!canEditSettings}
+										/>
+										<span>Scout timer enabled</span>
+									</label>
+									<div>
+										<label class="text-sm font-semibold" for="stellaScoutTimerDuration">
+											Scout timer duration
+										</label>
+										<input
+											id="stellaScoutTimerDuration"
+											class="mt-1 w-full rounded border px-3 py-2 text-gray-700"
+											type="number"
+											min="0"
+											max="3600"
+											value={stellaScoutTimerDurationS}
+											on:change={updateStellaScoutTimerDuration}
+											disabled={!canEditSettings}
+										/>
+										<p class="mt-1 text-xs opacity-70">0 = auto-resolve manual reveal mode.</p>
+									</div>
+									<label class="flex items-start gap-3 text-sm">
+										<input
+											type="checkbox"
+											class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
+											checked={forceStellaScoutTimer}
+											on:change={updateForceStellaScoutTimer}
+											disabled={!canEditSettings}
+										/>
+										<span>Force timeout by auto-revealing a random queued card</span>
+									</label>
+								</div>
+							</div>
+							<div class="rounded border border-white/20 p-3 space-y-2">
+								<h3 class="font-semibold">Word pack</h3>
 								<textarea
 									class="w-full rounded border px-3 py-2 text-gray-700 min-h-[160px]"
 									bind:value={localWordPackText}

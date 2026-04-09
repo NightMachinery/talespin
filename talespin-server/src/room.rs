@@ -21,6 +21,9 @@ const DEFAULT_STELLA_BOARD_SIZE: u16 = 15;
 const MAX_STELLA_BOARD_SIZE: u16 = 100;
 const DEFAULT_STELLA_SELECTION_MIN: u16 = 1;
 const DEFAULT_STELLA_SELECTION_MAX: u16 = 10;
+const DEFAULT_STELLA_QUEUE_DURING_ASSOCIATION: bool = true;
+const DEFAULT_STELLA_SCOUT_TIMER_DURATION_S: u16 = 10;
+const STELLA_AUTOPLAY_REVEAL_STEP_DURATION_S: u16 = 1;
 const MIN_STAGE_TIMER_DURATION_S: u16 = 1;
 const MAX_STAGE_TIMER_DURATION_S: u16 = 60 * 60;
 const DEFAULT_HINT_CHOOSING_TIMER_DURATION_S: u16 = 60;
@@ -39,6 +42,19 @@ pub(crate) fn canonical_member_name(name: &str) -> &str {
 pub enum GameMode {
     DixitPlus,
     Stella,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum StellaQueuedRevealMode {
+    Animated,
+    Fast,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct StellaWordPackPreset {
+    pub name: String,
+    pub words: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
@@ -128,9 +144,17 @@ pub enum ServerMsg {
         stella_selection_max: u16,
         stella_selection_count_min: u16,
         stella_selection_count_max: u16,
+        stella_queue_during_association: bool,
+        stella_queued_reveal_mode: StellaQueuedRevealMode,
+        stella_scout_timer_enabled: bool,
+        stella_scout_timer_duration_s: u16,
+        force_stella_scout_timer: bool,
         stella_active_clue: String,
         stella_word_pack_size: u16,
         stella_word_pack_words: Vec<String>,
+        stella_word_pack_preset_names: Vec<String>,
+        stella_selected_word_pack_name: Option<String>,
+        stella_word_pack_is_unsaved: bool,
         stella_dark_player: Option<String>,
     },
     StartRound {
@@ -291,8 +315,26 @@ pub enum ClientMsg {
     SetStellaSelectionMax {
         count: u16,
     },
+    SetStellaQueueDuringAssociation {
+        enabled: bool,
+    },
+    SetStellaQueuedRevealMode {
+        mode: StellaQueuedRevealMode,
+    },
+    SetStellaScoutTimerEnabled {
+        enabled: bool,
+    },
+    SetStellaScoutTimerDuration {
+        seconds: u16,
+    },
+    SetForceStellaScoutTimer {
+        enabled: bool,
+    },
     SetStellaWordPack {
         words: String,
+    },
+    SetStellaWordPackPreset {
+        name: String,
     },
     ResetStellaClue {},
     ResetStellaBoard {},
@@ -489,6 +531,16 @@ struct RoomState {
     stella_selection_min: u16,
     // stella max picks allowed
     stella_selection_max: u16,
+    // whether players queue reveal order while associating
+    stella_queue_during_association: bool,
+    // shared reveal playback mode once all queues are locked
+    stella_queued_reveal_mode: StellaQueuedRevealMode,
+    // whether manual stella reveal stage has a timeout when queue mode is off
+    stella_scout_timer_enabled: bool,
+    // manual stella reveal timeout duration in seconds; 0 means auto-resolve immediately
+    stella_scout_timer_duration_s: u16,
+    // auto-reveal a random queued card when the manual stella timeout expires
+    force_stella_scout_timer: bool,
     // each player's hidden stella selections
     stella_player_selections: HashMap<String, Vec<String>>,
     // public announced counts after associate closes
@@ -526,6 +578,8 @@ pub struct Room {
     base_deck: Arc<Vec<String>>,
     // default word pack used when a room has no active Resonance pack
     default_stella_word_pack: Arc<Vec<String>>,
+    // all runtime-switchable Resonance word packs
+    stella_word_pack_presets: Arc<Vec<StellaWordPackPreset>>,
     // cap for players + observers in a room
     max_members: usize,
     // last access in seconds
@@ -565,11 +619,20 @@ impl Room {
         max_members: usize,
         room_password_hash: Option<String>,
         default_stella_word_pack: Arc<Vec<String>>,
+        stella_word_pack_presets: Arc<Vec<StellaWordPackPreset>>,
     ) -> Self {
         let default_stella_word_pack = if default_stella_word_pack.is_empty() {
             Arc::new(vec!["Dream".to_string()])
         } else {
             default_stella_word_pack
+        };
+        let stella_word_pack_presets = if stella_word_pack_presets.is_empty() {
+            Arc::new(vec![StellaWordPackPreset {
+                name: "Default".to_string(),
+                words: (*default_stella_word_pack).clone(),
+            }])
+        } else {
+            stella_word_pack_presets
         };
 
         let state = RoomState {
@@ -629,6 +692,11 @@ impl Room {
             stella_board_size: DEFAULT_STELLA_BOARD_SIZE,
             stella_selection_min: DEFAULT_STELLA_SELECTION_MIN,
             stella_selection_max: DEFAULT_STELLA_SELECTION_MAX,
+            stella_queue_during_association: DEFAULT_STELLA_QUEUE_DURING_ASSOCIATION,
+            stella_queued_reveal_mode: StellaQueuedRevealMode::Animated,
+            stella_scout_timer_enabled: true,
+            stella_scout_timer_duration_s: DEFAULT_STELLA_SCOUT_TIMER_DURATION_S,
+            force_stella_scout_timer: false,
             stella_player_selections: HashMap::new(),
             stella_player_selection_counts: HashMap::new(),
             stella_dark_player: None,
@@ -650,6 +718,7 @@ impl Room {
             broadcast: tx,
             base_deck,
             default_stella_word_pack,
+            stella_word_pack_presets,
             max_members,
             last_access: AtomicU64::new(get_time_s()),
         }
@@ -857,12 +926,25 @@ impl Room {
                     state.hint_choosing_timer_duration_s,
                 )))
             }
-            RoomStage::PlayersChoose | RoomStage::StellaReveal
-                if state.card_choosing_timer_enabled =>
-            {
-                Some(u64::from(Self::clamp_stage_timer_duration_s(
-                    state.card_choosing_timer_duration_s,
-                )))
+            RoomStage::PlayersChoose if state.card_choosing_timer_enabled => Some(u64::from(
+                Self::clamp_stage_timer_duration_s(state.card_choosing_timer_duration_s),
+            )),
+            RoomStage::StellaReveal if state.stella_queue_during_association => {
+                match state.stella_queued_reveal_mode {
+                    StellaQueuedRevealMode::Animated => {
+                        Some(u64::from(STELLA_AUTOPLAY_REVEAL_STEP_DURATION_S))
+                    }
+                    StellaQueuedRevealMode::Fast => None,
+                }
+            }
+            RoomStage::StellaReveal if state.stella_scout_timer_enabled => {
+                let seconds =
+                    Self::clamp_stella_scout_timer_duration_s(state.stella_scout_timer_duration_s);
+                if seconds == 0 {
+                    None
+                } else {
+                    Some(u64::from(seconds))
+                }
             }
             RoomStage::Voting if state.voting_timer_enabled => Some(u64::from(
                 Self::clamp_stage_timer_duration_s(state.voting_timer_duration_s),
@@ -904,6 +986,12 @@ impl Room {
             RoomStage::PlayersChoose if state.force_card_choosing_timer => {
                 self.init_voting(state).await?;
                 Ok(true)
+            }
+            RoomStage::StellaReveal if state.stella_queue_during_association => {
+                self.advance_stella_autoplay_reveal(state).await
+            }
+            RoomStage::StellaReveal if state.force_stella_scout_timer => {
+                self.advance_random_stella_reveal(state).await
             }
             RoomStage::Voting if state.force_voting_timer => {
                 self.init_results(state)?;
@@ -952,9 +1040,36 @@ impl Room {
         state.stella_selection_max = state
             .stella_selection_max
             .clamp(state.stella_selection_min, selection_max_bound);
+        state.stella_scout_timer_duration_s =
+            Self::clamp_stella_scout_timer_duration_s(state.stella_scout_timer_duration_s);
         if state.stella_word_pack.is_empty() {
             state.stella_word_pack = (*self.default_stella_word_pack).clone();
         }
+    }
+
+    fn clamp_stella_scout_timer_duration_s(seconds: u16) -> u16 {
+        seconds.min(MAX_STAGE_TIMER_DURATION_S)
+    }
+
+    fn stella_word_pack_preset_names(&self) -> Vec<String> {
+        self.stella_word_pack_presets
+            .iter()
+            .map(|preset| preset.name.clone())
+            .collect()
+    }
+
+    fn stella_word_pack_preset_name_for_words(&self, words: &[String]) -> Option<String> {
+        self.stella_word_pack_presets
+            .iter()
+            .find(|preset| preset.words == words)
+            .map(|preset| preset.name.clone())
+    }
+
+    fn stella_word_pack_words_for_preset(&self, name: &str) -> Option<Vec<String>> {
+        self.stella_word_pack_presets
+            .iter()
+            .find(|preset| preset.name == name)
+            .map(|preset| preset.words.clone())
     }
 
     pub(crate) fn parse_stella_word_pack(raw_words: &str) -> Vec<String> {
@@ -2904,6 +3019,244 @@ impl Room {
         false
     }
 
+    fn current_stella_scout_name(&self, state: &RwLockWriteGuard<'_, RoomState>) -> Option<String> {
+        state.player_order.get(state.active_player).cloned()
+    }
+
+    fn next_stella_queued_card_for_player(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+        player_name: &str,
+    ) -> Option<String> {
+        let revealed = state
+            .stella_revealed_cards
+            .iter()
+            .cloned()
+            .collect::<HashSet<_>>();
+        state
+            .stella_player_selections
+            .get(player_name)
+            .and_then(|cards| cards.iter().find(|card| !revealed.contains(*card)).cloned())
+    }
+
+    fn random_stella_card_for_player(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+        player_name: &str,
+    ) -> Option<String> {
+        let revealed = state
+            .stella_revealed_cards
+            .iter()
+            .cloned()
+            .collect::<HashSet<_>>();
+        let remaining = state
+            .stella_player_selections
+            .get(player_name)
+            .map(|cards| {
+                cards
+                    .iter()
+                    .filter(|card| !revealed.contains(*card))
+                    .cloned()
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        remaining.choose(&mut rand::thread_rng()).cloned()
+    }
+
+    fn score_stella_revealed_card(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+        player_name: &str,
+        card: &str,
+    ) -> Result<()> {
+        if state
+            .stella_revealed_cards
+            .iter()
+            .any(|revealed| revealed == card)
+        {
+            return Ok(());
+        }
+        let selected = state
+            .stella_player_selections
+            .get(player_name)
+            .cloned()
+            .unwrap_or_default();
+        if !selected.iter().any(|selected_card| selected_card == card) {
+            return Err(anyhow!("Invalid Stella reveal"));
+        }
+
+        let matching_other_players = state
+            .stella_player_selections
+            .iter()
+            .filter(|(player, cards)| {
+                *player != player_name && cards.iter().any(|value| value == card)
+            })
+            .map(|(player, _)| player.clone())
+            .collect::<Vec<_>>();
+        let other_count = matching_other_players.len();
+        state.stella_revealed_cards.push(card.to_string());
+
+        match other_count {
+            0 => {
+                state.stella_card_points.insert(card.to_string(), 0);
+                state.stella_fallen_players.insert(player_name.to_string());
+            }
+            1 => {
+                state.stella_card_points.insert(card.to_string(), 3);
+                self.award_stella_points(state, player_name, 3);
+                let other_player = &matching_other_players[0];
+                if !state.stella_fallen_players.contains(other_player) {
+                    self.award_stella_points(state, other_player, 3);
+                }
+            }
+            _ => {
+                state.stella_card_points.insert(card.to_string(), 2);
+                self.award_stella_points(state, player_name, 2);
+                for other_player in matching_other_players {
+                    if state.stella_fallen_players.contains(&other_player) {
+                        continue;
+                    }
+                    self.award_stella_points(state, &other_player, 2);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn broadcast_stella_stage(&self, state: &RwLockWriteGuard<'_, RoomState>) -> Result<()> {
+        for player in state.player_order.clone().iter() {
+            let _ = self
+                .send_msg(state, player, self.get_msg(Some(player), state)?)
+                .await;
+        }
+        self.broadcast_msg(self.room_state(state))?;
+        Ok(())
+    }
+
+    async fn advance_after_stella_reveal(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+    ) -> Result<()> {
+        if !self.advance_stella_scout(state) {
+            self.init_stella_results(state)?;
+        } else {
+            self.restart_current_stage_timer(state);
+            self.broadcast_stella_stage(state).await?;
+        }
+        Ok(())
+    }
+
+    async fn reveal_stella_card_for_player(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+        player_name: &str,
+        card: &str,
+    ) -> Result<bool> {
+        if !state.players.contains_key(player_name)
+            || !matches!(state.game_mode, GameMode::Stella)
+            || !matches!(state.stage, RoomStage::StellaReveal)
+        {
+            return Ok(false);
+        }
+        self.score_stella_revealed_card(state, player_name, card)?;
+        self.advance_after_stella_reveal(state).await?;
+        Ok(true)
+    }
+
+    fn resolve_all_stella_reveals(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+        randomize: bool,
+    ) -> Result<()> {
+        loop {
+            let Some(player_name) = self.current_stella_scout_name(state) else {
+                break;
+            };
+            if !state.players.contains_key(&player_name)
+                || state.stella_fallen_players.contains(&player_name)
+                || !self.stella_player_has_unrevealed_selection(state, &player_name)
+            {
+                if !self.advance_stella_scout(state) {
+                    break;
+                }
+                continue;
+            }
+
+            let next_card = if randomize {
+                self.random_stella_card_for_player(state, &player_name)
+            } else {
+                self.next_stella_queued_card_for_player(state, &player_name)
+            };
+
+            let Some(card) = next_card else {
+                if !self.advance_stella_scout(state) {
+                    break;
+                }
+                continue;
+            };
+
+            self.score_stella_revealed_card(state, &player_name, &card)?;
+            if !self.advance_stella_scout(state) {
+                break;
+            }
+        }
+
+        self.init_stella_results(state)
+    }
+
+    async fn advance_stella_autoplay_reveal(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+    ) -> Result<bool> {
+        let Some(player_name) = self.current_stella_scout_name(state) else {
+            self.init_stella_results(state)?;
+            return Ok(true);
+        };
+        let Some(card) = self.next_stella_queued_card_for_player(state, &player_name) else {
+            self.init_stella_results(state)?;
+            return Ok(true);
+        };
+        self.reveal_stella_card_for_player(state, &player_name, &card)
+            .await
+    }
+
+    async fn advance_random_stella_reveal(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+    ) -> Result<bool> {
+        let Some(player_name) = self.current_stella_scout_name(state) else {
+            self.init_stella_results(state)?;
+            return Ok(true);
+        };
+        let Some(card) = self.random_stella_card_for_player(state, &player_name) else {
+            self.init_stella_results(state)?;
+            return Ok(true);
+        };
+        self.reveal_stella_card_for_player(state, &player_name, &card)
+            .await
+    }
+
+    fn redraw_stella_board(&self, state: &mut RwLockWriteGuard<'_, RoomState>) -> Result<()> {
+        self.discard_stella_board(state);
+        self.clamp_stella_settings(state);
+        let board_size = usize::from(state.stella_board_size);
+        self.ensure_deck_size(state, board_size);
+        if state.deck.len() < board_size {
+            return Err(anyhow!(
+                "Not enough cards in the deck to redraw the Stella board"
+            ));
+        }
+        for _ in 0..board_size {
+            let Some(card) = state.deck.pop() else {
+                break;
+            };
+            state.stella_board_cards.push(card);
+        }
+        self.reset_stella_round_state(state);
+        Ok(())
+    }
+
     fn stella_revealed_card_choosers(
         &self,
         state: &RwLockWriteGuard<'_, RoomState>,
@@ -2961,6 +3314,22 @@ impl Room {
                 None
             };
 
+        if state.stella_queue_during_association
+            && matches!(
+                state.stella_queued_reveal_mode,
+                StellaQueuedRevealMode::Fast
+            )
+        {
+            return self.resolve_all_stella_reveals(state, false);
+        }
+
+        if !state.stella_queue_during_association
+            && state.stella_scout_timer_enabled
+            && state.stella_scout_timer_duration_s == 0
+        {
+            return self.resolve_all_stella_reveals(state, true);
+        }
+
         self.set_stage(state, RoomStage::StellaReveal);
         self.clear_ready(state);
         if !self.stella_player_has_unrevealed_selection(
@@ -2982,13 +3351,7 @@ impl Room {
             }
         }
 
-        for player in state.player_order.clone().iter() {
-            let _ = self
-                .send_msg(state, player, self.get_msg(Some(player), state)?)
-                .await;
-        }
-        self.broadcast_msg(self.room_state(state))?;
-        Ok(())
+        self.broadcast_stella_stage(state).await
     }
 
     fn init_stella_results(&self, state: &mut RwLockWriteGuard<'_, RoomState>) -> Result<()> {
@@ -3710,15 +4073,17 @@ impl Room {
                 state.stella_board_size = size;
                 self.clamp_stella_settings(&mut state);
                 if matches!(state.stage, RoomStage::StellaAssociate) {
-                    self.reset_stella_round_state(&mut state);
-                }
-                self.broadcast_msg(self.room_state(&state))?;
-                if matches!(state.stage, RoomStage::StellaAssociate) {
-                    for player in state.player_order.clone().iter() {
-                        let _ = self
-                            .send_msg(&state, player, self.get_msg(Some(player), &state)?)
-                            .await;
+                    if let Err(err) = self.redraw_stella_board(&mut state) {
+                        if let Some(tx) = state.player_to_socket.get(name) {
+                            tx.send(ServerMsg::ErrorMsg(err.to_string()).into()).await?;
+                        }
+                        return Ok(());
                     }
+                }
+                if matches!(state.stage, RoomStage::StellaAssociate) {
+                    self.broadcast_stella_stage(&state).await?;
+                } else {
+                    self.broadcast_msg(self.room_state(&state))?;
                 }
             }
             ClientMsg::SetStellaSelectionMin { count } => {
@@ -3745,7 +4110,11 @@ impl Room {
                 if matches!(state.stage, RoomStage::StellaAssociate) {
                     self.reset_stella_round_state(&mut state);
                 }
-                self.broadcast_msg(self.room_state(&state))?;
+                if matches!(state.stage, RoomStage::StellaAssociate) {
+                    self.broadcast_stella_stage(&state).await?;
+                } else {
+                    self.broadcast_msg(self.room_state(&state))?;
+                }
             }
             ClientMsg::SetStellaSelectionMax { count } => {
                 if !self.is_moderator(&state, name) {
@@ -3771,6 +4140,130 @@ impl Room {
                 if matches!(state.stage, RoomStage::StellaAssociate) {
                     self.reset_stella_round_state(&mut state);
                 }
+                if matches!(state.stage, RoomStage::StellaAssociate) {
+                    self.broadcast_stella_stage(&state).await?;
+                } else {
+                    self.broadcast_msg(self.room_state(&state))?;
+                }
+            }
+            ClientMsg::SetStellaQueueDuringAssociation { enabled } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change queue-during-association".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+                if !matches!(state.game_mode, GameMode::Stella) {
+                    return Ok(());
+                }
+                if !matches!(state.stage, RoomStage::Joining | RoomStage::StellaAssociate) {
+                    return Ok(());
+                }
+                let changed = state.stella_queue_during_association != enabled;
+                state.stella_queue_during_association = enabled;
+                if changed && matches!(state.stage, RoomStage::StellaAssociate) {
+                    self.reset_stella_round_state(&mut state);
+                    self.broadcast_stella_stage(&state).await?;
+                } else {
+                    self.broadcast_msg(self.room_state(&state))?;
+                }
+            }
+            ClientMsg::SetStellaQueuedRevealMode { mode } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change queued reveal mode".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+                if !matches!(state.game_mode, GameMode::Stella) {
+                    return Ok(());
+                }
+                if !matches!(state.stage, RoomStage::Joining | RoomStage::StellaAssociate) {
+                    return Ok(());
+                }
+                state.stella_queued_reveal_mode = mode;
+                self.broadcast_msg(self.room_state(&state))?;
+            }
+            ClientMsg::SetStellaScoutTimerEnabled { enabled } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change Stella scout timer".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+                if !matches!(state.game_mode, GameMode::Stella) {
+                    return Ok(());
+                }
+                if !matches!(state.stage, RoomStage::Joining | RoomStage::StellaAssociate) {
+                    return Ok(());
+                }
+                state.stella_scout_timer_enabled = enabled;
+                self.clamp_stella_settings(&mut state);
+                self.broadcast_msg(self.room_state(&state))?;
+            }
+            ClientMsg::SetStellaScoutTimerDuration { seconds } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change Stella scout timer duration"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+                if !matches!(state.game_mode, GameMode::Stella) {
+                    return Ok(());
+                }
+                if !matches!(state.stage, RoomStage::Joining | RoomStage::StellaAssociate) {
+                    return Ok(());
+                }
+                state.stella_scout_timer_duration_s = seconds;
+                self.clamp_stella_settings(&mut state);
+                self.broadcast_msg(self.room_state(&state))?;
+            }
+            ClientMsg::SetForceStellaScoutTimer { enabled } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change Stella scout timeout behavior"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+                if !matches!(state.game_mode, GameMode::Stella) {
+                    return Ok(());
+                }
+                if !matches!(state.stage, RoomStage::Joining | RoomStage::StellaAssociate) {
+                    return Ok(());
+                }
+                state.force_stella_scout_timer = enabled;
                 self.broadcast_msg(self.room_state(&state))?;
             }
             ClientMsg::SetStellaWordPack { words } => {
@@ -3789,6 +4282,9 @@ impl Room {
                 if !matches!(state.game_mode, GameMode::Stella) {
                     return Ok(());
                 }
+                if !matches!(state.stage, RoomStage::Joining) {
+                    return Ok(());
+                }
                 let words = Self::parse_stella_word_pack(&words);
                 if words.is_empty() {
                     if let Some(tx) = state.player_to_socket.get(name) {
@@ -3805,6 +4301,44 @@ impl Room {
                 state.stella_word_pack = words;
                 self.broadcast_msg(self.room_state(&state))?;
             }
+            ClientMsg::SetStellaWordPackPreset { name: preset_name } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change Stella word packs".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+                if !matches!(state.game_mode, GameMode::Stella) {
+                    return Ok(());
+                }
+                if !matches!(
+                    state.stage,
+                    RoomStage::Joining
+                        | RoomStage::StellaAssociate
+                        | RoomStage::StellaReveal
+                        | RoomStage::StellaResults
+                ) {
+                    return Ok(());
+                }
+                let Some(words) = self.stella_word_pack_words_for_preset(&preset_name) else {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg("Unknown Stella word pack preset".to_string())
+                                .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                };
+                state.stella_word_pack = words;
+                self.broadcast_msg(self.room_state(&state))?;
+            }
             ClientMsg::ResetStellaClue {} => {
                 if !self.is_moderator(&state, name) || !matches!(state.game_mode, GameMode::Stella)
                 {
@@ -3816,12 +4350,7 @@ impl Room {
                 let previous = state.stella_clue_word.clone();
                 state.stella_clue_word = self.choose_stella_clue(&state, Some(previous.as_str()));
                 self.reset_stella_round_state(&mut state);
-                for player in state.player_order.clone().iter() {
-                    let _ = self
-                        .send_msg(&state, player, self.get_msg(Some(player), &state)?)
-                        .await;
-                }
-                self.broadcast_msg(self.room_state(&state))?;
+                self.broadcast_stella_stage(&state).await?;
             }
             ClientMsg::ResetStellaBoard {} => {
                 if !self.is_moderator(&state, name) || !matches!(state.game_mode, GameMode::Stella)
@@ -3831,36 +4360,13 @@ impl Room {
                 if !matches!(state.stage, RoomStage::StellaAssociate) {
                     return Ok(());
                 }
-                self.discard_stella_board(&mut state);
-                self.clamp_stella_settings(&mut state);
-                let board_size = usize::from(state.stella_board_size);
-                self.ensure_deck_size(&mut state, board_size);
-                if state.deck.len() < board_size {
+                if let Err(err) = self.redraw_stella_board(&mut state) {
                     if let Some(tx) = state.player_to_socket.get(name) {
-                        tx.send(
-                            ServerMsg::ErrorMsg(
-                                "Not enough cards in the deck to reset the Stella board"
-                                    .to_string(),
-                            )
-                            .into(),
-                        )
-                        .await?;
+                        tx.send(ServerMsg::ErrorMsg(err.to_string()).into()).await?;
                     }
                     return Ok(());
                 }
-                for _ in 0..board_size {
-                    let Some(card) = state.deck.pop() else {
-                        break;
-                    };
-                    state.stella_board_cards.push(card);
-                }
-                self.reset_stella_round_state(&mut state);
-                for player in state.player_order.clone().iter() {
-                    let _ = self
-                        .send_msg(&state, player, self.get_msg(Some(player), &state)?)
-                        .await;
-                }
-                self.broadcast_msg(self.room_state(&state))?;
+                self.broadcast_stella_stage(&state).await?;
             }
             ClientMsg::SetStorytellerLossComplement { complement } => {
                 if !self.is_moderator(&state, name) {
@@ -4713,12 +5219,7 @@ impl Room {
                 if let Some(player) = state.players.get_mut(name) {
                     player.ready = true;
                 }
-                for player in state.player_order.clone().iter() {
-                    let _ = self
-                        .send_msg(&state, player, self.get_msg(Some(player), &state)?)
-                        .await;
-                }
-                self.broadcast_msg(self.room_state(&state))?;
+                self.broadcast_stella_stage(&state).await?;
                 if state.players.values().all(|player| player.ready) {
                     self.init_stella_reveal(&mut state).await?;
                 }
@@ -4730,71 +5231,15 @@ impl Room {
                 {
                     return Ok(());
                 }
+                if state.stella_queue_during_association {
+                    return Ok(());
+                }
                 if self.active_player_name(&state) != Some(name) {
                     return Ok(());
                 }
-                if state
-                    .stella_revealed_cards
-                    .iter()
-                    .any(|revealed| revealed == &card)
-                {
-                    return Ok(());
-                }
-                let selected = state
-                    .stella_player_selections
-                    .get(name)
-                    .cloned()
-                    .unwrap_or_default();
-                if !selected.iter().any(|selected_card| selected_card == &card) {
-                    return Ok(());
-                }
-
-                let matching_other_players = state
-                    .stella_player_selections
-                    .iter()
-                    .filter(|(player, cards)| {
-                        *player != name && cards.iter().any(|value| value == &card)
-                    })
-                    .map(|(player, _)| player.clone())
-                    .collect::<Vec<_>>();
-                let other_count = matching_other_players.len();
-                state.stella_revealed_cards.push(card.clone());
-
-                match other_count {
-                    0 => {
-                        state.stella_card_points.insert(card.clone(), 0);
-                        state.stella_fallen_players.insert(name.to_string());
-                    }
-                    1 => {
-                        state.stella_card_points.insert(card.clone(), 3);
-                        self.award_stella_points(&mut state, name, 3);
-                        let other_player = &matching_other_players[0];
-                        if !state.stella_fallen_players.contains(other_player) {
-                            self.award_stella_points(&mut state, other_player, 3);
-                        }
-                    }
-                    _ => {
-                        state.stella_card_points.insert(card.clone(), 2);
-                        self.award_stella_points(&mut state, name, 2);
-                        for other_player in matching_other_players {
-                            if state.stella_fallen_players.contains(&other_player) {
-                                continue;
-                            }
-                            self.award_stella_points(&mut state, &other_player, 2);
-                        }
-                    }
-                }
-
-                if !self.advance_stella_scout(&mut state) {
-                    self.init_stella_results(&mut state)?;
-                } else {
-                    for player in state.player_order.clone().iter() {
-                        let _ = self
-                            .send_msg(&state, player, self.get_msg(Some(player), &state)?)
-                            .await;
-                    }
-                    self.broadcast_msg(self.room_state(&state))?;
-                }
+                let _ = self
+                    .reveal_stella_card_for_player(&mut state, name, &card)
+                    .await?;
             }
             ClientMsg::Vote { card } => {
                 self.submit_votes(&mut state, name, vec![card]).await?;
@@ -5367,6 +5812,15 @@ impl Room {
         let (stella_board_size_min, stella_board_size_max) = self.stella_board_size_bounds();
         let (stella_selection_count_min, stella_selection_count_max) =
             self.stella_selection_bounds(state);
+        let stella_scout_timer_duration_s =
+            Self::clamp_stella_scout_timer_duration_s(state.stella_scout_timer_duration_s);
+        let stella_selected_word_pack_name =
+            self.stella_word_pack_preset_name_for_words(&state.stella_word_pack);
+        let stella_word_pack_words = if matches!(state.stage, RoomStage::Joining) {
+            state.stella_word_pack.clone()
+        } else {
+            Vec::new()
+        };
 
         ServerMsg::RoomState {
             room_id: state.room_id.clone(),
@@ -5427,9 +5881,17 @@ impl Room {
                 .clamp(stella_selection_count_min, stella_selection_count_max),
             stella_selection_count_min,
             stella_selection_count_max,
+            stella_queue_during_association: state.stella_queue_during_association,
+            stella_queued_reveal_mode: state.stella_queued_reveal_mode,
+            stella_scout_timer_enabled: state.stella_scout_timer_enabled,
+            stella_scout_timer_duration_s,
+            force_stella_scout_timer: state.force_stella_scout_timer,
             stella_active_clue: state.stella_clue_word.clone(),
             stella_word_pack_size: state.stella_word_pack.len().min(usize::from(u16::MAX)) as u16,
-            stella_word_pack_words: state.stella_word_pack.clone(),
+            stella_word_pack_words,
+            stella_word_pack_preset_names: self.stella_word_pack_preset_names(),
+            stella_selected_word_pack_name: stella_selected_word_pack_name.clone(),
+            stella_word_pack_is_unsaved: stella_selected_word_pack_name.is_none(),
             stella_dark_player: state.stella_dark_player.clone(),
         }
     }
@@ -5449,6 +5911,23 @@ mod tests {
         Arc::new(Room::parse_stella_word_pack(&raw_words))
     }
 
+    fn test_stella_word_pack_presets() -> Arc<Vec<StellaWordPackPreset>> {
+        Arc::new(vec![
+            StellaWordPackPreset {
+                name: "Resonance_Persian_1".to_string(),
+                words: (*test_default_stella_word_pack()).clone(),
+            },
+            StellaWordPackPreset {
+                name: "After".to_string(),
+                words: vec!["after".to_string()],
+            },
+            StellaWordPackPreset {
+                name: "Delta".to_string(),
+                words: vec!["delta".to_string(), "epsilon".to_string()],
+            },
+        ])
+    }
+
     fn test_room_with_condition(win_condition: WinCondition) -> Room {
         let deck = (0..512).map(|i| format!("card-{}", i)).collect::<Vec<_>>();
         Room::new(
@@ -5459,6 +5938,7 @@ mod tests {
             64,
             None,
             test_default_stella_word_pack(),
+            test_stella_word_pack_presets(),
         )
     }
 
@@ -8819,8 +9299,8 @@ alpha
         room.handle_client_msg(
             "host",
             605,
-            to_ws(ClientMsg::SetStellaWordPack {
-                words: "delta\nepsilon".to_string(),
+            to_ws(ClientMsg::SetStellaWordPackPreset {
+                name: "Delta".to_string(),
             }),
         )
         .await?;
@@ -8887,8 +9367,8 @@ alpha
         room.handle_client_msg(
             "host",
             606,
-            to_ws(ClientMsg::SetStellaWordPack {
-                words: "after".to_string(),
+            to_ws(ClientMsg::SetStellaWordPackPreset {
+                name: "After".to_string(),
             }),
         )
         .await?;
@@ -9070,6 +9550,7 @@ alpha
             add_player(&mut state, "c", 0);
             state.game_mode = GameMode::Stella;
             state.stage = RoomStage::StellaReveal;
+            state.stella_queue_during_association = false;
             state.player_order = vec!["a".into(), "b".into(), "c".into()];
             state.active_player = 0;
             state.stella_board_cards = vec!["a-last".into(), "b-next".into()];
@@ -9589,6 +10070,7 @@ alpha
             add_player(&mut state, "d", 0);
             state.game_mode = GameMode::Stella;
             state.stage = RoomStage::StellaAssociate;
+            state.stella_queue_during_association = false;
             state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into()];
             state.active_player = 1;
             state.stella_board_cards = vec!["shared".into()];

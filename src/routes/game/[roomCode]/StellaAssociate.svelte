@@ -46,7 +46,14 @@
 	export let stellaSelectionMax = 10;
 	export let stellaSelectionCountMin = 1;
 	export let stellaSelectionCountMax = 15;
-	export let stellaWordPackWords: string[] = [];
+	export let stellaWordPackPresetNames: string[] = [];
+	export let stellaSelectedWordPackName = '';
+	export let stellaWordPackIsUnsaved = false;
+	export let stellaQueueDuringAssociation = true;
+	export let stellaQueuedRevealMode: 'animated' | 'fast' = 'animated';
+	export let stellaScoutTimerEnabled = true;
+	export let stellaScoutTimerDurationS = 10;
+	export let forceStellaScoutTimer = false;
 	export let serverTimeMs: number | null = null;
 	export let currentStageDeadlineS: number | null = null;
 	export let votingWrongCardDisableDistribution: number[] = [1];
@@ -63,15 +70,29 @@
 	let localSelectedCards: string[] = [];
 	let syncedRoundKey = '';
 	let syncedSelectedKey = '';
+	let draggedQueueCard = '';
 	const toastStore = getToastStore();
 	$: isObserver = !!observers[name];
 	$: isModerator = new Set(moderators).has(name);
-	$: canSubmit = !isObserver && localSelectedCards.length > 0;
+	$: canSubmit =
+		!isObserver &&
+		localSelectedCards.length >= stellaSelectionMin &&
+		localSelectedCards.length <= stellaSelectionMax;
 	$: hasLockedSelection = selectedCards.length > 0;
 	$: selectionDirty = !sameSelections(localSelectedCards, selectedCards);
-	$: submitLabel = hasLockedSelection ? 'Update locked selections' : 'Lock selections';
+	$: submitLabel = hasLockedSelection
+		? stellaQueueDuringAssociation
+			? 'Update locked queue'
+			: 'Update locked selections'
+		: stellaQueueDuringAssociation
+			? 'Lock queue'
+			: 'Lock selections';
 	$: roundKey = `${roundNum}::${clueWord}::${displayImages.join('||')}`;
 	$: selectedKey = selectedCards.join('||');
+	$: selectedCardQueueBadges = Object.fromEntries(
+		localSelectedCards.map((card, index) => [card, index + 1])
+	);
+	$: boardIndexByCard = Object.fromEntries(displayImages.map((card, index) => [card, index + 1]));
 	$: if (roundKey !== syncedRoundKey) {
 		syncedRoundKey = roundKey;
 		syncedSelectedKey = selectedKey;
@@ -96,6 +117,39 @@
 
 	function handleSelect(event: CustomEvent<string>) {
 		toggleCard(event.detail);
+	}
+
+	function moveQueueCard(card: string, direction: -1 | 1) {
+		const currentIndex = localSelectedCards.indexOf(card);
+		if (currentIndex < 0) return;
+		const nextIndex = currentIndex + direction;
+		if (nextIndex < 0 || nextIndex >= localSelectedCards.length) return;
+		const nextCards = [...localSelectedCards];
+		const [movedCard] = nextCards.splice(currentIndex, 1);
+		nextCards.splice(nextIndex, 0, movedCard);
+		localSelectedCards = nextCards;
+	}
+
+	function startQueueDrag(card: string) {
+		draggedQueueCard = card;
+	}
+
+	function handleQueueDrop(targetCard: string) {
+		if (!draggedQueueCard || draggedQueueCard === targetCard) {
+			draggedQueueCard = '';
+			return;
+		}
+		const draggedIndex = localSelectedCards.indexOf(draggedQueueCard);
+		const targetIndex = localSelectedCards.indexOf(targetCard);
+		if (draggedIndex < 0 || targetIndex < 0) {
+			draggedQueueCard = '';
+			return;
+		}
+		const nextCards = [...localSelectedCards];
+		const [movedCard] = nextCards.splice(draggedIndex, 1);
+		nextCards.splice(targetIndex, 0, movedCard);
+		localSelectedCards = nextCards;
+		draggedQueueCard = '';
 	}
 
 	function submitSelection() {
@@ -150,7 +204,14 @@
 	{stellaSelectionMax}
 	{stellaSelectionCountMin}
 	{stellaSelectionCountMax}
-	{stellaWordPackWords}
+	{stellaWordPackPresetNames}
+	{stellaSelectedWordPackName}
+	{stellaWordPackIsUnsaved}
+	{stellaQueueDuringAssociation}
+	{stellaQueuedRevealMode}
+	{stellaScoutTimerEnabled}
+	{stellaScoutTimerDurationS}
+	{forceStellaScoutTimer}
 	{serverTimeMs}
 	{currentStageDeadlineS}
 	{votingWrongCardDisableDistribution}
@@ -168,17 +229,62 @@
 			<h1 class="text-xl font-semibold">Resonance — Associate</h1>
 			<p>Clue word: <span class="boujee-text">{clueWord}</span></p>
 			<p class="text-xs opacity-75">
-				Pick every card you want to associate with the clue, then lock in. You can adjust and lock
-				again before reveal starts.
+				{#if stellaQueueDuringAssociation}
+					Pick every matching card, then arrange their reveal queue before locking in.
+				{:else}
+					Pick every card you want to associate with the clue, then lock in. You can adjust and
+					lock again before reveal starts.
+				{/if}
 			</p>
 		</div>
 		{#if !isObserver}
-			<div class="card light p-4">
+			<div class="card light p-4 space-y-3">
 				<p class="mb-1 text-sm opacity-80">Draft selected: {localSelectedCards.length}</p>
+				<p class="text-xs opacity-70">
+					Need {stellaSelectionMin}–{stellaSelectionMax} cards.
+				</p>
 				{#if hasLockedSelection}
 					<p class="mb-2 text-xs opacity-70">
 						Locked: {selectedCards.length}{selectionDirty ? ' • draft has changes' : ''}
 					</p>
+				{/if}
+				{#if stellaQueueDuringAssociation && localSelectedCards.length > 0}
+					<div class="space-y-2">
+						<p class="text-sm font-semibold">Reveal queue</p>
+						<div class="space-y-2">
+							{#each localSelectedCards as card, index}
+								<div
+									class="rounded border border-white/20 bg-black/15 p-2"
+									role="listitem"
+									draggable="true"
+									on:dragstart={() => startQueueDrag(card)}
+									on:dragover|preventDefault
+									on:drop={() => handleQueueDrop(card)}
+								>
+									<div class="flex items-center justify-between gap-2">
+										<div class="min-w-0 text-sm">
+											<span class="font-semibold">Q{index + 1}</span>
+											<span class="ml-2 opacity-75">Board #{boardIndexByCard[card]}</span>
+										</div>
+										<div class="flex gap-1">
+											<button
+												class="btn variant-filled px-2 py-1 text-xs"
+												type="button"
+												on:click={() => moveQueueCard(card, -1)}
+												disabled={index === 0}>↑</button
+											>
+											<button
+												class="btn variant-filled px-2 py-1 text-xs"
+												type="button"
+												on:click={() => moveQueueCard(card, 1)}
+												disabled={index === localSelectedCards.length - 1}>↓</button
+											>
+										</div>
+									</div>
+								</div>
+							{/each}
+						</div>
+					</div>
 				{/if}
 				<button class="btn variant-filled w-full" disabled={!canSubmit} on:click={submitSelection}
 					>{submitLabel}</button
@@ -210,10 +316,47 @@
 				>{submitLabel}</button
 			>
 		{/if}
+		{#if isModerator}
+			<button class="btn variant-filled w-full" on:click={() => gameServer.resetStellaClue()}
+				>Reset clue</button
+			>
+			<button class="btn variant-filled w-full" on:click={() => gameServer.resetStellaBoard()}
+				>Reset board</button
+			>
+		{/if}
 	</svelte:fragment>
 
 	<div class="flex h-full flex-col">
 		<h2 class="mb-2 hidden text-lg font-semibold lg:block">Shared board</h2>
+		{#if !isObserver && stellaQueueDuringAssociation && localSelectedCards.length > 0}
+			<div class="mb-3 rounded border border-white/20 bg-black/10 p-3 lg:hidden">
+				<p class="mb-2 text-sm font-semibold">Reveal queue</p>
+				<div class="space-y-2">
+					{#each localSelectedCards as card, index}
+						<div class="flex items-center justify-between gap-2 rounded border border-white/15 px-2 py-1.5">
+							<div class="text-sm">
+								<span class="font-semibold">Q{index + 1}</span>
+								<span class="ml-2 opacity-75">Board #{boardIndexByCard[card]}</span>
+							</div>
+							<div class="flex gap-1">
+								<button
+									class="btn variant-filled px-2 py-1 text-xs"
+									type="button"
+									on:click={() => moveQueueCard(card, -1)}
+									disabled={index === 0}>↑</button
+								>
+								<button
+									class="btn variant-filled px-2 py-1 text-xs"
+									type="button"
+									on:click={() => moveQueueCard(card, 1)}
+									disabled={index === localSelectedCards.length - 1}>↓</button
+								>
+							</div>
+						</div>
+					{/each}
+				</div>
+			</div>
+		{/if}
 		<div class="min-h-0 flex-1 overflow-y-auto">
 			<Images
 				{displayImages}
@@ -221,6 +364,7 @@
 				selectable={!isObserver}
 				desktopFitToHeight={true}
 				showIndexOverlay={showVotingCardNumbers}
+				imageSecondaryBadges={selectedCardQueueBadges}
 				on:select={handleSelect}
 			/>
 		</div>

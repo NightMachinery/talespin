@@ -46,7 +46,14 @@
 	export let stellaSelectionMax = 10;
 	export let stellaSelectionCountMin = 1;
 	export let stellaSelectionCountMax = 15;
-	export let stellaWordPackWords: string[] = [];
+	export let stellaWordPackPresetNames: string[] = [];
+	export let stellaSelectedWordPackName = '';
+	export let stellaWordPackIsUnsaved = false;
+	export let stellaQueueDuringAssociation = true;
+	export let stellaQueuedRevealMode: 'animated' | 'fast' = 'animated';
+	export let stellaScoutTimerEnabled = true;
+	export let stellaScoutTimerDurationS = 10;
+	export let forceStellaScoutTimer = false;
 	export let serverTimeMs: number | null = null;
 	export let currentStageDeadlineS: number | null = null;
 	export let votingWrongCardDisableDistribution: number[] = [1];
@@ -133,7 +140,14 @@
 	{stellaSelectionMax}
 	{stellaSelectionCountMin}
 	{stellaSelectionCountMax}
-	{stellaWordPackWords}
+	{stellaWordPackPresetNames}
+	{stellaSelectedWordPackName}
+	{stellaWordPackIsUnsaved}
+	{stellaQueueDuringAssociation}
+	{stellaQueuedRevealMode}
+	{stellaScoutTimerEnabled}
+	{stellaScoutTimerDurationS}
+	{forceStellaScoutTimer}
 	{serverTimeMs}
 	{currentStageDeadlineS}
 	{votingWrongCardDisableDistribution}
@@ -159,7 +173,7 @@
 			>
 			{#if isModerator}
 				<button class="btn variant-filled w-full" on:click={() => gameServer.forceStartNextRound()}
-					>Force start next round</button
+					>Force next round</button
 				>
 			{/if}
 		</div>
@@ -173,11 +187,18 @@
 	</svelte:fragment>
 
 	<svelte:fragment slot="mobileActions">
-		<button
-			class="btn variant-filled w-full"
-			disabled={isObserver}
-			on:click={() => gameServer.ready()}>Next Round</button
-		>
+		<div class="space-y-2">
+			<button
+				class="btn variant-filled w-full"
+				disabled={isObserver}
+				on:click={() => gameServer.ready()}>Next Round</button
+			>
+			{#if isModerator}
+				<button class="btn variant-filled w-full" on:click={() => gameServer.forceStartNextRound()}
+					>Force next round</button
+				>
+			{/if}
+		</div>
 	</svelte:fragment>
 
 	<div class="flex h-full flex-col">
@@ -193,12 +214,6 @@
 				showIndexOverlay={showVotingCardNumbers}
 				indexOverlayPosition="left"
 			/>
-		</div>
-		<div class="mt-3 card light p-4">
-			<h2 class="mb-2 font-semibold">Round points</h2>
-			{#each Object.entries(pointChange).sort( ([a], [b]) => a.localeCompare(b) ) as [playerName, delta]}
-				<p>{playerName}: +{delta}</p>
-			{/each}
 		</div>
 	</div>
 </StageShell>

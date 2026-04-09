@@ -13,7 +13,7 @@ export const LOCAL_STELLA_PACKS_KEY = 'stella_word_pack_presets';
 export const LOCAL_PRESET_KEY_PREFIX = 'local:';
 export const BUILTIN_PRESET_KEY_PREFIX = 'builtin:';
 export const UNSAVED_PRESET_KEY = 'current:unsaved';
-export const UNSAVED_PRESET_NAME = 'Unsaved Pack';
+export const UNSAVED_PRESET_NAME = 'Unsaved Wordpack';
 
 export function normalizeWordPackText(rawWords: string) {
 	return rawWords

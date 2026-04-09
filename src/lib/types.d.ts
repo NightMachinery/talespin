@@ -13,6 +13,8 @@ export interface ObserverInfo {
 
 export type GameMode = 'dixit_plus' | 'stella';
 
+export type StellaQueuedRevealMode = 'animated' | 'fast';
+
 export type WinCondition =
 	| {
 			mode: 'points';

@@ -37,6 +37,8 @@
 	export let showIndexOverlay = false;
 	export let indexOverlayPosition: 'left' | 'right' = 'right';
 	export let indexOverlayLabels: Array<string | number> = [];
+	export let imageSecondaryBadges: Record<string, string | number> = {};
+	export let secondaryBadgePosition: 'left' | 'right' = 'left';
 	export let desktopFitToHeight = false;
 
 	$: isHandMode = mode === 'hand';
@@ -62,6 +64,7 @@
 		selectedImages.filter((image) => visibleImageSet.has(image) && !disabledImageSet.has(image))
 	);
 	$: indexOverlayPositionClass = indexOverlayPosition === 'left' ? 'left-2' : 'right-2';
+	$: secondaryBadgePositionClass = secondaryBadgePosition === 'left' ? 'left-2' : 'right-2';
 
 	function selectImage(image: string, isDisabled: boolean, canSelect: boolean) {
 		if (!selectable || isDisabled || !canSelect) return;
@@ -77,6 +80,7 @@
 		{@const chooserEntries = imageChooserOverlays[image] ?? []}
 		{@const highlightClass = imageHighlightClasses[image] ?? ''}
 		{@const indexOverlayLabel = indexOverlayLabels[imageIndex] ?? imageIndex + 1}
+		{@const secondaryBadgeLabel = imageSecondaryBadges[image]}
 		{@const shouldDim = selectedImageSet.size > 0 && !isSelected}
 		{@const canSelect =
 			selectable &&
@@ -117,6 +121,13 @@
 						#{indexOverlayLabel}
 					</div>
 				{/if}
+				{#if secondaryBadgeLabel !== undefined}
+					<div
+						class={`pointer-events-none absolute ${secondaryBadgePositionClass} top-10 z-20 rounded bg-primary-500/90 px-2 py-0.5 text-xs font-bold text-black shadow`}
+					>
+						Q{secondaryBadgeLabel}
+					</div>
+				{/if}
 				<ChooserNameOverlay entries={chooserEntries} />
 				{#if annotation}
 					<div
@@ -138,6 +149,13 @@
 						class={`pointer-events-none absolute ${indexOverlayPositionClass} top-2 z-20 rounded bg-black/70 px-2 py-0.5 text-xs font-bold text-white shadow`}
 					>
 						#{indexOverlayLabel}
+					</div>
+				{/if}
+				{#if secondaryBadgeLabel !== undefined}
+					<div
+						class={`pointer-events-none absolute ${secondaryBadgePositionClass} top-10 z-20 rounded bg-primary-500/90 px-2 py-0.5 text-xs font-bold text-black shadow`}
+					>
+						Q{secondaryBadgeLabel}
 					</div>
 				{/if}
 				<ChooserNameOverlay entries={chooserEntries} />

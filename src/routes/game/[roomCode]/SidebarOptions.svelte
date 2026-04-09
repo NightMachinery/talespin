@@ -1,17 +1,12 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import type GameServer from '$lib/gameServer';
-	import {
-		LOCAL_STELLA_PACKS_KEY,
-		buildStellaWordPackOptions,
-		findStellaWordPackOptionByWords,
-		formatStellaWordPackOptionLabel,
-		normalizeWordPackText,
-		parseSavedStellaWordPackPresets,
-		type StellaWordPackOption,
-		type StellaWordPackPreset
-	} from '$lib/stellaWordPacks';
-	import type { GameMode, ObserverInfo, PlayerInfo } from '$lib/types';
+	import type {
+		GameMode,
+		ObserverInfo,
+		PlayerInfo,
+		StellaQueuedRevealMode
+	} from '$lib/types';
 	import { OFFLINE_STATUS_LABEL } from '$lib/presence';
 	import { isStageChangeAudioSupported, unlockStageChangeAudio } from '$lib/stageChangeAudio';
 	import {
@@ -36,6 +31,8 @@
 	const SETTINGS_EDIT_STAGE_HINT = 'Can only be changed during storyteller choosing stage.';
 	const STAGE_TIMER_DURATION_MIN_S = 1;
 	const STAGE_TIMER_DURATION_MAX_S = 60 * 60;
+	const STELLA_SCOUT_TIMER_DURATION_MIN_S = 0;
+	const STELLA_WORD_PACK_UNSAVED_LABEL = 'Unsaved Wordpack';
 
 	export let players: { [key: string]: PlayerInfo } = {};
 	export let observers: { [key: string]: ObserverInfo } = {};
@@ -78,15 +75,18 @@
 	export let stellaSelectionMax = 10;
 	export let stellaSelectionCountMin = 1;
 	export let stellaSelectionCountMax = 15;
-	export let stellaWordPackWords: string[] = [];
+	export let stellaWordPackPresetNames: string[] = [];
+	export let stellaSelectedWordPackName = '';
+	export let stellaWordPackIsUnsaved = false;
+	export let stellaQueueDuringAssociation = true;
+	export let stellaQueuedRevealMode: StellaQueuedRevealMode = 'animated';
+	export let stellaScoutTimerEnabled = true;
+	export let stellaScoutTimerDurationS = 10;
+	export let forceStellaScoutTimer = false;
 	export let votingWrongCardDisableDistribution: number[] = [
 		...DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION
 	];
 	export let gameServer: GameServer;
-
-	let savedStellaWordPackPresets: StellaWordPackPreset[] = [];
-	let availableStellaWordPackOptions: StellaWordPackOption[] = [];
-	let selectedStellaWordPackKey = '';
 
 	$: moderatorSet = new Set(moderators);
 	$: sortedPlayerEntries = Object.entries(players).sort(([a], [b]) => a.localeCompare(b));
@@ -123,14 +123,13 @@
 	$: storytellerWinConditionMin = storytellerLossComplementMin + 1;
 	$: storytellerWinConditionMax = storytellerLossComplementMax + 1;
 	$: roundStartDiscardCountMax = Math.max(0, cardsPerHand - 1);
-	$: serverStellaWordPackText = normalizeWordPackText(stellaWordPackWords.join('\n'));
-	$: availableStellaWordPackOptions = buildStellaWordPackOptions(
-		savedStellaWordPackPresets,
-		serverStellaWordPackText
-	);
-	$: selectedStellaWordPackKey =
-		findStellaWordPackOptionByWords(availableStellaWordPackOptions, serverStellaWordPackText)
-			?.key ?? '';
+	$: stellaWordPackSelectOptions = [
+		...stellaWordPackPresetNames,
+		...(stellaWordPackIsUnsaved ? [STELLA_WORD_PACK_UNSAVED_LABEL] : [])
+	];
+	$: selectedStellaWordPackKey = stellaWordPackIsUnsaved
+		? STELLA_WORD_PACK_UNSAVED_LABEL
+		: stellaSelectedWordPackName;
 	$: normalizedVotingWrongCardDisableDistribution = normalizeVotingWrongCardDisableDistribution(
 		votingWrongCardDisableDistribution
 	);
@@ -150,17 +149,6 @@
 		Object.entries(players).map(([playerName, info]) => [playerName, info.points])
 	);
 	const supportsStageChangeAudio = isStageChangeAudioSupported();
-
-	function loadSavedStellaWordPackPresets() {
-		if (!browser) return;
-		savedStellaWordPackPresets = parseSavedStellaWordPackPresets(
-			window.localStorage.getItem(LOCAL_STELLA_PACKS_KEY)
-		);
-	}
-
-	if (browser) {
-		loadSavedStellaWordPackPresets();
-	}
 
 	function isPlayerModerator(playerName: string) {
 		return moderatorSet.has(playerName);
@@ -489,22 +477,79 @@
 		}
 	}
 
+	function updateStellaQueueDuringAssociation(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		if (!isModerator || !canChangeStellaSettings) {
+			input.checked = stellaQueueDuringAssociation;
+			return;
+		}
+		gameServer.setStellaQueueDuringAssociation(input.checked);
+	}
+
+	function updateStellaQueuedRevealMode(event: Event) {
+		const select = event.currentTarget as HTMLSelectElement;
+		if (!isModerator || !canChangeStellaSettings) {
+			select.value = stellaQueuedRevealMode;
+			return;
+		}
+		if (select.value !== stellaQueuedRevealMode) {
+			gameServer.setStellaQueuedRevealMode(select.value as StellaQueuedRevealMode);
+		}
+	}
+
+	function updateStellaScoutTimerEnabled(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		if (!isModerator || !canChangeStellaSettings) {
+			input.checked = stellaScoutTimerEnabled;
+			return;
+		}
+		gameServer.setStellaScoutTimerEnabled(input.checked);
+	}
+
+	function updateStellaScoutTimerDuration(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const parsed = Number(input.value);
+		if (!isModerator || !canChangeStellaSettings) {
+			input.value = `${stellaScoutTimerDurationS}`;
+			return;
+		}
+		if (
+			!Number.isInteger(parsed) ||
+			parsed < STELLA_SCOUT_TIMER_DURATION_MIN_S ||
+			parsed > STAGE_TIMER_DURATION_MAX_S
+		) {
+			input.value = `${stellaScoutTimerDurationS}`;
+			return;
+		}
+		if (parsed !== stellaScoutTimerDurationS) {
+			gameServer.setStellaScoutTimerDuration(parsed);
+		}
+	}
+
+	function updateForceStellaScoutTimer(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		if (!isModerator || !canChangeStellaSettings) {
+			input.checked = forceStellaScoutTimer;
+			return;
+		}
+		gameServer.setForceStellaScoutTimer(input.checked);
+	}
+
 	function updateStellaWordPack(event: Event) {
 		const select = event.currentTarget as HTMLSelectElement;
 		if (!isModerator || !canSwitchStellaWordPack) {
 			select.value = selectedStellaWordPackKey;
 			return;
 		}
-		const nextOption =
-			availableStellaWordPackOptions.find((option) => option.key === select.value) ?? null;
-		if (!nextOption) {
+		if (
+			!select.value ||
+			select.value === selectedStellaWordPackKey ||
+			select.value === STELLA_WORD_PACK_UNSAVED_LABEL
+		) {
 			select.value = selectedStellaWordPackKey;
 			return;
 		}
-		if (normalizeWordPackText(nextOption.words) === serverStellaWordPackText) {
-			return;
-		}
-		gameServer.setStellaWordPack(nextOption.words);
+		gameServer.setStellaWordPackPreset(select.value);
 	}
 
 	function formatPercent(probability: number) {
@@ -795,7 +840,7 @@
 					<p class="block text-sm font-semibold">Stage timers</p>
 					<p class="mt-1 text-xs opacity-75">
 						{isStellaMode
-							? 'Associate and reveal use the Resonance stage timers. Results stays untimed.'
+							? 'Associate uses the shared Resonance countdown. Queued/manual reveal pacing is configured below.'
 							: 'Show shared countdowns for each live stage. Results stays untimed.'}
 					</p>
 					<div class="mt-3 space-y-3">
@@ -839,43 +884,39 @@
 							</div>
 						</div>
 
-						<div class="rounded border border-white/15 px-2 py-2">
-							<div class="flex items-start justify-between gap-3">
-								<div>
-									<p class="font-medium">{isStellaMode ? 'Reveal' : 'Card choosing'}</p>
-									<p class="text-xs opacity-70">
-										{isStellaMode
-											? 'Each scout reveals one highlighted card at a time.'
-											: 'Guessers choose matching cards.'}
-									</p>
+						{#if isDixitMode}
+							<div class="rounded border border-white/15 px-2 py-2">
+								<div class="flex items-start justify-between gap-3">
+									<div>
+										<p class="font-medium">Card choosing</p>
+										<p class="text-xs opacity-70">Guessers choose matching cards.</p>
+									</div>
+									<label class="flex items-center gap-2 text-sm">
+										<input
+											type="checkbox"
+											class="h-4 w-4 cursor-pointer accent-primary-500"
+											checked={cardChoosingTimerEnabled}
+											on:change={updateCardChoosingTimerEnabled}
+											disabled={!isModerator || !canChangeStageTimers}
+										/>
+										<span>Enabled</span>
+									</label>
 								</div>
-								<label class="flex items-center gap-2 text-sm">
+								<div class="mt-2 flex items-center gap-2">
 									<input
-										type="checkbox"
-										class="h-4 w-4 cursor-pointer accent-primary-500"
-										checked={cardChoosingTimerEnabled}
-										on:change={updateCardChoosingTimerEnabled}
+										type="number"
+										class="w-24 rounded border px-2 py-1 text-gray-700 shadow"
+										min={STAGE_TIMER_DURATION_MIN_S}
+										max={STAGE_TIMER_DURATION_MAX_S}
+										step="1"
+										value={cardChoosingTimerDurationS}
+										on:change={updateCardChoosingTimerDuration}
 										disabled={!isModerator || !canChangeStageTimers}
 									/>
-									<span>Enabled</span>
-								</label>
-							</div>
-							<div class="mt-2 flex items-center gap-2">
-								<input
-									type="number"
-									class="w-24 rounded border px-2 py-1 text-gray-700 shadow"
-									min={STAGE_TIMER_DURATION_MIN_S}
-									max={STAGE_TIMER_DURATION_MAX_S}
-									step="1"
-									value={cardChoosingTimerDurationS}
-									on:change={updateCardChoosingTimerDuration}
-									disabled={!isModerator || !canChangeStageTimers}
-								/>
-								<span class="text-xs opacity-75"
-									>{STAGE_TIMER_DURATION_MIN_S}–{STAGE_TIMER_DURATION_MAX_S}s</span
-								>
-							</div>
-							{#if isDixitMode}
+									<span class="text-xs opacity-75"
+										>{STAGE_TIMER_DURATION_MIN_S}–{STAGE_TIMER_DURATION_MAX_S}s</span
+									>
+								</div>
 								<label class="mt-2 flex items-start gap-3 text-sm">
 									<input
 										type="checkbox"
@@ -886,8 +927,8 @@
 									/>
 									<span>Force timeout by auto-choosing random cards</span>
 								</label>
-							{/if}
-						</div>
+							</div>
+						{/if}
 
 						{#if isDixitMode}
 							<div class="rounded border border-white/15 px-2 py-2">
@@ -1004,6 +1045,80 @@
 							<p class="text-xs opacity-75">
 								Selection range: {stellaSelectionCountMin}–{stellaSelectionCountMax}
 							</p>
+							<div class="rounded border border-white/15 px-2 py-2 space-y-3">
+								<label class="flex items-start gap-3 text-sm">
+									<input
+										type="checkbox"
+										class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
+										checked={stellaQueueDuringAssociation}
+										on:change={updateStellaQueueDuringAssociation}
+										disabled={!isModerator || !canChangeStellaSettings}
+									/>
+									<div>
+										<span class="block font-medium">Queue during Association</span>
+										<p class="text-xs opacity-70">
+											Players order reveals while selecting cards. When enabled, there is no
+											manual scout click-to-reveal step.
+										</p>
+									</div>
+								</label>
+								<div>
+									<label class="block text-sm font-medium" for="sidebar-stella-reveal-mode">
+										Queued reveal playback
+									</label>
+									<select
+										id="sidebar-stella-reveal-mode"
+										class="mt-2 w-full rounded border px-2 py-1 text-gray-700 shadow"
+										value={stellaQueuedRevealMode}
+										on:change={updateStellaQueuedRevealMode}
+										disabled={!isModerator || !canChangeStellaSettings || !stellaQueueDuringAssociation}
+									>
+										<option value="animated">Animated reveal</option>
+										<option value="fast">Fast reveal</option>
+									</select>
+								</div>
+							</div>
+							<div class="rounded border border-white/15 px-2 py-2 space-y-3">
+								<p class="font-medium">Manual reveal fallback</p>
+								<p class="text-xs opacity-70">
+									These only apply when Queue during Association is turned off.
+								</p>
+								<label class="flex items-center gap-2 text-sm">
+									<input
+										type="checkbox"
+										class="h-4 w-4 cursor-pointer accent-primary-500"
+										checked={stellaScoutTimerEnabled}
+										on:change={updateStellaScoutTimerEnabled}
+										disabled={!isModerator || !canChangeStellaSettings}
+									/>
+									<span>Scout timer enabled</span>
+								</label>
+								<div class="flex items-center gap-2">
+									<input
+										type="number"
+										class="w-24 rounded border px-2 py-1 text-gray-700 shadow"
+										min={STELLA_SCOUT_TIMER_DURATION_MIN_S}
+										max={STAGE_TIMER_DURATION_MAX_S}
+										step="1"
+										value={stellaScoutTimerDurationS}
+										on:change={updateStellaScoutTimerDuration}
+										disabled={!isModerator || !canChangeStellaSettings}
+									/>
+									<span class="text-xs opacity-75">
+										{STELLA_SCOUT_TIMER_DURATION_MIN_S}–{STAGE_TIMER_DURATION_MAX_S}s
+									</span>
+								</div>
+								<label class="flex items-start gap-3 text-sm">
+									<input
+										type="checkbox"
+										class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
+										checked={forceStellaScoutTimer}
+										on:change={updateForceStellaScoutTimer}
+										disabled={!isModerator || !canChangeStellaSettings}
+									/>
+									<span>Force timeout by auto-revealing a random queued card</span>
+								</label>
+							</div>
 							{#if canSwitchStellaWordPack}
 								<div>
 									<label class="block text-sm font-medium" for="sidebar-stella-word-pack">
@@ -1023,13 +1138,15 @@
 											<option value="" disabled={!selectedStellaWordPackKey}>
 												Choose a word pack preset
 											</option>
-											{#each availableStellaWordPackOptions as option}
-												<option value={option.key}>
-													{formatStellaWordPackOptionLabel(option)}
+											{#each stellaWordPackSelectOptions as optionName}
+												<option
+													value={optionName}
+													disabled={optionName === STELLA_WORD_PACK_UNSAVED_LABEL}
+												>
+													{optionName}
 												</option>
 											{/each}
 										</select>
-										<span class="text-xs opacity-75">{stellaWordPackWords.length} words</span>
 									</div>
 								</div>
 							{/if}

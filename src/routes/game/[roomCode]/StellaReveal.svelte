@@ -2,6 +2,7 @@
 	import type GameServer from '$lib/gameServer';
 	import { getStellaCardEffectPresentation } from '$lib/stellaCardEffects';
 	import type { GameMode, ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
+	import { onDestroy } from 'svelte';
 	import { hideNonSelectedStellaRevealCards } from '$lib/viewOptions';
 	import Images from './Images.svelte';
 	import StageShell from './StageShell.svelte';
@@ -47,7 +48,14 @@
 	export let stellaSelectionMax = 10;
 	export let stellaSelectionCountMin = 1;
 	export let stellaSelectionCountMax = 15;
-	export let stellaWordPackWords: string[] = [];
+	export let stellaWordPackPresetNames: string[] = [];
+	export let stellaSelectedWordPackName = '';
+	export let stellaWordPackIsUnsaved = false;
+	export let stellaQueueDuringAssociation = true;
+	export let stellaQueuedRevealMode: 'animated' | 'fast' = 'animated';
+	export let stellaScoutTimerEnabled = true;
+	export let stellaScoutTimerDurationS = 10;
+	export let forceStellaScoutTimer = false;
 	export let serverTimeMs: number | null = null;
 	export let currentStageDeadlineS: number | null = null;
 	export let votingWrongCardDisableDistribution: number[] = [1];
@@ -65,6 +73,13 @@
 	export let cardPoints: { [key: string]: number } = {};
 	export let darkPlayer = '';
 	export let gameMode: GameMode = 'stella';
+
+	let latestAnimatedRevealCard = '';
+	let latestRevealTimeout: ReturnType<typeof setTimeout> | undefined;
+	let previousRevealedCardsKey = '';
+	let scoutFlash = false;
+	let scoutFlashTimeout: ReturnType<typeof setTimeout> | undefined;
+	let previousScoutTurnKey = '';
 
 	$: isObserver = !!observers[name];
 	$: isScout = activePlayer === name && !isObserver;
@@ -96,7 +111,7 @@
 	$: revealedCardHighlightClasses = Object.fromEntries(
 		Object.entries(revealedCardEffectPresentation).map(([card, presentation]) => [
 			card,
-			presentation.highlightClass
+			`${presentation.highlightClass} ${card === latestAnimatedRevealCard ? 'stella-card-newly-revealed' : ''}`.trim()
 		])
 	);
 	$: revealedCardAnnotations = Object.entries(revealedCardEffectPresentation).reduce<
@@ -107,9 +122,41 @@
 		}
 		return annotations;
 	}, {});
+	$: revealedCardsKey = revealedCards.join('||');
+	$: if (
+		revealedCardsKey !== previousRevealedCardsKey &&
+		revealedCards.length > 0 &&
+		revealedCards.length >= previousRevealedCardsKey.split('||').filter(Boolean).length
+	) {
+		const previousCount = previousRevealedCardsKey.split('||').filter(Boolean).length;
+		if (revealedCards.length > previousCount) {
+			latestAnimatedRevealCard = revealedCards[revealedCards.length - 1] ?? '';
+			if (latestRevealTimeout) clearTimeout(latestRevealTimeout);
+			latestRevealTimeout = setTimeout(() => {
+				latestAnimatedRevealCard = '';
+			}, 1200);
+		}
+		previousRevealedCardsKey = revealedCardsKey;
+	}
+	$: scoutTurnKey = isScout ? `${roundNum}:${activePlayer}:${revealedCards.length}` : '';
+	$: if (scoutTurnKey === '') {
+		previousScoutTurnKey = '';
+	} else if (scoutTurnKey !== previousScoutTurnKey) {
+		previousScoutTurnKey = scoutTurnKey;
+		scoutFlash = true;
+		if (scoutFlashTimeout) clearTimeout(scoutFlashTimeout);
+		scoutFlashTimeout = setTimeout(() => {
+			scoutFlash = false;
+		}, 1400);
+	}
+
+	onDestroy(() => {
+		if (latestRevealTimeout) clearTimeout(latestRevealTimeout);
+		if (scoutFlashTimeout) clearTimeout(scoutFlashTimeout);
+	});
 
 	function reveal(card: string) {
-		if (!isScout) return;
+		if (!isScout || stellaQueueDuringAssociation) return;
 		gameServer.revealStellaCard(card);
 	}
 
@@ -159,7 +206,14 @@
 	{stellaSelectionMax}
 	{stellaSelectionCountMin}
 	{stellaSelectionCountMax}
-	{stellaWordPackWords}
+	{stellaWordPackPresetNames}
+	{stellaSelectedWordPackName}
+	{stellaWordPackIsUnsaved}
+	{stellaQueueDuringAssociation}
+	{stellaQueuedRevealMode}
+	{stellaScoutTimerEnabled}
+	{stellaScoutTimerDurationS}
+	{forceStellaScoutTimer}
 	{serverTimeMs}
 	{currentStageDeadlineS}
 	{votingWrongCardDisableDistribution}
@@ -176,7 +230,7 @@
 		<div class="card light space-y-2 p-4">
 			<h1 class="text-xl font-semibold">Resonance — Reveal</h1>
 			<p>Clue word: <span class="boujee-text">{clueWord}</span></p>
-			<p>Scout: <span class="font-semibold">{activePlayer}</span></p>
+			<p class:stella-scout-flash={scoutFlash}>Scout: <span class="font-semibold">{activePlayer}</span></p>
 		</div>
 		<div class="card light space-y-2 p-4">
 			<h2 class="font-semibold">Selection counts</h2>
@@ -184,7 +238,18 @@
 				<p>{playerName}: {count}</p>
 			{/each}
 		</div>
-		{#if isScout}
+		{#if stellaQueueDuringAssociation}
+			<div class="card light space-y-2 p-4">
+				<h2 class="font-semibold">Queued reveal</h2>
+				<p class="text-sm opacity-80">
+					{#if isScout}
+						Your queued reveal is playing automatically.
+					{:else}
+						Waiting for <span class="font-semibold">{activePlayer}</span>'s queued reveal.
+					{/if}
+				</p>
+			</div>
+		{:else if isScout}
 			<div class="card light space-y-2 p-4">
 				<h2 class="font-semibold">Reveal from the board</h2>
 				<p class="text-sm opacity-80">Tap one of your highlighted unrevealed cards on the board.</p>
@@ -203,8 +268,10 @@
 		<div class="card light space-y-2 p-4">
 			<h1 class="text-xl font-semibold">Resonance — Reveal</h1>
 			<p>{clueWord}</p>
-			<p>Scout: {activePlayer}</p>
-			{#if isScout}
+			<p class:stella-scout-flash={scoutFlash}>Scout: {activePlayer}</p>
+			{#if stellaQueueDuringAssociation}
+				<p class="text-sm opacity-80">Queued reveals are playing automatically.</p>
+			{:else if isScout}
 				<p class="text-sm opacity-80">Tap a highlighted card on the board to reveal it.</p>
 			{/if}
 		</div>
@@ -216,7 +283,7 @@
 			<Images
 				displayImages={visibleBoardCards}
 				selectedImages={selectedCards}
-				selectable={isScout}
+				selectable={isScout && !stellaQueueDuringAssociation}
 				selectableImages={revealableCards}
 				desktopFitToHeight={true}
 				imageAnnotations={revealedCardAnnotations}
@@ -230,3 +297,26 @@
 		</div>
 	</div>
 </StageShell>
+
+<style>
+	.stella-scout-flash {
+		animation: stella-scout-flash 1.4s ease-out;
+	}
+
+	@keyframes stella-scout-flash {
+		0% {
+			transform: scale(1);
+			text-shadow: 0 0 0 rgb(96 165 250 / 0);
+		}
+
+		25% {
+			transform: scale(1.02);
+			text-shadow: 0 0 18px rgb(96 165 250 / 0.75);
+		}
+
+		100% {
+			transform: scale(1);
+			text-shadow: 0 0 0 rgb(96 165 250 / 0);
+		}
+	}
+</style>

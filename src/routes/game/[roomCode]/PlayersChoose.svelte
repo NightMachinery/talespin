@@ -48,6 +48,14 @@
 	export let stellaSelectionMax = 10;
 	export let stellaSelectionCountMin = 1;
 	export let stellaSelectionCountMax = 15;
+	export let stellaWordPackPresetNames: string[] = [];
+	export let stellaSelectedWordPackName = '';
+	export let stellaWordPackIsUnsaved = false;
+	export let stellaQueueDuringAssociation = true;
+	export let stellaQueuedRevealMode: 'animated' | 'fast' = 'animated';
+	export let stellaScoutTimerEnabled = true;
+	export let stellaScoutTimerDurationS = 10;
+	export let forceStellaScoutTimer = false;
 	export let serverTimeMs: number | null = null;
 	export let currentStageDeadlineS: number | null = null;
 	export let votingWrongCardDisableDistribution: number[] = [1];
@@ -168,6 +176,14 @@
 	{stellaSelectionMax}
 	{stellaSelectionCountMin}
 	{stellaSelectionCountMax}
+	{stellaWordPackPresetNames}
+	{stellaSelectedWordPackName}
+	{stellaWordPackIsUnsaved}
+	{stellaQueueDuringAssociation}
+	{stellaQueuedRevealMode}
+	{stellaScoutTimerEnabled}
+	{stellaScoutTimerDurationS}
+	{forceStellaScoutTimer}
 	{serverTimeMs}
 	{currentStageDeadlineS}
 	{votingWrongCardDisableDistribution}

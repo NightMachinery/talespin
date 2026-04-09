@@ -33,8 +33,8 @@ mod room;
 
 use rand::distributions::{Distribution, Uniform};
 use room::{
-    canonical_member_name, get_time_s, hash_room_password, Room, ServerMsg, WinCondition,
-    MAX_MEMBER_NAME_LEN,
+    canonical_member_name, get_time_s, hash_room_password, Room, ServerMsg, StellaWordPackPreset,
+    WinCondition, MAX_MEMBER_NAME_LEN,
 };
 
 const GARBAGE_COLLECT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60 * 20); // 20 minutes
@@ -216,13 +216,7 @@ impl SourceKind {
     }
 }
 
-#[derive(Debug, Clone)]
-struct LoadedWordPackPreset {
-    name: String,
-    words: Vec<String>,
-}
-
-fn load_word_pack_presets(dir: &Path) -> Result<Vec<LoadedWordPackPreset>> {
+fn load_word_pack_presets(dir: &Path) -> Result<Vec<StellaWordPackPreset>> {
     let mut presets = Vec::new();
     let entries = fs::read_dir(dir)
         .with_context(|| format!("Failed to read word-pack directory {}", dir.display()))?;
@@ -250,7 +244,7 @@ fn load_word_pack_presets(dir: &Path) -> Result<Vec<LoadedWordPackPreset>> {
             .and_then(|stem| stem.to_str())
             .ok_or_else(|| anyhow!("Invalid word-pack filename {}", path.display()))?
             .to_string();
-        presets.push(LoadedWordPackPreset { name, words });
+        presets.push(StellaWordPackPreset { name, words });
     }
 
     presets.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
@@ -264,7 +258,7 @@ fn load_word_pack_presets(dir: &Path) -> Result<Vec<LoadedWordPackPreset>> {
     Ok(presets)
 }
 
-fn choose_default_word_pack(presets: &[LoadedWordPackPreset]) -> Result<&LoadedWordPackPreset> {
+fn choose_default_word_pack(presets: &[StellaWordPackPreset]) -> Result<&StellaWordPackPreset> {
     presets
         .iter()
         .find(|preset| preset.name == "Resonance_Persian_1")
@@ -1035,6 +1029,7 @@ struct ServerState {
     cards: Arc<HashMap<String, PathBuf>>,
     card_content_type: &'static str,
     default_stella_word_pack: Arc<Vec<String>>,
+    stella_word_pack_presets: Arc<Vec<StellaWordPackPreset>>,
     default_win_points_target: u16,
     max_members: usize,
 }
@@ -1091,6 +1086,7 @@ impl ServerState {
             cards: Arc::new(loaded_cards.cards),
             card_content_type: config.cache_format.mime_type(),
             default_stella_word_pack: Arc::new(default_word_pack.words.clone()),
+            stella_word_pack_presets: Arc::new(word_pack_presets),
             default_win_points_target,
             max_members,
         })
@@ -1119,6 +1115,7 @@ impl ServerState {
             self.max_members,
             room_password_hash,
             self.default_stella_word_pack.clone(),
+            self.stella_word_pack_presets.clone(),
         );
         let msg = room.get_room_state().await;
         self.rooms.insert(room_id.clone(), Arc::new(room));

@@ -1,6 +1,13 @@
 import { browser } from '$app/environment';
 
-export type StageCueStage = 'ActiveChooses' | 'PlayersChoose' | 'Voting' | 'Results';
+export type StageCueStage =
+	| 'ActiveChooses'
+	| 'PlayersChoose'
+	| 'Voting'
+	| 'Results'
+	| 'StellaAssociate'
+	| 'StellaReveal'
+	| 'StellaResults';
 
 type CueNote = {
 	frequencyHz: number;
@@ -33,8 +40,29 @@ const STAGE_CUES: Record<StageCueStage, CueNote[]> = {
 		{ frequencyHz: 987.77, durationS: 0.16 },
 		{ frequencyHz: 783.99, durationS: 0.16 },
 		{ frequencyHz: 659.25, durationS: 0.2 }
+	],
+	StellaAssociate: [
+		{ frequencyHz: 440, durationS: 0.14 },
+		{ frequencyHz: 554.37, durationS: 0.16 },
+		{ frequencyHz: 659.25, durationS: 0.18 }
+	],
+	StellaReveal: [
+		{ frequencyHz: 659.25, durationS: 0.15 },
+		{ frequencyHz: 783.99, durationS: 0.15 },
+		{ frequencyHz: 880, durationS: 0.2 }
+	],
+	StellaResults: [
+		{ frequencyHz: 880, durationS: 0.16 },
+		{ frequencyHz: 1174.66, durationS: 0.18 },
+		{ frequencyHz: 987.77, durationS: 0.22 }
 	]
 };
+
+const SCOUT_TURN_CUE: CueNote[] = [
+	{ frequencyHz: 740, durationS: 0.1 },
+	{ frequencyHz: 987.77, durationS: 0.16 },
+	{ frequencyHz: 1318.51, durationS: 0.2 }
+];
 
 let audioContext: AudioContext | null = null;
 
@@ -85,13 +113,40 @@ export async function playStageChangeCue(stage: StageCueStage) {
 	const notes = STAGE_CUES[stage];
 	let startTime = context.currentTime + 0.01;
 
+	playCueNotes(context, notes, stage === 'Results' || stage === 'StellaResults' ? 'triangle' : 'sine', startTime);
+}
+
+export async function playScoutTurnCue() {
+	const context = getAudioContext();
+	if (!context) return;
+
+	if (context.state === 'suspended') {
+		try {
+			await context.resume();
+		} catch {
+			return;
+		}
+	}
+
+	if (context.state !== 'running') return;
+
+	let startTime = context.currentTime + 0.01;
+	playCueNotes(context, SCOUT_TURN_CUE, 'triangle', startTime);
+}
+
+function playCueNotes(
+	context: AudioContext,
+	notes: CueNote[],
+	oscillatorType: OscillatorType,
+	startTime: number
+) {
 	for (const note of notes) {
 		const oscillator = context.createOscillator();
 		const gainNode = context.createGain();
 		const noteEndTime = startTime + note.durationS;
 		const fadeOutStartTime = Math.max(startTime, noteEndTime - CUE_FADE_OUT_S);
 
-		oscillator.type = stage === 'Results' ? 'triangle' : 'sine';
+		oscillator.type = oscillatorType;
 		oscillator.frequency.setValueAtTime(note.frequencyHz, startTime);
 
 		gainNode.gain.setValueAtTime(0.0001, startTime);

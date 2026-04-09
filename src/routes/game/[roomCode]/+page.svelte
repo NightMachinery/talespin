@@ -14,11 +14,18 @@
 		setAssignedRoomName
 	} from '$lib/store';
 	import {
+		playScoutTurnCue,
 		playStageChangeCue,
 		type StageCueStage,
 		unlockStageChangeAudio
 	} from '$lib/stageChangeAudio';
-	import type { GameMode, ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
+	import type {
+		GameMode,
+		ObserverInfo,
+		PlayerInfo,
+		StellaQueuedRevealMode,
+		WinCondition
+	} from '$lib/types';
 	import { stageChangeSoundCuesEnabled } from '$lib/viewOptions';
 	import GameServer from '$lib/gameServer';
 	import { DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION } from '$lib/votingWrongCardDisableDistribution';
@@ -90,8 +97,15 @@
 	let stellaSelectionCountMin = 1;
 	let stellaSelectionCountMax = 15;
 	let stellaActiveClue = '';
-	let stellaWordPackSize = 0;
 	let stellaWordPackWords: string[] = [];
+	let stellaWordPackPresetNames: string[] = [];
+	let stellaSelectedWordPackName = '';
+	let stellaWordPackIsUnsaved = false;
+	let stellaQueueDuringAssociation = true;
+	let stellaQueuedRevealMode: StellaQueuedRevealMode = 'animated';
+	let stellaScoutTimerEnabled = true;
+	let stellaScoutTimerDurationS = 10;
+	let forceStellaScoutTimer = false;
 	let stellaDarkPlayer = '';
 	let activePlayer = '';
 	let description = '';
@@ -122,10 +136,14 @@
 	let stellaCardPoints: { [key: string]: number } = {};
 	const GAMEPLAY_STAGE_CUES = new Set<StageCueStage>([
 		'ActiveChooses',
+		'StellaAssociate',
 		'PlayersChoose',
+		'StellaReveal',
 		'Voting',
-		'Results'
+		'Results',
+		'StellaResults'
 	]);
+	let previousScoutTurnKey = '';
 
 	// store
 	let toastStore = getToastStore();
@@ -148,6 +166,20 @@
 	function maybeUnlockStageChangeAudio() {
 		if (!get(stageChangeSoundCuesEnabled)) return;
 		void unlockStageChangeAudio();
+	}
+
+	$: scoutTurnCueKey =
+		stage === 'StellaReveal' && activePlayer === name
+			? `${roundNum}:${activePlayer}:${stellaRevealedCards.length}`
+			: '';
+	$: if (scoutTurnCueKey === '') {
+		previousScoutTurnKey = '';
+	} else if (
+		scoutTurnCueKey !== previousScoutTurnKey &&
+		get(stageChangeSoundCuesEnabled)
+	) {
+		previousScoutTurnKey = scoutTurnCueKey;
+		void playScoutTurnCue();
 	}
 
 	function clearStoredAssignedName() {
@@ -277,9 +309,17 @@
 				stellaSelectionMax = data.RoomState.stella_selection_max ?? 10;
 				stellaSelectionCountMin = data.RoomState.stella_selection_count_min ?? 1;
 				stellaSelectionCountMax = data.RoomState.stella_selection_count_max ?? 15;
+				stellaQueueDuringAssociation =
+					data.RoomState.stella_queue_during_association ?? true;
+				stellaQueuedRevealMode = data.RoomState.stella_queued_reveal_mode ?? 'animated';
+				stellaScoutTimerEnabled = data.RoomState.stella_scout_timer_enabled ?? true;
+				stellaScoutTimerDurationS = data.RoomState.stella_scout_timer_duration_s ?? 10;
+				forceStellaScoutTimer = data.RoomState.force_stella_scout_timer ?? false;
 				stellaActiveClue = data.RoomState.stella_active_clue || '';
-				stellaWordPackSize = data.RoomState.stella_word_pack_size ?? 0;
 				stellaWordPackWords = data.RoomState.stella_word_pack_words || [];
+				stellaWordPackPresetNames = data.RoomState.stella_word_pack_preset_names || [];
+				stellaSelectedWordPackName = data.RoomState.stella_selected_word_pack_name || '';
+				stellaWordPackIsUnsaved = data.RoomState.stella_word_pack_is_unsaved ?? false;
 				stellaDarkPlayer = data.RoomState.stella_dark_player || '';
 				activePlayer = data.RoomState.active_player || '';
 				roundNum = data.RoomState.round;
@@ -433,8 +473,12 @@
 				{stellaSelectionMax}
 				{stellaSelectionCountMin}
 				{stellaSelectionCountMax}
-				{stellaWordPackSize}
 				{stellaWordPackWords}
+				{stellaQueueDuringAssociation}
+				{stellaQueuedRevealMode}
+				{stellaScoutTimerEnabled}
+				{stellaScoutTimerDurationS}
+				{forceStellaScoutTimer}
 				roomStateLoaded={hasReceivedRoomState}
 			/>
 		</div>
@@ -481,6 +525,14 @@
 			{stellaSelectionMax}
 			{stellaSelectionCountMin}
 			{stellaSelectionCountMax}
+			{stellaWordPackPresetNames}
+			{stellaSelectedWordPackName}
+			{stellaWordPackIsUnsaved}
+			{stellaQueueDuringAssociation}
+			{stellaQueuedRevealMode}
+			{stellaScoutTimerEnabled}
+			{stellaScoutTimerDurationS}
+			{forceStellaScoutTimer}
 			{serverTimeMs}
 			{currentStageDeadlineS}
 			{votingWrongCardDisableDistribution}
@@ -537,7 +589,14 @@
 			{stellaSelectionMax}
 			{stellaSelectionCountMin}
 			{stellaSelectionCountMax}
-			{stellaWordPackWords}
+			{stellaWordPackPresetNames}
+			{stellaSelectedWordPackName}
+			{stellaWordPackIsUnsaved}
+			{stellaQueueDuringAssociation}
+			{stellaQueuedRevealMode}
+			{stellaScoutTimerEnabled}
+			{stellaScoutTimerDurationS}
+			{forceStellaScoutTimer}
 			{serverTimeMs}
 			{currentStageDeadlineS}
 			{votingWrongCardDisableDistribution}
@@ -599,6 +658,14 @@
 			{stellaSelectionMax}
 			{stellaSelectionCountMin}
 			{stellaSelectionCountMax}
+			{stellaWordPackPresetNames}
+			{stellaSelectedWordPackName}
+			{stellaWordPackIsUnsaved}
+			{stellaQueueDuringAssociation}
+			{stellaQueuedRevealMode}
+			{stellaScoutTimerEnabled}
+			{stellaScoutTimerDurationS}
+			{forceStellaScoutTimer}
 			{serverTimeMs}
 			{currentStageDeadlineS}
 			{votingWrongCardDisableDistribution}
@@ -653,6 +720,14 @@
 			{stellaSelectionMax}
 			{stellaSelectionCountMin}
 			{stellaSelectionCountMax}
+			{stellaWordPackPresetNames}
+			{stellaSelectedWordPackName}
+			{stellaWordPackIsUnsaved}
+			{stellaQueueDuringAssociation}
+			{stellaQueuedRevealMode}
+			{stellaScoutTimerEnabled}
+			{stellaScoutTimerDurationS}
+			{forceStellaScoutTimer}
 			{serverTimeMs}
 			{currentStageDeadlineS}
 			{votingWrongCardDisableDistribution}
@@ -708,6 +783,14 @@
 			{stellaSelectionMax}
 			{stellaSelectionCountMin}
 			{stellaSelectionCountMax}
+			{stellaWordPackPresetNames}
+			{stellaSelectedWordPackName}
+			{stellaWordPackIsUnsaved}
+			{stellaQueueDuringAssociation}
+			{stellaQueuedRevealMode}
+			{stellaScoutTimerEnabled}
+			{stellaScoutTimerDurationS}
+			{forceStellaScoutTimer}
 			{serverTimeMs}
 			{currentStageDeadlineS}
 			{votingWrongCardDisableDistribution}
@@ -758,6 +841,21 @@
 			{votingTimerDurationS}
 			{forceCardChoosingTimer}
 			{forceVotingTimer}
+			{stellaBoardSize}
+			{stellaBoardSizeMin}
+			{stellaBoardSizeMax}
+			{stellaSelectionMin}
+			{stellaSelectionMax}
+			{stellaSelectionCountMin}
+			{stellaSelectionCountMax}
+			{stellaWordPackPresetNames}
+			{stellaSelectedWordPackName}
+			{stellaWordPackIsUnsaved}
+			{stellaQueueDuringAssociation}
+			{stellaQueuedRevealMode}
+			{stellaScoutTimerEnabled}
+			{stellaScoutTimerDurationS}
+			{forceStellaScoutTimer}
 			{serverTimeMs}
 			{currentStageDeadlineS}
 			{votingWrongCardDisableDistribution}
@@ -811,7 +909,14 @@
 			{stellaSelectionMax}
 			{stellaSelectionCountMin}
 			{stellaSelectionCountMax}
-			{stellaWordPackWords}
+			{stellaWordPackPresetNames}
+			{stellaSelectedWordPackName}
+			{stellaWordPackIsUnsaved}
+			{stellaQueueDuringAssociation}
+			{stellaQueuedRevealMode}
+			{stellaScoutTimerEnabled}
+			{stellaScoutTimerDurationS}
+			{forceStellaScoutTimer}
 			{serverTimeMs}
 			{currentStageDeadlineS}
 			{votingWrongCardDisableDistribution}
@@ -861,6 +966,21 @@
 			{votingTimerDurationS}
 			{forceCardChoosingTimer}
 			{forceVotingTimer}
+			{stellaBoardSize}
+			{stellaBoardSizeMin}
+			{stellaBoardSizeMax}
+			{stellaSelectionMin}
+			{stellaSelectionMax}
+			{stellaSelectionCountMin}
+			{stellaSelectionCountMax}
+			{stellaWordPackPresetNames}
+			{stellaSelectedWordPackName}
+			{stellaWordPackIsUnsaved}
+			{stellaQueueDuringAssociation}
+			{stellaQueuedRevealMode}
+			{stellaScoutTimerEnabled}
+			{stellaScoutTimerDurationS}
+			{forceStellaScoutTimer}
 			{serverTimeMs}
 			{currentStageDeadlineS}
 			{votingWrongCardDisableDistribution}

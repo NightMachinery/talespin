@@ -339,9 +339,45 @@ class GameServer {
 		});
 	}
 
+	setStellaQueueDuringAssociation(enabled: boolean) {
+		this.send({
+			SetStellaQueueDuringAssociation: { enabled }
+		});
+	}
+
+	setStellaQueuedRevealMode(mode: 'animated' | 'fast') {
+		this.send({
+			SetStellaQueuedRevealMode: { mode }
+		});
+	}
+
+	setStellaScoutTimerEnabled(enabled: boolean) {
+		this.send({
+			SetStellaScoutTimerEnabled: { enabled }
+		});
+	}
+
+	setStellaScoutTimerDuration(seconds: number) {
+		this.send({
+			SetStellaScoutTimerDuration: { seconds }
+		});
+	}
+
+	setForceStellaScoutTimer(enabled: boolean) {
+		this.send({
+			SetForceStellaScoutTimer: { enabled }
+		});
+	}
+
 	setStellaWordPack(words: string) {
 		this.send({
 			SetStellaWordPack: { words }
+		});
+	}
+
+	setStellaWordPackPreset(name: string) {
+		this.send({
+			SetStellaWordPackPreset: { name }
 		});
 	}
 
