@@ -31,6 +31,7 @@
 	export let nominationsPerGuesserMax = 1;
 	export let bonusCorrectGuessOnThresholdCorrectLoss = true;
 	export let bonusDoubleVoteOnThresholdCorrectLoss = true;
+	export let bonusThresholdLossTogglesApplyToAllStorytellerLossRounds = true;
 	export let showVotingCardNumbers = true;
 	export let roundStartDiscardCount = 3;
 	export let hintChoosingTimerEnabled = true;
@@ -189,6 +190,7 @@
 	{nominationsPerGuesserMax}
 	{bonusCorrectGuessOnThresholdCorrectLoss}
 	{bonusDoubleVoteOnThresholdCorrectLoss}
+	{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 	{showVotingCardNumbers}
 	{roundStartDiscardCount}
 	{hintChoosingTimerEnabled}
@@ -230,7 +232,9 @@
 		<div class="card light space-y-2 p-4">
 			<h1 class="text-xl font-semibold">Resonance — Reveal</h1>
 			<p>Clue word: <span class="boujee-text">{clueWord}</span></p>
-			<p class:stella-scout-flash={scoutFlash}>Scout: <span class="font-semibold">{activePlayer}</span></p>
+			<p class:stella-scout-flash={scoutFlash}>
+				Scout: <span class="font-semibold">{activePlayer}</span>
+			</p>
 		</div>
 		<div class="card light space-y-2 p-4">
 			<h2 class="font-semibold">Selection counts</h2>

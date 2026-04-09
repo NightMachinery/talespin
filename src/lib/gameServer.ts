@@ -233,6 +233,14 @@ class GameServer {
 		});
 	}
 
+	setBonusThresholdLossTogglesApplyToAllStorytellerLossRounds(enabled: boolean) {
+		this.send({
+			SetBonusThresholdLossTogglesApplyToAllStorytellerLossRounds: {
+				enabled
+			}
+		});
+	}
+
 	setShowVotingCardNumbers(enabled: boolean) {
 		this.send({
 			SetShowVotingCardNumbers: {

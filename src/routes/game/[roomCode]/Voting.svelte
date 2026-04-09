@@ -35,6 +35,7 @@
 	export let nominationsPerGuesserMax = 1;
 	export let bonusCorrectGuessOnThresholdCorrectLoss = true;
 	export let bonusDoubleVoteOnThresholdCorrectLoss = true;
+	export let bonusThresholdLossTogglesApplyToAllStorytellerLossRounds = true;
 	export let showVotingCardNumbers = true;
 	export let roundStartDiscardCount = 3;
 	export let hintChoosingTimerEnabled = true;
@@ -196,6 +197,7 @@
 	{nominationsPerGuesserMax}
 	{bonusCorrectGuessOnThresholdCorrectLoss}
 	{bonusDoubleVoteOnThresholdCorrectLoss}
+	{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 	{showVotingCardNumbers}
 	{roundStartDiscardCount}
 	{hintChoosingTimerEnabled}

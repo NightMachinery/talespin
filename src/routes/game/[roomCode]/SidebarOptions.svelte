@@ -1,12 +1,7 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import type GameServer from '$lib/gameServer';
-	import type {
-		GameMode,
-		ObserverInfo,
-		PlayerInfo,
-		StellaQueuedRevealMode
-	} from '$lib/types';
+	import type { GameMode, ObserverInfo, PlayerInfo, StellaQueuedRevealMode } from '$lib/types';
 	import { OFFLINE_STATUS_LABEL } from '$lib/presence';
 	import { isStageChangeAudioSupported, unlockStageChangeAudio } from '$lib/stageChangeAudio';
 	import {
@@ -58,6 +53,7 @@
 	export let nominationsPerGuesserMax = 1;
 	export let bonusCorrectGuessOnThresholdCorrectLoss = true;
 	export let bonusDoubleVoteOnThresholdCorrectLoss = true;
+	export let bonusThresholdLossTogglesApplyToAllStorytellerLossRounds = true;
 	export let showVotingCardNumbers = true;
 	export let roundStartDiscardCount = 3;
 	export let hintChoosingTimerEnabled = true;
@@ -313,6 +309,15 @@
 			return;
 		}
 		gameServer.setBonusDoubleVoteOnThresholdCorrectLoss(input.checked);
+	}
+
+	function updateBonusThresholdLossTogglesApplyToAllStorytellerLossRounds(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		if (!isModerator || !canChangePreVotingSettings) {
+			input.checked = bonusThresholdLossTogglesApplyToAllStorytellerLossRounds;
+			return;
+		}
+		gameServer.setBonusThresholdLossTogglesApplyToAllStorytellerLossRounds(input.checked);
 	}
 
 	function updateShowVotingCardNumbers(event: Event) {
@@ -1057,8 +1062,8 @@
 									<div>
 										<span class="block font-medium">Queue during Association</span>
 										<p class="text-xs opacity-70">
-											Players order reveals while selecting cards. When enabled, there is no
-											manual scout click-to-reveal step.
+											Players order reveals while selecting cards. When enabled, there is no manual
+											scout click-to-reveal step.
 										</p>
 									</div>
 								</label>
@@ -1071,7 +1076,9 @@
 										class="mt-2 w-full rounded border px-2 py-1 text-gray-700 shadow"
 										value={stellaQueuedRevealMode}
 										on:change={updateStellaQueuedRevealMode}
-										disabled={!isModerator || !canChangeStellaSettings || !stellaQueueDuringAssociation}
+										disabled={!isModerator ||
+											!canChangeStellaSettings ||
+											!stellaQueueDuringAssociation}
 									>
 										<option value="animated">Animated reveal</option>
 										<option value="fast">Fast reveal</option>
@@ -1412,7 +1419,7 @@
 								on:change={updateBonusCorrectGuessOnThresholdCorrectLoss}
 								disabled={!isModerator || !canChangePreVotingSettings}
 							/>
-							<span> Give +3 correct-guess base in threshold-correct storyteller-loss rounds </span>
+							<span> Give +3 correct-guess base in storyteller-loss rounds covered below </span>
 						</label>
 						{#if !canChangePreVotingSettings}
 							<p class="mt-1 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
@@ -1427,8 +1434,26 @@
 								on:change={updateBonusDoubleVoteOnThresholdCorrectLoss}
 								disabled={!isModerator || !canChangePreVotingSettings}
 							/>
-							<span> Give +1 double-vote bonus in threshold-correct storyteller-loss rounds </span>
+							<span> Give +1 double-vote bonus in storyteller-loss rounds covered below </span>
 						</label>
+						{#if !canChangePreVotingSettings}
+							<p class="mt-1 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
+						{/if}
+					</div>
+					<div class="mt-3 rounded border border-white/20 px-2 py-2">
+						<label class="flex items-start gap-3 text-sm">
+							<input
+								type="checkbox"
+								class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
+								checked={bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
+								on:change={updateBonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
+								disabled={!isModerator || !canChangePreVotingSettings}
+							/>
+							<span> Apply the two bonus toggles above in all storyteller-loss rounds </span>
+						</label>
+						<p class="mt-1 text-xs opacity-70">
+							Includes rounds where the storyteller loses because too many guessers were wrong.
+						</p>
 						{#if !canChangePreVotingSettings}
 							<p class="mt-1 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
 						{/if}

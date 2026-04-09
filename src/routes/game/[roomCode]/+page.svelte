@@ -76,6 +76,7 @@
 	let nominationsPerGuesserMax = 1;
 	let bonusCorrectGuessOnThresholdCorrectLoss = true;
 	let bonusDoubleVoteOnThresholdCorrectLoss = true;
+	let bonusThresholdLossTogglesApplyToAllStorytellerLossRounds = true;
 	let showVotingCardNumbers = true;
 	let roundStartDiscardCount = 3;
 	let hintChoosingTimerEnabled = true;
@@ -174,10 +175,7 @@
 			: '';
 	$: if (scoutTurnCueKey === '') {
 		previousScoutTurnKey = '';
-	} else if (
-		scoutTurnCueKey !== previousScoutTurnKey &&
-		get(stageChangeSoundCuesEnabled)
-	) {
+	} else if (scoutTurnCueKey !== previousScoutTurnKey && get(stageChangeSoundCuesEnabled)) {
 		previousScoutTurnKey = scoutTurnCueKey;
 		void playScoutTurnCue();
 	}
@@ -286,6 +284,8 @@
 					data.RoomState.bonus_correct_guess_on_threshold_correct_loss ?? true;
 				bonusDoubleVoteOnThresholdCorrectLoss =
 					data.RoomState.bonus_double_vote_on_threshold_correct_loss ?? true;
+				bonusThresholdLossTogglesApplyToAllStorytellerLossRounds =
+					data.RoomState.bonus_threshold_loss_toggles_apply_to_all_storyteller_loss_rounds ?? true;
 				showVotingCardNumbers = data.RoomState.show_voting_card_numbers ?? true;
 				roundStartDiscardCount = data.RoomState.round_start_discard_count ?? 3;
 				hintChoosingTimerEnabled = data.RoomState.hint_choosing_timer_enabled ?? true;
@@ -309,8 +309,7 @@
 				stellaSelectionMax = data.RoomState.stella_selection_max ?? 10;
 				stellaSelectionCountMin = data.RoomState.stella_selection_count_min ?? 1;
 				stellaSelectionCountMax = data.RoomState.stella_selection_count_max ?? 15;
-				stellaQueueDuringAssociation =
-					data.RoomState.stella_queue_during_association ?? true;
+				stellaQueueDuringAssociation = data.RoomState.stella_queue_during_association ?? true;
 				stellaQueuedRevealMode = data.RoomState.stella_queued_reveal_mode ?? 'animated';
 				stellaScoutTimerEnabled = data.RoomState.stella_scout_timer_enabled ?? true;
 				stellaScoutTimerDurationS = data.RoomState.stella_scout_timer_duration_s ?? 10;
@@ -508,6 +507,7 @@
 			{nominationsPerGuesserMax}
 			{bonusCorrectGuessOnThresholdCorrectLoss}
 			{bonusDoubleVoteOnThresholdCorrectLoss}
+			{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 			{showVotingCardNumbers}
 			{roundStartDiscardCount}
 			{hintChoosingTimerEnabled}
@@ -572,6 +572,7 @@
 			{nominationsPerGuesserMax}
 			{bonusCorrectGuessOnThresholdCorrectLoss}
 			{bonusDoubleVoteOnThresholdCorrectLoss}
+			{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 			{showVotingCardNumbers}
 			{roundStartDiscardCount}
 			{hintChoosingTimerEnabled}
@@ -641,6 +642,7 @@
 			{nominationsPerGuesserMax}
 			{bonusCorrectGuessOnThresholdCorrectLoss}
 			{bonusDoubleVoteOnThresholdCorrectLoss}
+			{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 			{showVotingCardNumbers}
 			{roundStartDiscardCount}
 			{hintChoosingTimerEnabled}
@@ -703,6 +705,7 @@
 			{nominationsPerGuesserMax}
 			{bonusCorrectGuessOnThresholdCorrectLoss}
 			{bonusDoubleVoteOnThresholdCorrectLoss}
+			{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 			{showVotingCardNumbers}
 			{roundStartDiscardCount}
 			{hintChoosingTimerEnabled}
@@ -766,6 +769,7 @@
 			{nominationsPerGuesserMax}
 			{bonusCorrectGuessOnThresholdCorrectLoss}
 			{bonusDoubleVoteOnThresholdCorrectLoss}
+			{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 			{showVotingCardNumbers}
 			{roundStartDiscardCount}
 			{hintChoosingTimerEnabled}
@@ -831,6 +835,7 @@
 			{nominationsPerGuesserMax}
 			{bonusCorrectGuessOnThresholdCorrectLoss}
 			{bonusDoubleVoteOnThresholdCorrectLoss}
+			{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 			{showVotingCardNumbers}
 			{roundStartDiscardCount}
 			{hintChoosingTimerEnabled}
@@ -892,6 +897,7 @@
 			{nominationsPerGuesserMax}
 			{bonusCorrectGuessOnThresholdCorrectLoss}
 			{bonusDoubleVoteOnThresholdCorrectLoss}
+			{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 			{showVotingCardNumbers}
 			{roundStartDiscardCount}
 			{hintChoosingTimerEnabled}
@@ -956,6 +962,7 @@
 			{nominationsPerGuesserMax}
 			{bonusCorrectGuessOnThresholdCorrectLoss}
 			{bonusDoubleVoteOnThresholdCorrectLoss}
+			{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 			{showVotingCardNumbers}
 			{roundStartDiscardCount}
 			{hintChoosingTimerEnabled}
@@ -1005,6 +1012,7 @@
 				{votesPerGuesserMax}
 				{bonusCorrectGuessOnThresholdCorrectLoss}
 				{bonusDoubleVoteOnThresholdCorrectLoss}
+				{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 			/>
 		</div>
 	{/if}

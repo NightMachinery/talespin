@@ -126,6 +126,7 @@ pub enum ServerMsg {
         nominations_per_guesser_max: u16,
         bonus_correct_guess_on_threshold_correct_loss: bool,
         bonus_double_vote_on_threshold_correct_loss: bool,
+        bonus_threshold_loss_toggles_apply_to_all_storyteller_loss_rounds: bool,
         show_voting_card_numbers: bool,
         round_start_discard_count: u16,
         hint_choosing_timer_enabled: bool,
@@ -273,6 +274,9 @@ pub enum ClientMsg {
         enabled: bool,
     },
     SetBonusDoubleVoteOnThresholdCorrectLoss {
+        enabled: bool,
+    },
+    SetBonusThresholdLossTogglesApplyToAllStorytellerLossRounds {
         enabled: bool,
     },
     SetShowVotingCardNumbers {
@@ -465,6 +469,8 @@ struct RoomState {
     bonus_correct_guess_on_threshold_correct_loss: bool,
     // apply double-correct bonus in threshold-correct storyteller-loss rounds
     bonus_double_vote_on_threshold_correct_loss: bool,
+    // whether the threshold-correct bonus toggles also apply when storyteller loses because too many guessers were wrong
+    bonus_threshold_loss_toggles_apply_to_all_storyteller_loss_rounds: bool,
     // show deterministic numbers on voting cards
     show_voting_card_numbers: bool,
     // random cards discarded from each active hand at round start (then topped up)
@@ -663,6 +669,7 @@ impl Room {
             nominations_per_guesser: DEFAULT_NOMINATIONS_PER_GUESSER,
             bonus_correct_guess_on_threshold_correct_loss: true,
             bonus_double_vote_on_threshold_correct_loss: true,
+            bonus_threshold_loss_toggles_apply_to_all_storyteller_loss_rounds: true,
             show_voting_card_numbers: true,
             round_start_discard_count: 3,
             hint_choosing_timer_enabled: true,
@@ -4708,6 +4715,42 @@ impl Room {
                 state.bonus_double_vote_on_threshold_correct_loss = enabled;
                 self.broadcast_msg(self.room_state(&state))?;
             }
+            ClientMsg::SetBonusThresholdLossTogglesApplyToAllStorytellerLossRounds { enabled } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change storyteller-loss scoring bonus scope"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if matches!(state.stage, RoomStage::End) {
+                    return Ok(());
+                }
+
+                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Storyteller-loss scoring bonus scope can only be changed during storyteller choosing stage"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                state.bonus_threshold_loss_toggles_apply_to_all_storyteller_loss_rounds = enabled;
+                self.broadcast_msg(self.room_state(&state))?;
+            }
             ClientMsg::SetShowVotingCardNumbers { enabled } => {
                 if !self.is_moderator(&state, name) {
                     if let Some(tx) = state.player_to_socket.get(name) {
@@ -5472,6 +5515,9 @@ impl Room {
         let too_many_correct = correct_guessers >= threshold;
         let too_many_wrong = wrong_guesses >= threshold;
         let storyteller_loses = too_many_correct || too_many_wrong;
+        let threshold_loss_bonuses_apply_in_this_storyteller_loss_round = too_many_correct
+            || (too_many_wrong
+                && state.bonus_threshold_loss_toggles_apply_to_all_storyteller_loss_rounds);
         let round_participants = state
             .player_to_current_cards
             .keys()
@@ -5493,7 +5539,7 @@ impl Room {
                     .unwrap_or(false);
 
                 let mut player_points = 2;
-                if too_many_correct
+                if threshold_loss_bonuses_apply_in_this_storyteller_loss_round
                     && state.bonus_correct_guess_on_threshold_correct_loss
                     && has_correct_vote
                 {
@@ -5520,11 +5566,12 @@ impl Room {
         }
 
         // +1 extra point for correct double-vote on storyteller card.
-        let allow_double_correct_bonus = if too_many_correct && storyteller_loses {
-            state.bonus_double_vote_on_threshold_correct_loss
-        } else {
-            true
-        };
+        let allow_double_correct_bonus =
+            if storyteller_loses && threshold_loss_bonuses_apply_in_this_storyteller_loss_round {
+                state.bonus_double_vote_on_threshold_correct_loss
+            } else {
+                true
+            };
         if allow_double_correct_bonus {
             for player in double_correct_guessers.iter() {
                 let entry = point_change.entry(player.to_string()).or_insert(0);
@@ -5961,6 +6008,8 @@ impl Room {
                 .bonus_correct_guess_on_threshold_correct_loss,
             bonus_double_vote_on_threshold_correct_loss: state
                 .bonus_double_vote_on_threshold_correct_loss,
+            bonus_threshold_loss_toggles_apply_to_all_storyteller_loss_rounds: state
+                .bonus_threshold_loss_toggles_apply_to_all_storyteller_loss_rounds,
             show_voting_card_numbers: state.show_voting_card_numbers,
             round_start_discard_count,
             hint_choosing_timer_enabled: state.hint_choosing_timer_enabled,
@@ -7795,8 +7844,8 @@ mod tests {
         );
         assert_eq!(
             point_change.get("b").copied(),
-            Some(5),
-            "loss branch gives +2 base plus +3 capped decoy bonus"
+            Some(6),
+            "with default all-loss bonus scope on, loss branch gives +3 correct base plus +3 capped decoy bonus"
         );
 
         Ok(())
@@ -7914,8 +7963,8 @@ mod tests {
         );
         assert_eq!(
             point_change.get("b").copied(),
-            Some(6),
-            "b should get +2 loss-branch base, +1 double-correct bonus, +3 capped decoy bonus"
+            Some(7),
+            "with default all-loss bonus scope on, b should get +3 loss-branch base, +1 double-correct bonus, +3 capped decoy bonus"
         );
         assert_eq!(
             point_change.get("c").copied(),
@@ -8015,6 +8064,118 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn all_storyteller_loss_bonus_scope_toggle_adjusts_wrong_loss_rewards() -> Result<()> {
+        let setup_wrong_loss_state =
+            |state: &mut RwLockWriteGuard<'_, RoomState>,
+             scope_enabled: bool,
+             correct_bonus_enabled: bool,
+             double_bonus_enabled: bool| {
+                add_player(state, "a", 0);
+                add_player(state, "b", 0);
+                add_player(state, "c", 0);
+                add_player(state, "d", 0);
+                add_player(state, "e", 0);
+                add_player(state, "f", 0);
+                state.player_order = vec![
+                    "a".into(),
+                    "b".into(),
+                    "c".into(),
+                    "d".into(),
+                    "e".into(),
+                    "f".into(),
+                ];
+                state.active_player = 0;
+                state.storyteller_loss_complement = 2;
+                state.storyteller_loss_complement_auto = false;
+                state.votes_per_guesser = 2;
+                state.bonus_threshold_loss_toggles_apply_to_all_storyteller_loss_rounds =
+                    scope_enabled;
+                state.bonus_correct_guess_on_threshold_correct_loss = correct_bonus_enabled;
+                state.bonus_double_vote_on_threshold_correct_loss = double_bonus_enabled;
+
+                state
+                    .player_to_current_cards
+                    .insert("a".into(), vec!["ca".into()]);
+                state
+                    .player_to_current_cards
+                    .insert("b".into(), vec!["cb".into()]);
+                state
+                    .player_to_current_cards
+                    .insert("c".into(), vec!["cc".into()]);
+                state
+                    .player_to_current_cards
+                    .insert("d".into(), vec!["cd".into()]);
+                state
+                    .player_to_current_cards
+                    .insert("e".into(), vec!["ce".into()]);
+                state
+                    .player_to_current_cards
+                    .insert("f".into(), vec!["cf".into()]);
+
+                // One guesser double-votes correctly; the other four guessers all miss.
+                // With complement=2 and guessers=5, threshold is 3, so this is a too-many-wrong storyteller-loss round.
+                state
+                    .player_to_votes
+                    .insert("b".into(), vec!["ca".into(), "ca".into()]);
+                state
+                    .player_to_votes
+                    .insert("c".into(), vec!["cd".into(), "ce".into()]);
+                state
+                    .player_to_votes
+                    .insert("d".into(), vec!["cc".into(), "ce".into()]);
+                state
+                    .player_to_votes
+                    .insert("e".into(), vec!["cc".into(), "cd".into()]);
+                state
+                    .player_to_votes
+                    .insert("f".into(), vec!["cc".into(), "cd".into()]);
+            };
+
+        {
+            let room = test_room();
+            let mut state = room.state.write().await;
+            setup_wrong_loss_state(&mut state, false, false, false);
+            let point_change = room.compute_results(&state);
+            assert_eq!(
+                point_change.get("a").copied(),
+                Some(0),
+                "storyteller should lose in too-many-wrong loss branch"
+            );
+            assert_eq!(
+                point_change.get("b").copied(),
+                Some(3),
+                "with scope off, too-many-wrong rounds should keep existing +2 base and always-on double bonus behavior"
+            );
+        }
+
+        {
+            let room = test_room();
+            let mut state = room.state.write().await;
+            setup_wrong_loss_state(&mut state, true, true, true);
+            let point_change = room.compute_results(&state);
+            assert_eq!(
+                point_change.get("b").copied(),
+                Some(4),
+                "with scope on, too-many-wrong rounds should honor both storyteller-loss bonuses"
+            );
+        }
+
+        {
+            let room = test_room();
+            let mut state = room.state.write().await;
+            setup_wrong_loss_state(&mut state, true, false, false);
+            let point_change = room.compute_results(&state);
+            assert_eq!(
+                point_change.get("b").copied(),
+                Some(2),
+                "with scope on and both toggles off, too-many-wrong rounds should fall back to plain +2"
+            );
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn room_state_includes_threshold_correct_bonus_toggle_defaults() -> Result<()> {
         let room = test_room();
         let state = room.state.write().await;
@@ -8026,6 +8187,7 @@ mod tests {
                 storyteller_loss_complement_auto,
                 bonus_correct_guess_on_threshold_correct_loss,
                 bonus_double_vote_on_threshold_correct_loss,
+                bonus_threshold_loss_toggles_apply_to_all_storyteller_loss_rounds,
                 show_voting_card_numbers,
                 round_start_discard_count,
                 hint_choosing_timer_enabled,
@@ -8058,6 +8220,10 @@ mod tests {
                 assert!(
                     bonus_double_vote_on_threshold_correct_loss,
                     "double-vote threshold bonus should default to on"
+                );
+                assert!(
+                    bonus_threshold_loss_toggles_apply_to_all_storyteller_loss_rounds,
+                    "storyteller-loss bonus scope should default to all storyteller-loss rounds"
                 );
                 assert!(
                     show_voting_card_numbers,
@@ -8940,6 +9106,65 @@ alpha
         assert!(
             state.bonus_double_vote_on_threshold_correct_loss,
             "double-vote bonus toggle should update in ActiveChooses"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn storyteller_loss_bonus_scope_changes_only_in_storyteller_stage() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            add_player(&mut state, "p2", 0);
+            add_player(&mut state, "p3", 0);
+            add_player(&mut state, "p4", 0);
+            state.stage = RoomStage::PlayersChoose;
+            state.bonus_threshold_loss_toggles_apply_to_all_storyteller_loss_rounds = false;
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 114);
+        }
+
+        room.handle_client_msg(
+            "host",
+            114,
+            to_ws(
+                ClientMsg::SetBonusThresholdLossTogglesApplyToAllStorytellerLossRounds {
+                    enabled: true,
+                },
+            ),
+        )
+        .await?;
+
+        {
+            let state = room.state.read().await;
+            assert!(
+                !state.bonus_threshold_loss_toggles_apply_to_all_storyteller_loss_rounds,
+                "storyteller-loss bonus scope should remain unchanged outside ActiveChooses"
+            );
+        }
+
+        {
+            let mut state = room.state.write().await;
+            state.stage = RoomStage::ActiveChooses;
+        }
+
+        room.handle_client_msg(
+            "host",
+            114,
+            to_ws(
+                ClientMsg::SetBonusThresholdLossTogglesApplyToAllStorytellerLossRounds {
+                    enabled: true,
+                },
+            ),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert!(
+            state.bonus_threshold_loss_toggles_apply_to_all_storyteller_loss_rounds,
+            "storyteller-loss bonus scope should update in ActiveChooses"
         );
 
         Ok(())

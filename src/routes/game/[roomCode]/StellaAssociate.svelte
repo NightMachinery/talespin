@@ -29,6 +29,7 @@
 	export let nominationsPerGuesserMax = 1;
 	export let bonusCorrectGuessOnThresholdCorrectLoss = true;
 	export let bonusDoubleVoteOnThresholdCorrectLoss = true;
+	export let bonusThresholdLossTogglesApplyToAllStorytellerLossRounds = true;
 	export let showVotingCardNumbers = true;
 	export let roundStartDiscardCount = 3;
 	export let hintChoosingTimerEnabled = true;
@@ -187,6 +188,7 @@
 	{nominationsPerGuesserMax}
 	{bonusCorrectGuessOnThresholdCorrectLoss}
 	{bonusDoubleVoteOnThresholdCorrectLoss}
+	{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 	{showVotingCardNumbers}
 	{roundStartDiscardCount}
 	{hintChoosingTimerEnabled}
@@ -232,8 +234,8 @@
 				{#if stellaQueueDuringAssociation}
 					Pick every matching card, then arrange their reveal queue before locking in.
 				{:else}
-					Pick every card you want to associate with the clue, then lock in. You can adjust and
-					lock again before reveal starts.
+					Pick every card you want to associate with the clue, then lock in. You can adjust and lock
+					again before reveal starts.
 				{/if}
 			</p>
 		</div>
@@ -333,7 +335,9 @@
 				<p class="mb-2 text-sm font-semibold">Reveal queue</p>
 				<div class="space-y-2">
 					{#each localSelectedCards as card, index}
-						<div class="flex items-center justify-between gap-2 rounded border border-white/15 px-2 py-1.5">
+						<div
+							class="flex items-center justify-between gap-2 rounded border border-white/15 px-2 py-1.5"
+						>
 							<div class="text-sm">
 								<span class="font-semibold">Q{index + 1}</span>
 								<span class="ml-2 opacity-75">Board #{boardIndexByCard[card]}</span>
