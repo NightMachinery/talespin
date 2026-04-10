@@ -55,7 +55,9 @@
 		if (
 			stage === 'Joining' ||
 			stage === 'StellaAssociate' ||
+			stage === 'BeautyVoting' ||
 			stage === 'Results' ||
+			stage === 'BeautyResults' ||
 			stage === 'StellaResults'
 		) {
 			return true;
@@ -67,7 +69,12 @@
 	}
 
 	function shouldShowPointChange() {
-		return stage === 'Results' || stage === 'StellaReveal' || stage === 'StellaResults';
+		return (
+			stage === 'Results' ||
+			stage === 'BeautyResults' ||
+			stage === 'StellaReveal' ||
+			stage === 'StellaResults'
+		);
 	}
 
 	function formatObserverPoints(points: number | null) {

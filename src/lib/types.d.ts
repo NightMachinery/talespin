@@ -15,6 +15,8 @@ export type GameMode = 'dixit_plus' | 'stella';
 
 export type StellaQueuedRevealMode = 'animated' | 'fast';
 
+export type BeautyResultsDisplayMode = 'summary' | 'separate' | 'combined';
+
 export type WinCondition =
 	| {
 			mode: 'points';

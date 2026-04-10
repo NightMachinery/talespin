@@ -1,7 +1,13 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import type GameServer from '$lib/gameServer';
-	import type { GameMode, ObserverInfo, PlayerInfo, StellaQueuedRevealMode } from '$lib/types';
+	import type {
+		BeautyResultsDisplayMode,
+		GameMode,
+		ObserverInfo,
+		PlayerInfo,
+		StellaQueuedRevealMode
+	} from '$lib/types';
 	import { OFFLINE_STATUS_LABEL } from '$lib/presence';
 	import { isStageChangeAudioSupported, unlockStageChangeAudio } from '$lib/stageChangeAudio';
 	import {
@@ -45,6 +51,15 @@
 	export let votesPerGuesser = 1;
 	export let votesPerGuesserMin = 1;
 	export let votesPerGuesserMax = 1;
+	export let beautyEnabled = false;
+	export let beautyVotesPerPlayer = 1;
+	export let beautyVotesPerPlayerMin = 1;
+	export let beautyVotesPerPlayerMax = 1;
+	export let beautyAllowDuplicateVotes = false;
+	export let beautyPointsBonus = 2;
+	export let beautyPointsBonusMin = 0;
+	export let beautyPointsBonusMax = 10;
+	export let beautyResultsDisplayMode: BeautyResultsDisplayMode = 'combined';
 	export let cardsPerHand = 12;
 	export let cardsPerHandMin = 1;
 	export let cardsPerHandMax = 18;
@@ -95,7 +110,8 @@
 	$: isStellaMode = gameMode === 'stella';
 	$: isDixitMode = gameMode !== 'stella';
 	$: selfObserveBlocked =
-		(stage === 'PlayersChoose' || stage === 'Voting') && activePlayer === name;
+		(stage === 'PlayersChoose' || stage === 'Voting' || stage === 'BeautyVoting') &&
+		activePlayer === name;
 	$: canBecomeObserver =
 		!isSelfObserver && stage !== 'Joining' && stage !== 'End' && !selfObserveBlocked;
 	$: canChangeCardsPerHand = isDixitMode && stage === 'ActiveChooses';
@@ -140,7 +156,11 @@
 		!!selfObserverInfo &&
 		(selfObserverInfo.join_requested || selfObserverInfo.auto_join_on_next_round);
 	$: selfJoinBackLabel =
-		stage === 'Voting' ? (selfJoinPending ? 'Cancel pending join' : 'Join next round') : 'Join now';
+		stage === 'Voting' || stage === 'BeautyVoting'
+			? selfJoinPending
+				? 'Cancel pending join'
+				: 'Join next round'
+			: 'Join now';
 	$: activePlayerPoints = Object.fromEntries(
 		Object.entries(players).map(([playerName, info]) => [playerName, info.points])
 	);
@@ -213,7 +233,7 @@
 	}
 
 	function observerJoinActionLabel(observerInfo: ObserverInfo) {
-		if (stage !== 'Voting') return 'Join now';
+		if (stage !== 'Voting' && stage !== 'BeautyVoting') return 'Join now';
 		const pending = observerInfo.join_requested || observerInfo.auto_join_on_next_round;
 		return pending ? 'Cancel pending join' : 'Join next round';
 	}
@@ -263,6 +283,65 @@
 		if (parsed !== votesPerGuesser) {
 			gameServer.setVotesPerGuesser(parsed);
 		}
+	}
+
+	function updateBeautyEnabled(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		if (!isModerator || !canChangePreVotingSettings) {
+			input.checked = beautyEnabled;
+			return;
+		}
+		gameServer.setBeautyEnabled(input.checked);
+	}
+
+	function updateBeautyVotesPerPlayer(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const parsed = Number(input.value);
+		if (
+			!Number.isInteger(parsed) ||
+			parsed < beautyVotesPerPlayerMin ||
+			parsed > beautyVotesPerPlayerMax
+		) {
+			input.value = `${beautyVotesPerPlayer}`;
+			return;
+		}
+		if (parsed !== beautyVotesPerPlayer) {
+			gameServer.setBeautyVotesPerPlayer(parsed);
+		}
+	}
+
+	function updateBeautyAllowDuplicateVotes(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		if (!isModerator || !canChangePreVotingSettings) {
+			input.checked = beautyAllowDuplicateVotes;
+			return;
+		}
+		gameServer.setBeautyAllowDuplicateVotes(input.checked);
+	}
+
+	function updateBeautyPointsBonus(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const parsed = Number(input.value);
+		if (
+			!Number.isInteger(parsed) ||
+			parsed < beautyPointsBonusMin ||
+			parsed > beautyPointsBonusMax
+		) {
+			input.value = `${beautyPointsBonus}`;
+			return;
+		}
+		if (parsed !== beautyPointsBonus) {
+			gameServer.setBeautyPointsBonus(parsed);
+		}
+	}
+
+	function updateBeautyResultsDisplayMode(event: Event) {
+		const select = event.currentTarget as HTMLSelectElement;
+		if (!isModerator || !canChangePreVotingSettings) {
+			select.value = beautyResultsDisplayMode;
+			return;
+		}
+		gameServer.setBeautyResultsDisplayMode(select.value as BeautyResultsDisplayMode);
 	}
 
 	function updateCardsPerHand(event: Event) {
@@ -1253,6 +1332,91 @@
 							<span class="text-xs opacity-75"
 								>Range: {votesPerGuesserMin}–{votesPerGuesserMax}</span
 							>
+						</div>
+						{#if !canChangePreVotingSettings}
+							<p class="mt-1 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
+						{/if}
+					</div>
+					<div class="mt-3 rounded border border-white/20 px-2 py-2">
+						<p class="block text-sm font-semibold">Most Beautiful</p>
+						<p class="mt-1 text-xs opacity-75">
+							Optional extra vote after storyteller voting and before results are revealed.
+						</p>
+						<label class="mt-2 flex items-start gap-3 text-sm">
+							<input
+								type="checkbox"
+								class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
+								checked={beautyEnabled}
+								on:change={updateBeautyEnabled}
+								disabled={!isModerator || !canChangePreVotingSettings}
+							/>
+							<span>Enable Most Beautiful stage</span>
+						</label>
+						<div class="mt-3 grid gap-3 md:grid-cols-2">
+							<div>
+								<label class="text-sm font-medium" for="beauty-votes-per-player">
+									Beauty votes per player
+								</label>
+								<input
+									id="beauty-votes-per-player"
+									type="number"
+									class="mt-1 w-full rounded border px-2 py-1 text-gray-700 shadow"
+									min={beautyVotesPerPlayerMin}
+									max={beautyVotesPerPlayerMax}
+									step="1"
+									value={beautyVotesPerPlayer}
+									on:change={updateBeautyVotesPerPlayer}
+									disabled={!isModerator || !canChangePreVotingSettings}
+								/>
+								<p class="mt-1 text-xs opacity-75">
+									Range: {beautyVotesPerPlayerMin}–{beautyVotesPerPlayerMax}
+								</p>
+							</div>
+							<div>
+								<label class="text-sm font-medium" for="beauty-points-bonus">
+									Beauty winner bonus
+								</label>
+								<input
+									id="beauty-points-bonus"
+									type="number"
+									class="mt-1 w-full rounded border px-2 py-1 text-gray-700 shadow"
+									min={beautyPointsBonusMin}
+									max={beautyPointsBonusMax}
+									step="1"
+									value={beautyPointsBonus}
+									on:change={updateBeautyPointsBonus}
+									disabled={!isModerator || !canChangePreVotingSettings}
+								/>
+								<p class="mt-1 text-xs opacity-75">
+									Range: {beautyPointsBonusMin}–{beautyPointsBonusMax}
+								</p>
+							</div>
+						</div>
+						<label class="mt-3 flex items-start gap-3 text-sm">
+							<input
+								type="checkbox"
+								class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
+								checked={beautyAllowDuplicateVotes}
+								on:change={updateBeautyAllowDuplicateVotes}
+								disabled={!isModerator || !canChangePreVotingSettings}
+							/>
+							<span>Allow duplicate beauty votes on the same card</span>
+						</label>
+						<div class="mt-3">
+							<label class="text-sm font-medium" for="beauty-results-display-mode">
+								Beauty results display
+							</label>
+							<select
+								id="beauty-results-display-mode"
+								class="mt-1 w-full rounded border px-3 py-2 text-gray-700 shadow"
+								value={beautyResultsDisplayMode}
+								on:change={updateBeautyResultsDisplayMode}
+								disabled={!isModerator || !canChangePreVotingSettings}
+							>
+								<option value="summary">Summary in storyteller results</option>
+								<option value="separate">Separate beauty results stage</option>
+								<option value="combined">Combined storyteller + beauty results</option>
+							</select>
 						</div>
 						{#if !canChangePreVotingSettings}
 							<p class="mt-1 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>

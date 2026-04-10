@@ -88,12 +88,10 @@
 	let selectedVoteCounts: Record<string, number> = {};
 	let toastStore = getToastStore();
 	let isObserver = false;
-	let isVoter = false;
 	$: isObserver = !!observers[name];
-	$: isVoter = activePlayer !== name && !isObserver;
-	$: effectiveVotesPerGuesser = Math.max(
+	$: effectiveBeautyVotesPerPlayer = Math.max(
 		1,
-		Math.min(votesPerGuesser, Math.max(votesPerGuesserMax, 1))
+		Math.min(beautyVotesPerPlayer, Math.max(beautyVotesPerPlayerMax, 1))
 	);
 	$: tableDesktopFitEnabled = $cardsFitToHeight;
 	$: tableDesktopRowCount = getDesktopFitRowCount(displayImages?.length);
@@ -110,7 +108,9 @@
 		? `--voting-desktop-rows: ${tableDesktopRowCount};`
 		: '';
 	$: canSubmit =
-		isVoter && effectiveVotesPerGuesser > 0 && selectedVotes.length === effectiveVotesPerGuesser;
+		!isObserver &&
+		effectiveBeautyVotesPerPlayer > 0 &&
+		selectedVotes.length === effectiveBeautyVotesPerPlayer;
 	$: {
 		const disabled = new Set(disabledCards);
 		const allowed = new Set(displayImages.filter((image) => !disabled.has(image)));
@@ -119,8 +119,8 @@
 			selectedVotes = filtered;
 		}
 	}
-	$: if (selectedVotes.length > effectiveVotesPerGuesser) {
-		selectedVotes = selectedVotes.slice(selectedVotes.length - effectiveVotesPerGuesser);
+	$: if (selectedVotes.length > effectiveBeautyVotesPerPlayer) {
+		selectedVotes = selectedVotes.slice(selectedVotes.length - effectiveBeautyVotesPerPlayer);
 	}
 	$: {
 		const nextCounts: Record<string, number> = {};
@@ -144,36 +144,45 @@
 	}
 
 	function cycleCardVote(card: string) {
-		if (!isVoter || disabledCards.includes(card)) return;
+		if (isObserver || disabledCards.includes(card)) return;
 
 		const currentCount = selectedVoteCounts[card] ?? 0;
-		if (currentCount >= 2) {
-			selectedVotes = selectedVotes.filter((value) => value !== card);
+		if (!beautyAllowDuplicateVotes) {
+			if (currentCount >= 1) {
+				selectedVotes = selectedVotes.filter((value) => value !== card);
+				return;
+			}
+			let nextVotes = [...selectedVotes, card];
+			while (nextVotes.length > effectiveBeautyVotesPerPlayer) {
+				nextVotes.shift();
+			}
+			selectedVotes = nextVotes;
 			return;
 		}
-		if (currentCount === 1 && effectiveVotesPerGuesser === 1) {
+
+		if (currentCount >= effectiveBeautyVotesPerPlayer) {
 			selectedVotes = selectedVotes.filter((value) => value !== card);
 			return;
 		}
 
 		let nextVotes = [...selectedVotes, card];
-		while (nextVotes.length > effectiveVotesPerGuesser) {
+		while (nextVotes.length > effectiveBeautyVotesPerPlayer) {
 			nextVotes.shift();
 		}
 		selectedVotes = nextVotes;
 	}
 
-	function submitVotes() {
+	function submitBeautyVotes() {
 		if (!canSubmit) {
 			toastStore.trigger({
-				message: `Use all ${effectiveVotesPerGuesser} vote token${effectiveVotesPerGuesser === 1 ? '' : 's'} before submitting.`,
+				message: `Use all ${effectiveBeautyVotesPerPlayer} beauty vote token${effectiveBeautyVotesPerPlayer === 1 ? '' : 's'} before submitting.`,
 				autohide: true,
 				timeout: 2500
 			});
 			return;
 		}
 
-		gameServer.submitVotes(selectedVotes);
+		gameServer.submitBeautyVotes(selectedVotes);
 		toastStore.trigger({
 			message: '👌 Locked in!',
 			autohide: true,
@@ -250,28 +259,38 @@
 	{cardsRemaining}
 	{deckRefillFlashToken}
 	{winCondition}
-	showMobileActions={isVoter}
+	showMobileActions={!isObserver}
 >
 	<svelte:fragment slot="leftRail">
-		{#if isVoter}
+		{#if !isObserver}
 			<div class="card light space-y-2 p-4">
 				<h1 class="text-xl font-semibold">
-					Which card did <span class="font-bold">{activePlayer}</span> choose for "{description}"?
+					Which image by another player is the most beautiful for "{description}"?
 				</h1>
-				<p>Click a card to cycle: single vote → double vote → clear.</p>
+				<p>
+					{#if beautyAllowDuplicateVotes}
+						Click a card to add another beauty vote. Clicking after the max clears that card.
+					{:else}
+						Click cards to toggle your beauty picks. Your own card is disabled.
+					{/if}
+				</p>
 				<p class="text-xs opacity-80">
-					Votes used: {selectedVotes.length}/{effectiveVotesPerGuesser} (all votes required)
+					Beauty votes used: {selectedVotes.length}/{effectiveBeautyVotesPerPlayer} (all votes required)
 				</p>
 			</div>
 			<div class="card light p-4">
-				<button class="btn variant-filled w-full" disabled={!canSubmit} on:click={submitVotes}
-					>Submit Votes</button
+				<button
+					class="btn variant-filled w-full"
+					disabled={!canSubmit}
+					on:click={submitBeautyVotes}
 				>
+					Submit Beauty Votes
+				</button>
 			</div>
 		{:else}
 			<div class="card light space-y-2 p-4">
-				<h1 class="text-xl font-semibold">Tallying the votes!</h1>
-				<p>Everyone is voting on the clue "{description}".</p>
+				<h1 class="text-xl font-semibold">Tallying beauty votes!</h1>
+				<p>Everyone is choosing the most beautiful image for "{description}".</p>
 				{#if isObserver}
 					<p class="opacity-70">You are observing this round.</p>
 				{/if}
@@ -280,20 +299,26 @@
 	</svelte:fragment>
 
 	<svelte:fragment slot="mobileTop">
-		{#if isVoter}
+		{#if !isObserver}
 			<div class="card light space-y-2 p-4">
 				<h1 class="text-xl font-semibold">
-					Which card did <span class="font-bold">{activePlayer}</span> choose for "{description}"?
+					Which image by another player is the most beautiful for "{description}"?
 				</h1>
-				<p>Click a card to cycle: single vote → double vote → clear.</p>
+				<p>
+					{#if beautyAllowDuplicateVotes}
+						Click a card to add another beauty vote. Clicking after the max clears that card.
+					{:else}
+						Click cards to toggle your beauty picks. Your own card is disabled.
+					{/if}
+				</p>
 				<p class="text-xs opacity-80">
-					Votes used: {selectedVotes.length}/{effectiveVotesPerGuesser} (all votes required)
+					Beauty votes used: {selectedVotes.length}/{effectiveBeautyVotesPerPlayer} (all votes required)
 				</p>
 			</div>
 		{:else}
 			<div class="card light space-y-2 p-4">
-				<h1 class="text-xl font-semibold">Tallying the votes!</h1>
-				<p>Everyone is voting on the clue "{description}".</p>
+				<h1 class="text-xl font-semibold">Tallying beauty votes!</h1>
+				<p>Everyone is choosing the most beautiful image for "{description}".</p>
 				{#if isObserver}
 					<p class="opacity-70">You are observing this round.</p>
 				{/if}
@@ -302,10 +327,10 @@
 	</svelte:fragment>
 
 	<svelte:fragment slot="mobileActions">
-		{#if isVoter}
-			<button class="btn variant-filled w-full" disabled={!canSubmit} on:click={submitVotes}
-				>Submit Votes</button
-			>
+		{#if !isObserver}
+			<button class="btn variant-filled w-full" disabled={!canSubmit} on:click={submitBeautyVotes}>
+				Submit Beauty Votes
+			</button>
 		{/if}
 	</svelte:fragment>
 
@@ -317,8 +342,8 @@
 				{@const isDisabled = disabledCards.includes(image)}
 				<button
 					type="button"
-					class={`${tableButtonClass} ${isDisabled || !isVoter ? 'cursor-default' : ''}`}
-					disabled={!isVoter || isDisabled}
+					class={`${tableButtonClass} ${isDisabled || isObserver ? 'cursor-default' : ''}`}
+					disabled={isObserver || isDisabled}
 					on:click={() => cycleCardVote(image)}
 				>
 					<CardImage

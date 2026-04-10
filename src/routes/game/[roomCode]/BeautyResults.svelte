@@ -14,11 +14,9 @@
 	export let creator = '';
 	export let moderators: string[] = [];
 	export let observers: { [key: string]: ObserverInfo } = {};
-	export let activeCard = '';
 	export let activePlayer = '';
 	export let gameServer: GameServer;
 	export let playerToCurrentCards: { [key: string]: string[] } = {};
-	export let playerToVotes: { [key: string]: string[] } = {};
 	export let playerToBeautyVotes: { [key: string]: string[] } = {};
 	export let players: { [key: string]: PlayerInfo } = {};
 	export let allowNewPlayersMidgame = true;
@@ -90,15 +88,13 @@
 	let cardToPlayer: { [key: string]: string } = {};
 	let cardToVoterCounts: { [key: string]: { [key: string]: number } } = {};
 	let cardToChooserEntries: { [key: string]: { name: string; count?: number }[] } = {};
-	let beautyCardToVoterCounts: { [key: string]: { [key: string]: number } } = {};
-	let beautyCardToChooserEntries: { [key: string]: { name: string; count?: number }[] } = {};
-	let beautyWinningCardSet = new Set<string>();
 	let isObserver = false;
 	let isModerator = false;
 	let canForceStartNextRound = false;
+	let winningCardSet = new Set<string>();
 	$: isObserver = !!observers[name];
 	$: isModerator = new Set(moderators).has(name);
-	$: canForceStartNextRound = stage === 'Results';
+	$: canForceStartNextRound = stage === 'BeautyResults';
 	$: resultsDesktopFitEnabled = $cardsFitToHeight;
 	$: resultsDesktopFitClass = resultsDesktopFitEnabled ? 'lg:h-full' : '';
 	$: resultsDesktopRowCount = getDesktopFitRowCount(displayImages?.length);
@@ -108,24 +104,22 @@
 	$: resultsDesktopFitStyle = resultsDesktopFitEnabled
 		? `--results-desktop-rows: ${resultsDesktopRowCount};`
 		: '';
-	$: resultsCardClass = (isActiveCard: boolean) =>
-		`${isActiveCard ? 'boujee-border' : ''} relative overflow-hidden rounded-lg bg-slate-900/35 ${resultsDesktopFitClass}`;
+	$: resultsCardClass = (isWinningCard: boolean) =>
+		`${isWinningCard ? 'boujee-border' : ''} relative overflow-hidden rounded-lg bg-slate-900/35 ${resultsDesktopFitClass}`;
 	$: resultsImageClass = `relative w-full object-cover object-center aspect-[2/3] ${resultsDesktopFitClass}`;
 
 	$: {
 		cardToPlayer = {};
 		cardToVoterCounts = {};
 		cardToChooserEntries = {};
-		beautyCardToVoterCounts = {};
-		beautyCardToChooserEntries = {};
-		beautyWinningCardSet = new Set(beautyWinningCards);
+		winningCardSet = new Set(beautyWinningCards);
 		Object.entries(playerToCurrentCards).forEach(([key, values]) => {
 			for (const value of values || []) {
 				cardToPlayer[value] = key;
 			}
 		});
 
-		Object.entries(playerToVotes).forEach(([voter, votes]) => {
+		Object.entries(playerToBeautyVotes).forEach(([voter, votes]) => {
 			for (const votedCard of votes || []) {
 				if (!cardToVoterCounts[votedCard]) {
 					cardToVoterCounts[votedCard] = {};
@@ -139,30 +133,6 @@
 
 		cardToChooserEntries = Object.fromEntries(
 			Object.entries(cardToVoterCounts).map(([card, voterCounts]) => [
-				card,
-				Object.entries(voterCounts)
-					.sort(([a], [b]) => a.localeCompare(b))
-					.map(([voter, count]) => ({
-						name: voter,
-						...(count > 1 ? { count } : {})
-					}))
-			])
-		);
-
-		Object.entries(playerToBeautyVotes).forEach(([voter, votes]) => {
-			for (const votedCard of votes || []) {
-				if (!beautyCardToVoterCounts[votedCard]) {
-					beautyCardToVoterCounts[votedCard] = {};
-				}
-				if (!beautyCardToVoterCounts[votedCard][voter]) {
-					beautyCardToVoterCounts[votedCard][voter] = 0;
-				}
-				beautyCardToVoterCounts[votedCard][voter] += 1;
-			}
-		});
-
-		beautyCardToChooserEntries = Object.fromEntries(
-			Object.entries(beautyCardToVoterCounts).map(([card, voterCounts]) => [
 				card,
 				Object.entries(voterCounts)
 					.sort(([a], [b]) => a.localeCompare(b))
@@ -246,13 +216,10 @@
 >
 	<svelte:fragment slot="leftRail">
 		<div class="card light space-y-2 p-4">
-			<h1 class="text-xl font-semibold">Round complete</h1>
+			<h1 class="text-xl font-semibold">Beauty results</h1>
 			<p>
-				{#if beautyEnabled && beautyResultsDisplayMode === 'separate'}
-					Review storyteller votes and scores, then continue to beauty results.
-				{:else}
-					Review votes and scores, then continue to the next round.
-				{/if}
+				Review beauty winners. Each top-voted owner gets +{beautyPointsBonus} once, then continue to
+				the next round.
 			</p>
 		</div>
 		<div class="card light p-4">
@@ -260,21 +227,15 @@
 				<button
 					class="btn variant-filled w-full"
 					disabled={isObserver}
-					on:click={() => gameServer.ready()}
+					on:click={() => gameServer.ready()}>Next Round</button
 				>
-					{beautyEnabled && beautyResultsDisplayMode === 'separate'
-						? 'Beauty Results'
-						: 'Next Round'}
-				</button>
 				{#if isModerator}
 					<button
 						class="btn variant-filled w-full"
 						disabled={!canForceStartNextRound}
 						on:click={() => gameServer.forceStartNextRound()}
 					>
-						{beautyEnabled && beautyResultsDisplayMode === 'separate'
-							? 'Force beauty results'
-							: 'Force start next round'}
+						Force start next round
 					</button>
 				{/if}
 			</div>
@@ -286,13 +247,10 @@
 
 	<svelte:fragment slot="mobileTop">
 		<div class="card light space-y-2 p-4">
-			<h1 class="text-xl font-semibold">Round complete</h1>
+			<h1 class="text-xl font-semibold">Beauty results</h1>
 			<p>
-				{#if beautyEnabled && beautyResultsDisplayMode === 'separate'}
-					Review storyteller votes and scores, then continue to beauty results.
-				{:else}
-					Review votes and scores, then continue to the next round.
-				{/if}
+				Review beauty winners. Each top-voted owner gets +{beautyPointsBonus} once, then continue to
+				the next round.
 			</p>
 		</div>
 	</svelte:fragment>
@@ -302,29 +260,25 @@
 			<button
 				class="btn variant-filled w-full"
 				disabled={isObserver}
-				on:click={() => gameServer.ready()}
+				on:click={() => gameServer.ready()}>Next Round</button
 			>
-				{beautyEnabled && beautyResultsDisplayMode === 'separate' ? 'Beauty Results' : 'Next Round'}
-			</button>
 			{#if isModerator}
 				<button
 					class="btn variant-filled w-full"
 					disabled={!canForceStartNextRound}
 					on:click={() => gameServer.forceStartNextRound()}
 				>
-					{beautyEnabled && beautyResultsDisplayMode === 'separate'
-						? 'Force beauty results'
-						: 'Force start next round'}
+					Force start next round
 				</button>
 			{/if}
 		</div>
 	</svelte:fragment>
 
 	<div class="flex h-full min-h-0 flex-col">
-		<h2 class="mb-2 hidden text-lg font-semibold lg:block">Round cards</h2>
+		<h2 class="mb-2 hidden text-lg font-semibold lg:block">Beauty cards</h2>
 		<section class={resultsSectionClass} style={resultsDesktopFitStyle}>
 			{#each displayImages as image, cardIndex}
-				<div class={resultsCardClass(activeCard == image)}>
+				<div class={resultsCardClass(winningCardSet.has(image))}>
 					<CardImage
 						src={`${http_host}/cards/${image}`}
 						alt={CARD_IMAGE_ALT_TEXT}
@@ -340,28 +294,18 @@
 					{#if cardToVoterCounts[image]}
 						<ChooserNameOverlay
 							entries={cardToChooserEntries[image]}
-							label={beautyEnabled && beautyResultsDisplayMode === 'combined' ? 'Guess' : ''}
+							label="Beauty"
 							avoidTopLeftBadge={showVotingCardNumbers}
 						/>
 					{/if}
-					{#if beautyEnabled && beautyResultsDisplayMode === 'combined' && beautyCardToVoterCounts[image]}
-						<ChooserNameOverlay
-							entries={beautyCardToChooserEntries[image]}
-							label="Beauty"
-							position="bottom-right"
-						/>
-					{:else if beautyEnabled && beautyResultsDisplayMode === 'summary' && (typeof beautyVoteTotals[image] === 'number' || beautyWinningCardSet.has(image))}
+					<div
+						class="absolute bottom-8 left-2 z-20 rounded bg-fuchsia-200 px-2 py-0.5 text-xs font-bold text-black shadow"
+					>
+						Beauty: {beautyVoteTotals[image] ?? 0}
+					</div>
+					{#if winningCardSet.has(image)}
 						<div
-							class="absolute bottom-8 left-2 z-20 rounded bg-fuchsia-200 px-2 py-0.5 text-xs font-bold text-black shadow"
-						>
-							Beauty: {beautyVoteTotals[image] ?? 0}
-						</div>
-					{/if}
-					{#if beautyEnabled && beautyWinningCardSet.has(image)}
-						<div
-							class={`absolute bottom-8 z-20 rounded bg-success-300 px-2 py-0.5 text-xs font-bold text-black shadow ${
-								beautyResultsDisplayMode === 'combined' ? 'left-2' : 'right-2'
-							}`}
+							class="absolute bottom-8 right-2 z-20 rounded bg-success-300 px-2 py-0.5 text-xs font-bold text-black shadow"
 						>
 							Winner
 						</div>

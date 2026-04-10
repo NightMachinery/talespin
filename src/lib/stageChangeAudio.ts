@@ -4,7 +4,9 @@ export type StageCueStage =
 	| 'ActiveChooses'
 	| 'PlayersChoose'
 	| 'Voting'
+	| 'BeautyVoting'
 	| 'Results'
+	| 'BeautyResults'
 	| 'StellaAssociate'
 	| 'StellaReveal'
 	| 'StellaResults';
@@ -36,10 +38,20 @@ const STAGE_CUES: Record<StageCueStage, CueNote[]> = {
 		{ frequencyHz: 783.99, durationS: 0.18 },
 		{ frequencyHz: 987.77, durationS: 0.18 }
 	],
+	BeautyVoting: [
+		{ frequencyHz: 698.46, durationS: 0.16 },
+		{ frequencyHz: 880, durationS: 0.18 },
+		{ frequencyHz: 1046.5, durationS: 0.18 }
+	],
 	Results: [
 		{ frequencyHz: 987.77, durationS: 0.16 },
 		{ frequencyHz: 783.99, durationS: 0.16 },
 		{ frequencyHz: 659.25, durationS: 0.2 }
+	],
+	BeautyResults: [
+		{ frequencyHz: 1046.5, durationS: 0.16 },
+		{ frequencyHz: 1318.51, durationS: 0.18 },
+		{ frequencyHz: 1174.66, durationS: 0.22 }
 	],
 	StellaAssociate: [
 		{ frequencyHz: 440, durationS: 0.14 },
@@ -113,7 +125,12 @@ export async function playStageChangeCue(stage: StageCueStage) {
 	const notes = STAGE_CUES[stage];
 	let startTime = context.currentTime + 0.01;
 
-	playCueNotes(context, notes, stage === 'Results' || stage === 'StellaResults' ? 'triangle' : 'sine', startTime);
+	playCueNotes(
+		context,
+		notes,
+		stage === 'Results' || stage === 'StellaResults' ? 'triangle' : 'sine',
+		startTime
+	);
 }
 
 export async function playScoutTurnCue() {

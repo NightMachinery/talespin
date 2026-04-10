@@ -201,6 +201,46 @@ class GameServer {
 		});
 	}
 
+	setBeautyEnabled(enabled: boolean) {
+		this.send({
+			SetBeautyEnabled: {
+				enabled
+			}
+		});
+	}
+
+	setBeautyVotesPerPlayer(votes: number) {
+		this.send({
+			SetBeautyVotesPerPlayer: {
+				votes
+			}
+		});
+	}
+
+	setBeautyAllowDuplicateVotes(enabled: boolean) {
+		this.send({
+			SetBeautyAllowDuplicateVotes: {
+				enabled
+			}
+		});
+	}
+
+	setBeautyPointsBonus(points: number) {
+		this.send({
+			SetBeautyPointsBonus: {
+				points
+			}
+		});
+	}
+
+	setBeautyResultsDisplayMode(mode: 'summary' | 'separate' | 'combined') {
+		this.send({
+			SetBeautyResultsDisplayMode: {
+				mode
+			}
+		});
+	}
+
 	setCardsPerHand(cards: number) {
 		this.send({
 			SetCardsPerHand: {
@@ -447,6 +487,14 @@ class GameServer {
 	submitVotes(cards: string[]) {
 		this.send({
 			SubmitVotes: {
+				cards
+			}
+		});
+	}
+
+	submitBeautyVotes(cards: string[]) {
+		this.send({
+			SubmitBeautyVotes: {
 				cards
 			}
 		});

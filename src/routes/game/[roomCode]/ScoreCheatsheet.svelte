@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { GameMode } from '$lib/types';
+	import type { BeautyResultsDisplayMode, GameMode } from '$lib/types';
 
 	export let gameMode: GameMode = 'dixit_plus';
 	export let activePlayer = '';
@@ -8,12 +8,22 @@
 	export let bonusCorrectGuessOnThresholdCorrectLoss = true;
 	export let bonusDoubleVoteOnThresholdCorrectLoss = true;
 	export let bonusThresholdLossTogglesApplyToAllStorytellerLossRounds = true;
+	export let beautyEnabled = false;
+	export let beautyVotesPerPlayer = 1;
+	export let beautyVotesPerPlayerMax = 1;
+	export let beautyAllowDuplicateVotes = false;
+	export let beautyPointsBonus = 2;
+	export let beautyResultsDisplayMode: BeautyResultsDisplayMode = 'combined';
 
 	$: effectiveVotesPerGuesser = Math.max(
 		1,
 		Math.min(votesPerGuesser, Math.max(votesPerGuesserMax, 1))
 	);
 	$: storytellerLabel = activePlayer || 'Storyteller';
+	$: effectiveBeautyVotesPerPlayer = Math.max(
+		1,
+		Math.min(beautyVotesPerPlayer, Math.max(beautyVotesPerPlayerMax, 1))
+	);
 </script>
 
 <div class="card light p-4">
@@ -74,6 +84,19 @@
 				</li>
 			{/if}
 			<li>Decoy bonus: +1 per vote token on your card (max +3, non-storyteller only).</li>
+			{#if beautyEnabled}
+				<li>
+					Most Beautiful: every active player casts {effectiveBeautyVotesPerPlayer} beauty vote
+					{effectiveBeautyVotesPerPlayer === 1 ? '' : 's'} on other players’ cards.
+				</li>
+				<li>
+					Beauty winners: each top-voted owner gets +{beautyPointsBonus}
+					{beautyPointsBonus === 1 ? ' point' : ' points'} once per round.
+				</li>
+				<li>
+					Beauty duplicates: {beautyAllowDuplicateVotes ? 'allowed' : 'not allowed'}. Reveal mode: {beautyResultsDisplayMode}.
+				</li>
+			{/if}
 		</ul>
 	{/if}
 </div>

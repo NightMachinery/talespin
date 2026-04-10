@@ -23,6 +23,15 @@
 	export let votesPerGuesser = 1;
 	export let votesPerGuesserMin = 1;
 	export let votesPerGuesserMax = 1;
+	export let beautyEnabled = false;
+	export let beautyVotesPerPlayer = 1;
+	export let beautyVotesPerPlayerMin = 1;
+	export let beautyVotesPerPlayerMax = 1;
+	export let beautyAllowDuplicateVotes = false;
+	export let beautyPointsBonus = 2;
+	export let beautyPointsBonusMin = 0;
+	export let beautyPointsBonusMax = 10;
+	export let beautyResultsDisplayMode: import('$lib/types').BeautyResultsDisplayMode = 'combined';
 	export let cardsPerHand = 12;
 	export let cardsPerHandMin = 1;
 	export let cardsPerHandMax = 18;
@@ -152,6 +161,15 @@
 	{votesPerGuesser}
 	{votesPerGuesserMin}
 	{votesPerGuesserMax}
+	{beautyEnabled}
+	{beautyVotesPerPlayer}
+	{beautyVotesPerPlayerMin}
+	{beautyVotesPerPlayerMax}
+	{beautyAllowDuplicateVotes}
+	{beautyPointsBonus}
+	{beautyPointsBonusMin}
+	{beautyPointsBonusMax}
+	{beautyResultsDisplayMode}
 	{cardsPerHand}
 	{cardsPerHandMin}
 	{cardsPerHandMax}

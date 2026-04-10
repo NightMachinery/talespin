@@ -6,6 +6,7 @@
 	import SidebarOptions from './SidebarOptions.svelte';
 	import ScoreCheatsheet from './ScoreCheatsheet.svelte';
 	import type {
+		BeautyResultsDisplayMode,
 		GameMode,
 		ObserverInfo,
 		PlayerInfo,
@@ -28,6 +29,15 @@
 	export let votesPerGuesser = 1;
 	export let votesPerGuesserMin = 1;
 	export let votesPerGuesserMax = 1;
+	export let beautyEnabled = false;
+	export let beautyVotesPerPlayer = 1;
+	export let beautyVotesPerPlayerMin = 1;
+	export let beautyVotesPerPlayerMax = 1;
+	export let beautyAllowDuplicateVotes = false;
+	export let beautyPointsBonus = 2;
+	export let beautyPointsBonusMin = 0;
+	export let beautyPointsBonusMax = 10;
+	export let beautyResultsDisplayMode: BeautyResultsDisplayMode = 'combined';
 	export let cardsPerHand = 12;
 	export let cardsPerHandMin = 1;
 	export let cardsPerHandMax = 18;
@@ -134,7 +144,9 @@
 						? 'Reveal timer'
 						: stage === 'Voting'
 							? 'Voting timer'
-							: 'Stage timer';
+							: stage === 'BeautyVoting'
+								? 'Beauty timer'
+								: 'Stage timer';
 	$: stageTimerDisplay = formatCountdown(remainingStageTimerSeconds);
 	$: stageTimerExpired = hasStageTimer && remainingStageTimerSeconds === 0;
 </script>
@@ -237,6 +249,15 @@
 								{votesPerGuesser}
 								{votesPerGuesserMin}
 								{votesPerGuesserMax}
+								{beautyEnabled}
+								{beautyVotesPerPlayer}
+								{beautyVotesPerPlayerMin}
+								{beautyVotesPerPlayerMax}
+								{beautyAllowDuplicateVotes}
+								{beautyPointsBonus}
+								{beautyPointsBonusMin}
+								{beautyPointsBonusMax}
+								{beautyResultsDisplayMode}
 								{cardsPerHand}
 								{cardsPerHandMin}
 								{cardsPerHandMax}
@@ -295,6 +316,15 @@
 							{votesPerGuesser}
 							{votesPerGuesserMin}
 							{votesPerGuesserMax}
+							{beautyEnabled}
+							{beautyVotesPerPlayer}
+							{beautyVotesPerPlayerMin}
+							{beautyVotesPerPlayerMax}
+							{beautyAllowDuplicateVotes}
+							{beautyPointsBonus}
+							{beautyPointsBonusMin}
+							{beautyPointsBonusMax}
+							{beautyResultsDisplayMode}
 							{cardsPerHand}
 							{cardsPerHandMin}
 							{cardsPerHandMax}
@@ -347,6 +377,12 @@
 							{activePlayer}
 							{votesPerGuesser}
 							{votesPerGuesserMax}
+							{beautyEnabled}
+							{beautyVotesPerPlayer}
+							{beautyVotesPerPlayerMax}
+							{beautyAllowDuplicateVotes}
+							{beautyPointsBonus}
+							{beautyResultsDisplayMode}
 							{bonusCorrectGuessOnThresholdCorrectLoss}
 							{bonusDoubleVoteOnThresholdCorrectLoss}
 							{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}

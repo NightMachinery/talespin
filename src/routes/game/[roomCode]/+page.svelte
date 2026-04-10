@@ -20,6 +20,7 @@
 		unlockStageChangeAudio
 	} from '$lib/stageChangeAudio';
 	import type {
+		BeautyResultsDisplayMode,
 		GameMode,
 		ObserverInfo,
 		PlayerInfo,
@@ -34,7 +35,9 @@
 	import ActiveChooses from './ActiveChooses.svelte';
 	import PlayersChoose from './PlayersChoose.svelte';
 	import Voting from './Voting.svelte';
+	import BeautyVoting from './BeautyVoting.svelte';
 	import Results from './Results.svelte';
+	import BeautyResults from './BeautyResults.svelte';
 	import Paused from './Paused.svelte';
 	import End from './End.svelte';
 	import ScoreCheatsheet from './ScoreCheatsheet.svelte';
@@ -68,6 +71,15 @@
 	let votesPerGuesser = 1;
 	let votesPerGuesserMin = 1;
 	let votesPerGuesserMax = 1;
+	let beautyEnabled = false;
+	let beautyVotesPerPlayer = 1;
+	let beautyVotesPerPlayerMin = 1;
+	let beautyVotesPerPlayerMax = 1;
+	let beautyAllowDuplicateVotes = false;
+	let beautyPointsBonus = 2;
+	let beautyPointsBonusMin = 0;
+	let beautyPointsBonusMax = 10;
+	let beautyResultsDisplayMode: BeautyResultsDisplayMode = 'combined';
 	let cardsPerHand = 12;
 	let cardsPerHandMin = 1;
 	let cardsPerHandMax = 18;
@@ -123,13 +135,19 @@
 	// UI state
 	let displayImages: string[] = [];
 	let votingDisabledCards: string[] = [];
+	let beautyDisabledCards: string[] = [];
 	let storytellerChosenCard = '';
 
 	// results
 	let playerToCurrentCards: { [key: string]: string[] } = {};
 	let playerToVotes: { [key: string]: string[] } = {};
+	let playerToBeautyVotes: { [key: string]: string[] } = {};
 	let activeCard = '';
 	let pointChange: { [key: string]: number } = {};
+	let storytellerPointChange: { [key: string]: number } = {};
+	let beautyPointChange: { [key: string]: number } = {};
+	let beautyVoteTotals: { [key: string]: number } = {};
+	let beautyWinningCards: string[] = [];
 	let stellaSelectedCards: string[] = [];
 	let stellaSelectedCounts: { [key: string]: number } = {};
 	let stellaRevealedCards: string[] = [];
@@ -141,7 +159,9 @@
 		'PlayersChoose',
 		'StellaReveal',
 		'Voting',
+		'BeautyVoting',
 		'Results',
+		'BeautyResults',
 		'StellaResults'
 	]);
 	let previousScoutTurnKey = '';
@@ -274,6 +294,15 @@
 				votesPerGuesser = data.RoomState.votes_per_guesser ?? 1;
 				votesPerGuesserMin = data.RoomState.votes_per_guesser_min ?? 1;
 				votesPerGuesserMax = data.RoomState.votes_per_guesser_max ?? 1;
+				beautyEnabled = data.RoomState.beauty_enabled ?? false;
+				beautyVotesPerPlayer = data.RoomState.beauty_votes_per_player ?? 1;
+				beautyVotesPerPlayerMin = data.RoomState.beauty_votes_per_player_min ?? 1;
+				beautyVotesPerPlayerMax = data.RoomState.beauty_votes_per_player_max ?? 1;
+				beautyAllowDuplicateVotes = data.RoomState.beauty_allow_duplicate_votes ?? false;
+				beautyPointsBonus = data.RoomState.beauty_points_bonus ?? 2;
+				beautyPointsBonusMin = data.RoomState.beauty_points_bonus_min ?? 0;
+				beautyPointsBonusMax = data.RoomState.beauty_points_bonus_max ?? 10;
+				beautyResultsDisplayMode = data.RoomState.beauty_results_display_mode ?? 'combined';
 				cardsPerHand = data.RoomState.cards_per_hand ?? 12;
 				cardsPerHandMin = data.RoomState.cards_per_hand_min ?? 1;
 				cardsPerHandMax = data.RoomState.cards_per_hand_max ?? 18;
@@ -342,11 +371,23 @@
 			} else if (data.StartRound) {
 				setStage('ActiveChooses');
 				displayImages = data.StartRound.hand;
+				playerToVotes = {};
+				playerToBeautyVotes = {};
+				storytellerPointChange = {};
+				beautyPointChange = {};
+				beautyVoteTotals = {};
+				beautyWinningCards = [];
 				storytellerChosenCard = '';
 			} else if (data.PlayersChoose) {
 				setStage('PlayersChoose');
 				displayImages = data.PlayersChoose.hand;
 				description = data.PlayersChoose.description;
+				playerToVotes = {};
+				playerToBeautyVotes = {};
+				storytellerPointChange = {};
+				beautyPointChange = {};
+				beautyVoteTotals = {};
+				beautyWinningCards = [];
 				storytellerChosenCard = data.PlayersChoose.chosen_card || '';
 			} else if (data.BeginVoting) {
 				setStage('Voting');
@@ -354,17 +395,50 @@
 				description = data.BeginVoting.description;
 				votingDisabledCards = data.BeginVoting.disabled_cards || [];
 				votesPerGuesser = data.BeginVoting.votes_per_guesser ?? votesPerGuesser;
+				beautyDisabledCards = [];
+				playerToBeautyVotes = {};
+				beautyVoteTotals = {};
+				beautyWinningCards = [];
 				storytellerChosenCard = '';
+			} else if (data.BeginBeautyVoting) {
+				setStage('BeautyVoting');
+				displayImages = data.BeginBeautyVoting.center_cards;
+				description = data.BeginBeautyVoting.description;
+				beautyDisabledCards = data.BeginBeautyVoting.disabled_cards || [];
+				beautyVotesPerPlayer = data.BeginBeautyVoting.votes_per_player ?? beautyVotesPerPlayer;
+				beautyAllowDuplicateVotes =
+					data.BeginBeautyVoting.allow_duplicate_votes ?? beautyAllowDuplicateVotes;
+				votingDisabledCards = [];
 			} else if (data.Results) {
 				setStage('Results');
 				currentStageDeadlineS = null;
 				playerToCurrentCards = data.Results.player_to_current_cards || {};
 				displayImages = data.Results.center_cards || Object.values(playerToCurrentCards).flat();
 				playerToVotes = data.Results.player_to_votes || {};
+				playerToBeautyVotes = data.Results.player_to_beauty_votes || {};
 				activeCard = data.Results.active_card;
 				pointChange = data.Results.point_change;
+				storytellerPointChange = data.Results.storyteller_point_change || {};
+				beautyPointChange = data.Results.beauty_point_change || {};
+				beautyVoteTotals = data.Results.beauty_vote_totals || {};
+				beautyWinningCards = data.Results.beauty_winning_cards || [];
 				votingDisabledCards = [];
+				beautyDisabledCards = [];
 				storytellerChosenCard = '';
+			} else if (data.BeautyResults) {
+				setStage('BeautyResults');
+				currentStageDeadlineS = null;
+				playerToCurrentCards = data.BeautyResults.player_to_current_cards || {};
+				displayImages =
+					data.BeautyResults.center_cards || Object.values(playerToCurrentCards).flat();
+				playerToBeautyVotes = data.BeautyResults.player_to_beauty_votes || {};
+				pointChange = data.BeautyResults.point_change || {};
+				storytellerPointChange = {};
+				beautyPointChange = data.BeautyResults.point_change || {};
+				beautyVoteTotals = data.BeautyResults.beauty_vote_totals || {};
+				beautyWinningCards = data.BeautyResults.beauty_winning_cards || [];
+				votingDisabledCards = [];
+				beautyDisabledCards = [];
 			} else if (data.StellaAssociate) {
 				setStage('StellaAssociate');
 				displayImages = data.StellaAssociate.board_cards || [];
@@ -465,6 +539,15 @@
 				{cardsPerHand}
 				{cardsPerHandMin}
 				{cardsPerHandMax}
+				{beautyEnabled}
+				{beautyVotesPerPlayer}
+				{beautyVotesPerPlayerMin}
+				{beautyVotesPerPlayerMax}
+				{beautyAllowDuplicateVotes}
+				{beautyPointsBonus}
+				{beautyPointsBonusMin}
+				{beautyPointsBonusMax}
+				{beautyResultsDisplayMode}
 				{stellaBoardSize}
 				{stellaBoardSizeMin}
 				{stellaBoardSizeMax}
@@ -499,6 +582,15 @@
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}
+			{beautyEnabled}
+			{beautyVotesPerPlayer}
+			{beautyVotesPerPlayerMin}
+			{beautyVotesPerPlayerMax}
+			{beautyAllowDuplicateVotes}
+			{beautyPointsBonus}
+			{beautyPointsBonusMin}
+			{beautyPointsBonusMax}
+			{beautyResultsDisplayMode}
 			{cardsPerHand}
 			{cardsPerHandMin}
 			{cardsPerHandMax}
@@ -564,6 +656,15 @@
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}
+			{beautyEnabled}
+			{beautyVotesPerPlayer}
+			{beautyVotesPerPlayerMin}
+			{beautyVotesPerPlayerMax}
+			{beautyAllowDuplicateVotes}
+			{beautyPointsBonus}
+			{beautyPointsBonusMin}
+			{beautyPointsBonusMax}
+			{beautyResultsDisplayMode}
 			{cardsPerHand}
 			{cardsPerHandMin}
 			{cardsPerHandMax}
@@ -634,6 +735,15 @@
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}
+			{beautyEnabled}
+			{beautyVotesPerPlayer}
+			{beautyVotesPerPlayerMin}
+			{beautyVotesPerPlayerMax}
+			{beautyAllowDuplicateVotes}
+			{beautyPointsBonus}
+			{beautyPointsBonusMin}
+			{beautyPointsBonusMax}
+			{beautyResultsDisplayMode}
 			{cardsPerHand}
 			{cardsPerHandMin}
 			{cardsPerHandMax}
@@ -697,6 +807,15 @@
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}
+			{beautyEnabled}
+			{beautyVotesPerPlayer}
+			{beautyVotesPerPlayerMin}
+			{beautyVotesPerPlayerMax}
+			{beautyAllowDuplicateVotes}
+			{beautyPointsBonus}
+			{beautyPointsBonusMin}
+			{beautyPointsBonusMax}
+			{beautyResultsDisplayMode}
 			{cardsPerHand}
 			{cardsPerHandMin}
 			{cardsPerHandMax}
@@ -761,6 +880,15 @@
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}
+			{beautyEnabled}
+			{beautyVotesPerPlayer}
+			{beautyVotesPerPlayerMin}
+			{beautyVotesPerPlayerMax}
+			{beautyAllowDuplicateVotes}
+			{beautyPointsBonus}
+			{beautyPointsBonusMin}
+			{beautyPointsBonusMax}
+			{beautyResultsDisplayMode}
 			{cardsPerHand}
 			{cardsPerHandMin}
 			{cardsPerHandMax}
@@ -806,18 +934,16 @@
 			{winCondition}
 			disabledCards={votingDisabledCards}
 		/>
-	{:else if stage === 'Results'}
-		<Results
+	{:else if stage === 'BeautyVoting'}
+		<BeautyVoting
 			{displayImages}
+			{activePlayer}
 			{name}
 			{creator}
 			{moderators}
 			{observers}
 			{gameServer}
-			{playerToCurrentCards}
-			{playerToVotes}
-			{activeCard}
-			{activePlayer}
+			{description}
 			{players}
 			{allowNewPlayersMidgame}
 			{storytellerLossComplement}
@@ -827,6 +953,15 @@
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}
+			{beautyEnabled}
+			{beautyVotesPerPlayer}
+			{beautyVotesPerPlayerMin}
+			{beautyVotesPerPlayerMax}
+			{beautyAllowDuplicateVotes}
+			{beautyPointsBonus}
+			{beautyPointsBonusMin}
+			{beautyPointsBonusMax}
+			{beautyResultsDisplayMode}
 			{cardsPerHand}
 			{cardsPerHandMin}
 			{cardsPerHandMax}
@@ -870,6 +1005,159 @@
 			{cardsRemaining}
 			{deckRefillFlashToken}
 			{winCondition}
+			disabledCards={beautyDisabledCards}
+		/>
+	{:else if stage === 'Results'}
+		<Results
+			{displayImages}
+			{name}
+			{creator}
+			{moderators}
+			{observers}
+			{gameServer}
+			{playerToCurrentCards}
+			{playerToVotes}
+			{playerToBeautyVotes}
+			{activeCard}
+			{activePlayer}
+			{players}
+			{allowNewPlayersMidgame}
+			{storytellerLossComplement}
+			{storytellerLossComplementMin}
+			{storytellerLossComplementMax}
+			{storytellerLossComplementAuto}
+			{votesPerGuesser}
+			{votesPerGuesserMin}
+			{votesPerGuesserMax}
+			{beautyEnabled}
+			{beautyVotesPerPlayer}
+			{beautyVotesPerPlayerMin}
+			{beautyVotesPerPlayerMax}
+			{beautyAllowDuplicateVotes}
+			{beautyPointsBonus}
+			{beautyPointsBonusMin}
+			{beautyPointsBonusMax}
+			{beautyResultsDisplayMode}
+			{cardsPerHand}
+			{cardsPerHandMin}
+			{cardsPerHandMax}
+			{nominationsPerGuesser}
+			{nominationsPerGuesserMin}
+			{nominationsPerGuesserMax}
+			{bonusCorrectGuessOnThresholdCorrectLoss}
+			{bonusDoubleVoteOnThresholdCorrectLoss}
+			{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
+			{showVotingCardNumbers}
+			{roundStartDiscardCount}
+			{hintChoosingTimerEnabled}
+			{hintChoosingTimerDurationS}
+			{cardChoosingTimerEnabled}
+			{cardChoosingTimerDurationS}
+			{votingTimerEnabled}
+			{votingTimerDurationS}
+			{forceCardChoosingTimer}
+			{forceVotingTimer}
+			{stellaBoardSize}
+			{stellaBoardSizeMin}
+			{stellaBoardSizeMax}
+			{stellaSelectionMin}
+			{stellaSelectionMax}
+			{stellaSelectionCountMin}
+			{stellaSelectionCountMax}
+			{stellaWordPackPresetNames}
+			{stellaSelectedWordPackName}
+			{stellaWordPackIsUnsaved}
+			{stellaQueueDuringAssociation}
+			{stellaQueuedRevealMode}
+			{stellaScoutTimerEnabled}
+			{stellaScoutTimerDurationS}
+			{forceStellaScoutTimer}
+			{serverTimeMs}
+			{currentStageDeadlineS}
+			{votingWrongCardDisableDistribution}
+			{stage}
+			{pointChange}
+			{beautyVoteTotals}
+			{beautyWinningCards}
+			{roundNum}
+			{cardsRemaining}
+			{deckRefillFlashToken}
+			{winCondition}
+		/>
+	{:else if stage === 'BeautyResults'}
+		<BeautyResults
+			{displayImages}
+			{name}
+			{creator}
+			{moderators}
+			{observers}
+			{activePlayer}
+			{gameServer}
+			{playerToCurrentCards}
+			{playerToBeautyVotes}
+			{players}
+			{allowNewPlayersMidgame}
+			{storytellerLossComplement}
+			{storytellerLossComplementMin}
+			{storytellerLossComplementMax}
+			{storytellerLossComplementAuto}
+			{votesPerGuesser}
+			{votesPerGuesserMin}
+			{votesPerGuesserMax}
+			{beautyEnabled}
+			{beautyVotesPerPlayer}
+			{beautyVotesPerPlayerMin}
+			{beautyVotesPerPlayerMax}
+			{beautyAllowDuplicateVotes}
+			{beautyPointsBonus}
+			{beautyPointsBonusMin}
+			{beautyPointsBonusMax}
+			{beautyResultsDisplayMode}
+			{cardsPerHand}
+			{cardsPerHandMin}
+			{cardsPerHandMax}
+			{nominationsPerGuesser}
+			{nominationsPerGuesserMin}
+			{nominationsPerGuesserMax}
+			{bonusCorrectGuessOnThresholdCorrectLoss}
+			{bonusDoubleVoteOnThresholdCorrectLoss}
+			{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
+			{showVotingCardNumbers}
+			{roundStartDiscardCount}
+			{hintChoosingTimerEnabled}
+			{hintChoosingTimerDurationS}
+			{cardChoosingTimerEnabled}
+			{cardChoosingTimerDurationS}
+			{votingTimerEnabled}
+			{votingTimerDurationS}
+			{forceCardChoosingTimer}
+			{forceVotingTimer}
+			{stellaBoardSize}
+			{stellaBoardSizeMin}
+			{stellaBoardSizeMax}
+			{stellaSelectionMin}
+			{stellaSelectionMax}
+			{stellaSelectionCountMin}
+			{stellaSelectionCountMax}
+			{stellaWordPackPresetNames}
+			{stellaSelectedWordPackName}
+			{stellaWordPackIsUnsaved}
+			{stellaQueueDuringAssociation}
+			{stellaQueuedRevealMode}
+			{stellaScoutTimerEnabled}
+			{stellaScoutTimerDurationS}
+			{forceStellaScoutTimer}
+			{serverTimeMs}
+			{currentStageDeadlineS}
+			{votingWrongCardDisableDistribution}
+			{stage}
+			{pointChange}
+			{beautyVoteTotals}
+			{beautyWinningCards}
+			{roundNum}
+			{cardsRemaining}
+			{deckRefillFlashToken}
+			{winCondition}
 		/>
 	{:else if stage === 'StellaResults'}
 		<StellaResults
@@ -889,6 +1177,15 @@
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}
+			{beautyEnabled}
+			{beautyVotesPerPlayer}
+			{beautyVotesPerPlayerMin}
+			{beautyVotesPerPlayerMax}
+			{beautyAllowDuplicateVotes}
+			{beautyPointsBonus}
+			{beautyPointsBonusMin}
+			{beautyPointsBonusMax}
+			{beautyResultsDisplayMode}
 			{cardsPerHand}
 			{cardsPerHandMin}
 			{cardsPerHandMax}
@@ -954,6 +1251,15 @@
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}
+			{beautyEnabled}
+			{beautyVotesPerPlayer}
+			{beautyVotesPerPlayerMin}
+			{beautyVotesPerPlayerMax}
+			{beautyAllowDuplicateVotes}
+			{beautyPointsBonus}
+			{beautyPointsBonusMin}
+			{beautyPointsBonusMax}
+			{beautyResultsDisplayMode}
 			{cardsPerHand}
 			{cardsPerHandMin}
 			{cardsPerHandMax}
@@ -1010,6 +1316,12 @@
 				{activePlayer}
 				{votesPerGuesser}
 				{votesPerGuesserMax}
+				{beautyEnabled}
+				{beautyVotesPerPlayer}
+				{beautyVotesPerPlayerMax}
+				{beautyAllowDuplicateVotes}
+				{beautyPointsBonus}
+				{beautyResultsDisplayMode}
 				{bonusCorrectGuessOnThresholdCorrectLoss}
 				{bonusDoubleVoteOnThresholdCorrectLoss}
 				{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}

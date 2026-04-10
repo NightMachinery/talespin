@@ -13,7 +13,13 @@
 		type StellaWordPackOption,
 		type StellaWordPackPreset
 	} from '$lib/stellaWordPacks';
-	import type { GameMode, PlayerInfo, StellaQueuedRevealMode, WinCondition } from '$lib/types';
+	import type {
+		BeautyResultsDisplayMode,
+		GameMode,
+		PlayerInfo,
+		StellaQueuedRevealMode,
+		WinCondition
+	} from '$lib/types';
 	import { formatWinCondition } from '$lib/winCondition';
 	import { Avatar, getToastStore } from '@skeletonlabs/skeleton';
 	import { onDestroy } from 'svelte';
@@ -31,6 +37,15 @@
 	export let cardsPerHand = 12;
 	export let cardsPerHandMin = 1;
 	export let cardsPerHandMax = 100;
+	export let beautyEnabled = false;
+	export let beautyVotesPerPlayer = 1;
+	export let beautyVotesPerPlayerMin = 1;
+	export let beautyVotesPerPlayerMax = 1;
+	export let beautyAllowDuplicateVotes = false;
+	export let beautyPointsBonus = 2;
+	export let beautyPointsBonusMin = 0;
+	export let beautyPointsBonusMax = 10;
+	export let beautyResultsDisplayMode: BeautyResultsDisplayMode = 'combined';
 	export let stellaBoardSize = 15;
 	export let stellaBoardSizeMin = 1;
 	export let stellaBoardSizeMax = 100;
@@ -212,6 +227,38 @@
 		const value = Number(input.value);
 		if (!canEditSettings || !Number.isInteger(value)) return;
 		gameServer.setCardsPerHand(value);
+	}
+
+	function updateBeautyEnabled(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		if (!canEditSettings) return;
+		gameServer.setBeautyEnabled(input.checked);
+	}
+
+	function updateBeautyVotesPerPlayer(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const value = Number(input.value);
+		if (!canEditSettings || !Number.isInteger(value)) return;
+		gameServer.setBeautyVotesPerPlayer(value);
+	}
+
+	function updateBeautyAllowDuplicateVotes(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		if (!canEditSettings) return;
+		gameServer.setBeautyAllowDuplicateVotes(input.checked);
+	}
+
+	function updateBeautyPointsBonus(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const value = Number(input.value);
+		if (!canEditSettings || !Number.isInteger(value)) return;
+		gameServer.setBeautyPointsBonus(value);
+	}
+
+	function updateBeautyResultsDisplayMode(event: Event) {
+		const input = event.currentTarget as HTMLSelectElement;
+		if (!canEditSettings) return;
+		gameServer.setBeautyResultsDisplayMode(input.value as BeautyResultsDisplayMode);
 	}
 
 	function updateStellaBoardSize(event: Event) {
@@ -479,19 +526,104 @@
 					</div>
 
 					{#if gameMode === 'dixit_plus'}
-						<div>
-							<label class="text-sm font-semibold" for="cardsPerHand">Cards per hand</label>
-							<input
-								id="cardsPerHand"
-								class="mt-1 w-full rounded border px-3 py-2 text-gray-700"
-								type="number"
-								min={cardsPerHandMin}
-								max={cardsPerHandMax}
-								value={cardsPerHand}
-								on:change={updateCardsPerHand}
-								disabled={!canEditSettings}
-							/>
-							<p class="mt-1 text-xs opacity-70">Range: {cardsPerHandMin}–{cardsPerHandMax}</p>
+						<div class="space-y-3">
+							<div>
+								<label class="text-sm font-semibold" for="cardsPerHand">Cards per hand</label>
+								<input
+									id="cardsPerHand"
+									class="mt-1 w-full rounded border px-3 py-2 text-gray-700"
+									type="number"
+									min={cardsPerHandMin}
+									max={cardsPerHandMax}
+									value={cardsPerHand}
+									on:change={updateCardsPerHand}
+									disabled={!canEditSettings}
+								/>
+								<p class="mt-1 text-xs opacity-70">
+									Range: {cardsPerHandMin}–{cardsPerHandMax}
+								</p>
+							</div>
+							<div class="rounded border border-white/20 p-3 space-y-3">
+								<label class="flex items-start gap-3 text-sm">
+									<input
+										type="checkbox"
+										class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
+										checked={beautyEnabled}
+										on:change={updateBeautyEnabled}
+										disabled={!canEditSettings}
+									/>
+									<div>
+										<span class="block font-semibold">Enable Most Beautiful</span>
+										<p class="text-xs opacity-70">
+											Add a second voting step after storyteller voting.
+										</p>
+									</div>
+								</label>
+								<div class="grid grid-cols-2 gap-3">
+									<div>
+										<label class="text-sm font-semibold" for="beautyVotesPerPlayer">
+											Beauty votes
+										</label>
+										<input
+											id="beautyVotesPerPlayer"
+											class="mt-1 w-full rounded border px-3 py-2 text-gray-700"
+											type="number"
+											min={beautyVotesPerPlayerMin}
+											max={beautyVotesPerPlayerMax}
+											value={beautyVotesPerPlayer}
+											on:change={updateBeautyVotesPerPlayer}
+											disabled={!canEditSettings}
+										/>
+										<p class="mt-1 text-xs opacity-70">
+											Range: {beautyVotesPerPlayerMin}–{beautyVotesPerPlayerMax}
+										</p>
+									</div>
+									<div>
+										<label class="text-sm font-semibold" for="beautyPointsBonus">
+											Beauty bonus
+										</label>
+										<input
+											id="beautyPointsBonus"
+											class="mt-1 w-full rounded border px-3 py-2 text-gray-700"
+											type="number"
+											min={beautyPointsBonusMin}
+											max={beautyPointsBonusMax}
+											value={beautyPointsBonus}
+											on:change={updateBeautyPointsBonus}
+											disabled={!canEditSettings}
+										/>
+										<p class="mt-1 text-xs opacity-70">
+											Range: {beautyPointsBonusMin}–{beautyPointsBonusMax}
+										</p>
+									</div>
+								</div>
+								<label class="flex items-start gap-3 text-sm">
+									<input
+										type="checkbox"
+										class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
+										checked={beautyAllowDuplicateVotes}
+										on:change={updateBeautyAllowDuplicateVotes}
+										disabled={!canEditSettings}
+									/>
+									<span>Allow duplicate beauty votes on the same card</span>
+								</label>
+								<div>
+									<label class="text-sm font-semibold" for="beautyResultsDisplayMode">
+										Beauty results display
+									</label>
+									<select
+										id="beautyResultsDisplayMode"
+										class="mt-1 w-full rounded border px-3 py-2 text-gray-700"
+										value={beautyResultsDisplayMode}
+										on:change={updateBeautyResultsDisplayMode}
+										disabled={!canEditSettings}
+									>
+										<option value="summary">Summary in storyteller results</option>
+										<option value="separate">Separate beauty results stage</option>
+										<option value="combined">Combined storyteller + beauty results</option>
+									</select>
+								</div>
+							</div>
 						</div>
 					{:else}
 						<div class="space-y-3">

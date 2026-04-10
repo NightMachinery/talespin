@@ -8,6 +8,8 @@
 
 	export let entries: ChooserOverlayEntry[] = [];
 	export let avoidTopLeftBadge = false;
+	export let label = '';
+	export let position: 'top-right' | 'bottom-right' | 'bottom-left' = 'top-right';
 
 	$: entryCount = entries.length;
 	$: usesTwoColumns = entryCount >= 4;
@@ -18,13 +20,25 @@
 	$: chipClass = $transparentCardNameOverlays
 		? 'border border-white/55 bg-black/10 text-white'
 		: 'bg-black/75 text-white';
-	$: containerClass = avoidTopLeftBadge
-		? 'pointer-events-none absolute left-14 right-2 top-2 z-20'
-		: 'pointer-events-none absolute right-2 top-2 z-20 max-w-[calc(100%-1rem)]';
+	$: containerClass =
+		position === 'bottom-right'
+			? 'pointer-events-none absolute bottom-10 right-2 z-20 max-w-[calc(100%-1rem)]'
+			: position === 'bottom-left'
+				? 'pointer-events-none absolute bottom-10 left-2 z-20 max-w-[calc(100%-1rem)]'
+				: avoidTopLeftBadge
+					? 'pointer-events-none absolute left-14 right-2 top-2 z-20'
+					: 'pointer-events-none absolute right-2 top-2 z-20 max-w-[calc(100%-1rem)]';
 </script>
 
 {#if entries.length > 0}
 	<div class={containerClass}>
+		{#if label !== ''}
+			<div
+				class={`mb-1 inline-block rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide shadow ${chipClass}`}
+			>
+				{label}
+			</div>
+		{/if}
 		<div class={`grid ${overlayGridClass} gap-1`}>
 			{#each entries as entry}
 				<div

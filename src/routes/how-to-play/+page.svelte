@@ -38,6 +38,10 @@
 			the storyteller) then use their voting tokens to guess which card belongs to the storyteller.
 		</p>
 		<p>
+			4.5. <strong>Optional Most Beautiful:</strong> Some rooms add a second vote where everyone picks
+			the most beautiful image by another player before storyteller results are shown.
+		</p>
+		<p>
 			5. <strong>End of Round:</strong> layers draw cards to refill their hands to 6. The role of the
 			storyteller passes to the next player.
 		</p>
@@ -56,6 +60,7 @@
 		<p>
 			• Players (not including the storyteller) score 1 point for each vote their own cards receive.
 		</p>
+		<p>• Optional Most Beautiful: each top-voted owner gets the configured beauty bonus.</p>
 		<br />
 		<strong class="text-xl underline">Strategies</strong>
 
