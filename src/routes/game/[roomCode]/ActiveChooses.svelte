@@ -2,6 +2,7 @@
 	import type GameServer from '$lib/gameServer';
 	import type { ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
 	import Images from './Images.svelte';
+	import StageActionButtons from './StageActionButtons.svelte';
 	import StageShell from './StageShell.svelte';
 	import { getToastStore } from '@skeletonlabs/skeleton';
 
@@ -43,6 +44,7 @@
 	export let roundStartDiscardCount = 3;
 	export let hintChoosingTimerEnabled = true;
 	export let hintChoosingTimerDurationS = 60;
+	export let forceHintChoosingTimer = false;
 	export let cardChoosingTimerEnabled = true;
 	export let cardChoosingTimerDurationS = 30;
 	export let votingTimerEnabled = true;
@@ -85,8 +87,18 @@
 	let selectedImage = '';
 	let isObserver = false;
 	let isActivePlayer = false;
+	let isModerator = false;
+	let canForceSwitchStoryteller = false;
+	let lastActivePlayer = '';
 	$: isObserver = !!observers[name];
 	$: isActivePlayer = activePlayer === name && !isObserver;
+	$: isModerator = new Set(moderators).has(name);
+	$: canForceSwitchStoryteller = isModerator && Object.keys(players).length >= 2;
+	$: if (activePlayer !== lastActivePlayer) {
+		lastActivePlayer = activePlayer;
+		descriptionBox = '';
+		selectedImage = '';
+	}
 
 	function activePlayerChoose() {
 		gameServer.activePlayerChoose(selectedImage, descriptionBox);
@@ -143,6 +155,7 @@
 	{roundStartDiscardCount}
 	{hintChoosingTimerEnabled}
 	{hintChoosingTimerDurationS}
+	{forceHintChoosingTimer}
 	{cardChoosingTimerEnabled}
 	{cardChoosingTimerDurationS}
 	{votingTimerEnabled}
@@ -176,7 +189,7 @@
 	{cardsRemaining}
 	{deckRefillFlashToken}
 	{winCondition}
-	showMobileActions={isActivePlayer}
+	showMobileActions={isActivePlayer || isModerator}
 >
 	<svelte:fragment slot="leftRail">
 		{#if isActivePlayer}
@@ -208,6 +221,19 @@
 				{#if isObserver}
 					<p class="opacity-70">You are observing this round.</p>
 				{/if}
+			</div>
+		{/if}
+		{#if isModerator}
+			<div class="card light p-4">
+				<StageActionButtons
+					actions={[
+						{
+							label: 'Switch Storyteller',
+							disabled: !canForceSwitchStoryteller,
+							onClick: () => gameServer.forceCurrentStage()
+						}
+					]}
+				/>
 			</div>
 		{/if}
 	</svelte:fragment>
@@ -247,6 +273,17 @@
 					on:click={activePlayerChoose}>Choose</button
 				>
 			</div>
+		{/if}
+		{#if isModerator}
+			<StageActionButtons
+				actions={[
+					{
+						label: 'Switch Storyteller',
+						disabled: !canForceSwitchStoryteller,
+						onClick: () => gameServer.forceCurrentStage()
+					}
+				]}
+			/>
 		{/if}
 	</svelte:fragment>
 

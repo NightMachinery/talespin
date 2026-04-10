@@ -313,6 +313,14 @@ class GameServer {
 		});
 	}
 
+	setForceHintChoosingTimer(enabled: boolean) {
+		this.send({
+			SetForceHintChoosingTimer: {
+				enabled
+			}
+		});
+	}
+
 	setCardChoosingTimerEnabled(enabled: boolean) {
 		this.send({
 			SetCardChoosingTimerEnabled: {
@@ -470,6 +478,12 @@ class GameServer {
 	resetStellaBoard() {
 		this.send({
 			ResetStellaBoard: {}
+		});
+	}
+
+	forceCurrentStage() {
+		this.send({
+			ForceCurrentStage: {}
 		});
 	}
 

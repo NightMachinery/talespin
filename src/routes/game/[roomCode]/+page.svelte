@@ -102,6 +102,7 @@
 	let roundStartDiscardCount = 3;
 	let hintChoosingTimerEnabled = true;
 	let hintChoosingTimerDurationS = 60;
+	let forceHintChoosingTimer = false;
 	let cardChoosingTimerEnabled = true;
 	let cardChoosingTimerDurationS = 30;
 	let votingTimerEnabled = true;
@@ -178,7 +179,12 @@
 		'BeautyResults',
 		'StellaResults'
 	]);
-	const MOST_BEAUTIFUL_STATS_REFRESH_STAGES = new Set(['Joining', 'Results', 'BeautyResults', 'End']);
+	const MOST_BEAUTIFUL_STATS_REFRESH_STAGES = new Set([
+		'Joining',
+		'Results',
+		'BeautyResults',
+		'End'
+	]);
 	let previousScoutTurnKey = '';
 	let lastMostBeautifulStatsRefreshStage = '';
 
@@ -345,6 +351,7 @@
 				roundStartDiscardCount = data.RoomState.round_start_discard_count ?? 3;
 				hintChoosingTimerEnabled = data.RoomState.hint_choosing_timer_enabled ?? true;
 				hintChoosingTimerDurationS = data.RoomState.hint_choosing_timer_duration_s ?? 60;
+				forceHintChoosingTimer = data.RoomState.force_hint_choosing_timer ?? false;
 				cardChoosingTimerEnabled = data.RoomState.card_choosing_timer_enabled ?? true;
 				cardChoosingTimerDurationS = data.RoomState.card_choosing_timer_duration_s ?? 30;
 				votingTimerEnabled = data.RoomState.voting_timer_enabled ?? true;
@@ -661,6 +668,7 @@
 			{roundStartDiscardCount}
 			{hintChoosingTimerEnabled}
 			{hintChoosingTimerDurationS}
+			{forceHintChoosingTimer}
 			{cardChoosingTimerEnabled}
 			{cardChoosingTimerDurationS}
 			{votingTimerEnabled}
@@ -738,6 +746,7 @@
 			{roundStartDiscardCount}
 			{hintChoosingTimerEnabled}
 			{hintChoosingTimerDurationS}
+			{forceHintChoosingTimer}
 			{cardChoosingTimerEnabled}
 			{cardChoosingTimerDurationS}
 			{votingTimerEnabled}
@@ -820,6 +829,7 @@
 			{roundStartDiscardCount}
 			{hintChoosingTimerEnabled}
 			{hintChoosingTimerDurationS}
+			{forceHintChoosingTimer}
 			{cardChoosingTimerEnabled}
 			{cardChoosingTimerDurationS}
 			{votingTimerEnabled}
@@ -895,6 +905,7 @@
 			{roundStartDiscardCount}
 			{hintChoosingTimerEnabled}
 			{hintChoosingTimerDurationS}
+			{forceHintChoosingTimer}
 			{cardChoosingTimerEnabled}
 			{cardChoosingTimerDurationS}
 			{votingTimerEnabled}
@@ -971,6 +982,7 @@
 			{roundStartDiscardCount}
 			{hintChoosingTimerEnabled}
 			{hintChoosingTimerDurationS}
+			{forceHintChoosingTimer}
 			{cardChoosingTimerEnabled}
 			{cardChoosingTimerDurationS}
 			{votingTimerEnabled}
@@ -1047,6 +1059,7 @@
 			{roundStartDiscardCount}
 			{hintChoosingTimerEnabled}
 			{hintChoosingTimerDurationS}
+			{forceHintChoosingTimer}
 			{cardChoosingTimerEnabled}
 			{cardChoosingTimerDurationS}
 			{votingTimerEnabled}
@@ -1126,6 +1139,7 @@
 			{roundStartDiscardCount}
 			{hintChoosingTimerEnabled}
 			{hintChoosingTimerDurationS}
+			{forceHintChoosingTimer}
 			{cardChoosingTimerEnabled}
 			{cardChoosingTimerDurationS}
 			{votingTimerEnabled}
@@ -1204,6 +1218,7 @@
 			{roundStartDiscardCount}
 			{hintChoosingTimerEnabled}
 			{hintChoosingTimerDurationS}
+			{forceHintChoosingTimer}
 			{cardChoosingTimerEnabled}
 			{cardChoosingTimerDurationS}
 			{votingTimerEnabled}
@@ -1280,6 +1295,7 @@
 			{roundStartDiscardCount}
 			{hintChoosingTimerEnabled}
 			{hintChoosingTimerDurationS}
+			{forceHintChoosingTimer}
 			{cardChoosingTimerEnabled}
 			{cardChoosingTimerDurationS}
 			{votingTimerEnabled}
@@ -1357,6 +1373,7 @@
 			{roundStartDiscardCount}
 			{hintChoosingTimerEnabled}
 			{hintChoosingTimerDurationS}
+			{forceHintChoosingTimer}
 			{cardChoosingTimerEnabled}
 			{cardChoosingTimerDurationS}
 			{votingTimerEnabled}

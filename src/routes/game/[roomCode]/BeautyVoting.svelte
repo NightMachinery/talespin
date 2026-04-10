@@ -8,6 +8,7 @@
 	import type GameServer from '$lib/gameServer';
 	import type { ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
 	import { cardsFitToHeight } from '$lib/viewOptions';
+	import StageActionButtons from './StageActionButtons.svelte';
 	import StageShell from './StageShell.svelte';
 
 	export let displayImages: string[] = [];
@@ -49,6 +50,7 @@
 	export let roundStartDiscardCount = 3;
 	export let hintChoosingTimerEnabled = true;
 	export let hintChoosingTimerDurationS = 60;
+	export let forceHintChoosingTimer = false;
 	export let cardChoosingTimerEnabled = true;
 	export let cardChoosingTimerDurationS = 30;
 	export let votingTimerEnabled = true;
@@ -91,7 +93,9 @@
 	let selectedVoteCounts: Record<string, number> = {};
 	let toastStore = getToastStore();
 	let isObserver = false;
+	let isModerator = false;
 	$: isObserver = !!observers[name];
+	$: isModerator = new Set(moderators).has(name);
 	$: effectiveBeautyVotesPerPlayer = Math.max(
 		1,
 		Math.min(beautyVotesPerPlayer, Math.max(beautyVotesPerPlayerMax, 1))
@@ -232,6 +236,7 @@
 	{roundStartDiscardCount}
 	{hintChoosingTimerEnabled}
 	{hintChoosingTimerDurationS}
+	{forceHintChoosingTimer}
 	{cardChoosingTimerEnabled}
 	{cardChoosingTimerDurationS}
 	{votingTimerEnabled}
@@ -265,7 +270,7 @@
 	{cardsRemaining}
 	{deckRefillFlashToken}
 	{winCondition}
-	showMobileActions={!isObserver}
+	showMobileActions={!isObserver || isModerator}
 >
 	<svelte:fragment slot="leftRail">
 		{#if !isObserver}
@@ -300,6 +305,13 @@
 				{#if isObserver}
 					<p class="opacity-70">You are observing this round.</p>
 				{/if}
+			</div>
+		{/if}
+		{#if isModerator}
+			<div class="card light p-4">
+				<StageActionButtons
+					actions={[{ label: 'Force Skip', onClick: () => gameServer.forceCurrentStage() }]}
+				/>
 			</div>
 		{/if}
 	</svelte:fragment>
@@ -337,6 +349,11 @@
 			<button class="btn variant-filled w-full" disabled={!canSubmit} on:click={submitBeautyVotes}>
 				Submit Beauty Votes
 			</button>
+		{/if}
+		{#if isModerator}
+			<StageActionButtons
+				actions={[{ label: 'Force Skip', onClick: () => gameServer.forceCurrentStage() }]}
+			/>
 		{/if}
 	</svelte:fragment>
 

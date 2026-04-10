@@ -8,6 +8,7 @@
 	import type GameServer from '$lib/gameServer';
 	import type { ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
 	import { cardsFitToHeight } from '$lib/viewOptions';
+	import StageActionButtons from './StageActionButtons.svelte';
 	import StageShell from './StageShell.svelte';
 
 	export let displayImages: string[] = [];
@@ -49,6 +50,7 @@
 	export let roundStartDiscardCount = 3;
 	export let hintChoosingTimerEnabled = true;
 	export let hintChoosingTimerDurationS = 60;
+	export let forceHintChoosingTimer = false;
 	export let cardChoosingTimerEnabled = true;
 	export let cardChoosingTimerDurationS = 30;
 	export let votingTimerEnabled = true;
@@ -92,8 +94,16 @@
 	let toastStore = getToastStore();
 	let isObserver = false;
 	let isVoter = false;
+	let isModerator = false;
+	let canForceRandomVote = false;
 	$: isObserver = !!observers[name];
 	$: isVoter = activePlayer !== name && !isObserver;
+	$: isModerator = new Set(moderators).has(name);
+	$: canForceRandomVote =
+		isModerator &&
+		Object.entries(players).filter(
+			([playerName, info]) => playerName !== activePlayer && info.ready
+		).length >= 2;
 	$: effectiveVotesPerGuesser = Math.max(
 		1,
 		Math.min(votesPerGuesser, Math.max(votesPerGuesserMax, 1))
@@ -223,6 +233,7 @@
 	{roundStartDiscardCount}
 	{hintChoosingTimerEnabled}
 	{hintChoosingTimerDurationS}
+	{forceHintChoosingTimer}
 	{cardChoosingTimerEnabled}
 	{cardChoosingTimerDurationS}
 	{votingTimerEnabled}
@@ -256,7 +267,7 @@
 	{cardsRemaining}
 	{deckRefillFlashToken}
 	{winCondition}
-	showMobileActions={isVoter}
+	showMobileActions={isVoter || isModerator}
 >
 	<svelte:fragment slot="leftRail">
 		{#if isVoter}
@@ -281,6 +292,19 @@
 				{#if isObserver}
 					<p class="opacity-70">You are observing this round.</p>
 				{/if}
+			</div>
+		{/if}
+		{#if isModerator}
+			<div class="card light p-4">
+				<StageActionButtons
+					actions={[
+						{
+							label: 'Force Random',
+							disabled: !canForceRandomVote,
+							onClick: () => gameServer.forceCurrentStage()
+						}
+					]}
+				/>
 			</div>
 		{/if}
 	</svelte:fragment>
@@ -312,6 +336,17 @@
 			<button class="btn variant-filled w-full" disabled={!canSubmit} on:click={submitVotes}
 				>Submit Votes</button
 			>
+		{/if}
+		{#if isModerator}
+			<StageActionButtons
+				actions={[
+					{
+						label: 'Force Random',
+						disabled: !canForceRandomVote,
+						onClick: () => gameServer.forceCurrentStage()
+					}
+				]}
+			/>
 		{/if}
 	</svelte:fragment>
 

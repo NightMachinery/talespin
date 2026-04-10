@@ -5,6 +5,7 @@
 	import { onDestroy } from 'svelte';
 	import { hideNonSelectedStellaRevealCards } from '$lib/viewOptions';
 	import Images from './Images.svelte';
+	import StageActionButtons from './StageActionButtons.svelte';
 	import StageShell from './StageShell.svelte';
 
 	export let displayImages: string[] = [];
@@ -45,6 +46,7 @@
 	export let roundStartDiscardCount = 3;
 	export let hintChoosingTimerEnabled = true;
 	export let hintChoosingTimerDurationS = 60;
+	export let forceHintChoosingTimer = false;
 	export let cardChoosingTimerEnabled = true;
 	export let cardChoosingTimerDurationS = 30;
 	export let votingTimerEnabled = true;
@@ -93,9 +95,13 @@
 	let scoutFlash = false;
 	let scoutFlashTimeout: ReturnType<typeof setTimeout> | undefined;
 	let previousScoutTurnKey = '';
+	let isModerator = false;
+	let forceRevealLabel = '';
 
 	$: isObserver = !!observers[name];
 	$: isScout = activePlayer === name && !isObserver;
+	$: isModerator = new Set(moderators).has(name);
+	$: forceRevealLabel = stellaQueueDuringAssociation ? 'Force Next Reveal' : 'Force Random Reveal';
 	$: revealableCards = selectedCards.filter((card) => !revealedCards.includes(card));
 	$: selectedCardSet = new Set(selectedCards);
 	$: visibleBoardCards =
@@ -216,6 +222,7 @@
 	{roundStartDiscardCount}
 	{hintChoosingTimerEnabled}
 	{hintChoosingTimerDurationS}
+	{forceHintChoosingTimer}
 	{cardChoosingTimerEnabled}
 	{cardChoosingTimerDurationS}
 	{votingTimerEnabled}
@@ -290,6 +297,13 @@
 				</p>
 			</div>
 		{/if}
+		{#if isModerator}
+			<div class="card light p-4">
+				<StageActionButtons
+					actions={[{ label: forceRevealLabel, onClick: () => gameServer.forceCurrentStage() }]}
+				/>
+			</div>
+		{/if}
 	</svelte:fragment>
 
 	<svelte:fragment slot="mobileTop">
@@ -303,6 +317,14 @@
 				<p class="text-sm opacity-80">Tap a highlighted card on the board to reveal it.</p>
 			{/if}
 		</div>
+	</svelte:fragment>
+
+	<svelte:fragment slot="mobileActions">
+		{#if isModerator}
+			<StageActionButtons
+				actions={[{ label: forceRevealLabel, onClick: () => gameServer.forceCurrentStage() }]}
+			/>
+		{/if}
 	</svelte:fragment>
 
 	<div class="flex h-full flex-col">

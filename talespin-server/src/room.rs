@@ -159,6 +159,7 @@ pub enum ServerMsg {
         round_start_discard_count: u16,
         hint_choosing_timer_enabled: bool,
         hint_choosing_timer_duration_s: u16,
+        force_hint_choosing_timer: bool,
         card_choosing_timer_enabled: bool,
         card_choosing_timer_duration_s: u16,
         voting_timer_enabled: bool,
@@ -360,6 +361,9 @@ pub enum ClientMsg {
     SetHintChoosingTimerDuration {
         seconds: u16,
     },
+    SetForceHintChoosingTimer {
+        enabled: bool,
+    },
     SetCardChoosingTimerEnabled {
         enabled: bool,
     },
@@ -425,6 +429,7 @@ pub enum ClientMsg {
     },
     ResetStellaClue {},
     ResetStellaBoard {},
+    ForceCurrentStage {},
     ForceStartNextRound {},
     RefreshHands {},
     ResumeGame {},
@@ -589,6 +594,8 @@ struct RoomState {
     // Most Beautiful timer duration in seconds
     beauty_timer_duration_s: u16,
     // auto-fill missing player card choices at timeout
+    force_hint_choosing_timer: bool,
+    // auto-force storyteller switch / Resonance selections at hint-stage timeout
     force_card_choosing_timer: bool,
     // auto-fill missing votes at timeout
     force_voting_timer: bool,
@@ -632,6 +639,8 @@ struct RoomState {
     player_to_votes: HashMap<String, Vec<String>>,
     // for each player, the card(s) they voted for as most beautiful
     player_to_beauty_votes: HashMap<String, Vec<String>>,
+    // voters whose ballot was completed or created via forced random voting
+    forced_random_voters: HashSet<String>,
     // cached storyteller-stage point change for the current round
     storyteller_point_change: HashMap<String, u16>,
     // cached beauty-stage point change for the current round
@@ -797,6 +806,7 @@ impl Room {
             round_start_discard_count: 3,
             hint_choosing_timer_enabled: true,
             hint_choosing_timer_duration_s: DEFAULT_HINT_CHOOSING_TIMER_DURATION_S,
+            force_hint_choosing_timer: false,
             card_choosing_timer_enabled: true,
             card_choosing_timer_duration_s: DEFAULT_CARD_CHOOSING_TIMER_DURATION_S,
             voting_timer_enabled: true,
@@ -824,6 +834,7 @@ impl Room {
             player_to_current_cards: HashMap::new(),
             player_to_votes: HashMap::new(),
             player_to_beauty_votes: HashMap::new(),
+            forced_random_voters: HashSet::new(),
             storyteller_point_change: HashMap::new(),
             beauty_point_change: HashMap::new(),
             member_to_beauty_points: HashMap::new(),
@@ -977,16 +988,44 @@ impl Room {
             .keys()
             .filter(|player| {
                 active_player != Some(player.as_str())
+                    && !state.forced_random_voters.contains(player.as_str())
                     && (state.players.contains_key(player.as_str())
                         || state.observers.contains_key(player.as_str()))
             })
             .count();
 
-        if guessers > 0 {
+        if !state.player_to_votes.is_empty() {
             guessers
         } else {
             self.guesser_count(state)
         }
+    }
+
+    fn manual_voting_participant_count(&self, state: &RwLockWriteGuard<'_, RoomState>) -> usize {
+        let active_player = state
+            .player_order
+            .get(state.active_player)
+            .map(String::as_str);
+        state
+            .player_to_votes
+            .keys()
+            .filter(|player| {
+                active_player != Some(player.as_str())
+                    && !state.forced_random_voters.contains(player.as_str())
+                    && state.players.contains_key(player.as_str())
+            })
+            .count()
+    }
+
+    fn can_force_voting_stage(&self, state: &RwLockWriteGuard<'_, RoomState>) -> bool {
+        self.manual_voting_participant_count(state) >= 2
+    }
+
+    fn can_force_stella_associate_stage(&self, state: &RwLockWriteGuard<'_, RoomState>) -> bool {
+        state
+            .stella_player_selections
+            .keys()
+            .any(|player| state.players.contains_key(player))
     }
 
     fn storyteller_loss_complement_bounds_for_guesser_count(guesser_count: usize) -> (u16, u16) {
@@ -1143,6 +1182,139 @@ impl Room {
         self.refresh_current_stage_deadline(state);
     }
 
+    fn force_switch_storyteller(&self, state: &mut RwLockWriteGuard<'_, RoomState>) -> bool {
+        if !matches!(state.stage, RoomStage::ActiveChooses) || state.player_order.len() < 2 {
+            return false;
+        }
+
+        let current_active = state.active_player;
+        let Some(next_active) =
+            self.choose_random_lowest_storyteller_index_excluding(state, current_active)
+        else {
+            return false;
+        };
+
+        state.active_player = next_active;
+        self.restart_current_stage_timer(state);
+        true
+    }
+
+    fn rounded_median_u16(values: &[u16]) -> Option<u16> {
+        if values.is_empty() {
+            return None;
+        }
+
+        let mut sorted = values.to_vec();
+        sorted.sort_unstable();
+        let mid = sorted.len() / 2;
+        if sorted.len() % 2 == 1 {
+            Some(sorted[mid])
+        } else {
+            let lower = u32::from(sorted[mid - 1]);
+            let upper = u32::from(sorted[mid]);
+            Some(((lower + upper + 1) / 2) as u16)
+        }
+    }
+
+    fn fill_missing_stella_associate_selections(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+    ) -> Result<bool> {
+        if !matches!(state.stage, RoomStage::StellaAssociate)
+            || !self.can_force_stella_associate_stage(state)
+        {
+            return Ok(false);
+        }
+
+        let manual_counts = state
+            .stella_player_selections
+            .iter()
+            .filter_map(|(player, cards)| state.players.contains_key(player).then_some(cards.len()))
+            .map(|count| count.min(usize::from(u16::MAX)) as u16)
+            .collect::<Vec<_>>();
+        let Some(target_count) = Self::rounded_median_u16(&manual_counts) else {
+            return Ok(false);
+        };
+        let desired_count =
+            usize::from(target_count.clamp(state.stella_selection_min, state.stella_selection_max))
+                .min(state.stella_board_cards.len());
+
+        let board_cards = state.stella_board_cards.clone();
+        let mut rng = rand::thread_rng();
+        for player in state.player_order.clone() {
+            if !state.players.contains_key(&player)
+                || state.stella_player_selections.contains_key(&player)
+            {
+                continue;
+            }
+
+            let mut cards = board_cards.clone();
+            cards.shuffle(&mut rng);
+            let mut selected = cards.into_iter().take(desired_count).collect::<Vec<_>>();
+            selected.shuffle(&mut rng);
+            state
+                .stella_player_selections
+                .insert(player.clone(), selected);
+            if let Some(info) = state.players.get_mut(&player) {
+                info.ready = true;
+            }
+        }
+
+        Ok(true)
+    }
+
+    async fn force_finish_voting_stage(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+    ) -> Result<bool> {
+        if !matches!(state.stage, RoomStage::Voting) || !self.can_force_voting_stage(state) {
+            return Ok(false);
+        }
+
+        if self.beauty_enabled_for_round(state) {
+            self.init_beauty_voting(state).await?;
+        } else {
+            self.init_results(state)?;
+        }
+        Ok(true)
+    }
+
+    async fn force_current_stage(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+    ) -> Result<bool> {
+        match state.stage {
+            RoomStage::ActiveChooses => {
+                if !self.force_switch_storyteller(state) {
+                    return Ok(false);
+                }
+                self.broadcast_msg(self.room_state(state))?;
+                Ok(true)
+            }
+            RoomStage::PlayersChoose => {
+                self.init_voting(state).await?;
+                Ok(true)
+            }
+            RoomStage::Voting => self.force_finish_voting_stage(state).await,
+            RoomStage::BeautyVoting => {
+                self.init_results(state)?;
+                Ok(true)
+            }
+            RoomStage::StellaAssociate => {
+                if !self.fill_missing_stella_associate_selections(state)? {
+                    return Ok(false);
+                }
+                self.init_stella_reveal(state).await?;
+                Ok(true)
+            }
+            RoomStage::StellaReveal if state.stella_queue_during_association => {
+                self.advance_stella_autoplay_reveal(state).await
+            }
+            RoomStage::StellaReveal => self.advance_random_stella_reveal(state).await,
+            _ => Ok(false),
+        }
+    }
+
     async fn handle_expired_stage_timer(
         &self,
         state: &mut RwLockWriteGuard<'_, RoomState>,
@@ -1154,31 +1326,23 @@ impl Room {
             return Ok(false);
         }
 
-        match state.stage {
-            RoomStage::PlayersChoose if state.force_card_choosing_timer => {
-                self.init_voting(state).await?;
-                Ok(true)
+        let should_force = match state.stage {
+            RoomStage::ActiveChooses | RoomStage::StellaAssociate => {
+                state.force_hint_choosing_timer
             }
-            RoomStage::StellaReveal if state.stella_queue_during_association => {
-                self.advance_stella_autoplay_reveal(state).await
-            }
-            RoomStage::StellaReveal if state.force_stella_scout_timer => {
-                self.advance_random_stella_reveal(state).await
-            }
-            RoomStage::Voting if state.force_voting_timer => {
-                if self.beauty_enabled_for_round(state) {
-                    self.init_beauty_voting(state).await?;
-                } else {
-                    self.init_results(state)?;
-                }
-                Ok(true)
-            }
-            RoomStage::BeautyVoting if state.force_beauty_timer => {
-                self.init_results(state)?;
-                Ok(true)
-            }
-            _ => Ok(false),
+            RoomStage::PlayersChoose => state.force_card_choosing_timer,
+            RoomStage::Voting => state.force_voting_timer,
+            RoomStage::BeautyVoting => state.force_beauty_timer,
+            RoomStage::StellaReveal if state.stella_queue_during_association => true,
+            RoomStage::StellaReveal => state.force_stella_scout_timer,
+            _ => false,
+        };
+
+        if !should_force {
+            return Ok(false);
         }
+
+        self.force_current_stage(state).await
     }
 
     fn clamp_storyteller_loss_complement(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
@@ -2333,6 +2497,33 @@ impl Room {
         candidate_indices.choose(&mut rand::thread_rng()).copied()
     }
 
+    fn choose_random_lowest_storyteller_index_excluding(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+        excluded_index: usize,
+    ) -> Option<usize> {
+        let candidate_indices = state
+            .player_order
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, name)| (idx != excluded_index).then_some((idx, name)))
+            .collect::<Vec<_>>();
+        let min_storyteller_count = candidate_indices
+            .iter()
+            .map(|(_, name)| self.storyteller_count_for_member(state, name))
+            .min()?;
+
+        candidate_indices
+            .into_iter()
+            .filter_map(|(idx, name)| {
+                (self.storyteller_count_for_member(state, name) == min_storyteller_count)
+                    .then_some(idx)
+            })
+            .collect::<Vec<_>>()
+            .choose(&mut rand::thread_rng())
+            .copied()
+    }
+
     fn should_promote_observer(&self, observer: &ObserverInfo) -> bool {
         observer.auto_join_on_next_round || observer.join_requested
     }
@@ -3403,6 +3594,7 @@ impl Room {
         state.voting_order_seed = rand::thread_rng().gen::<u64>();
         state.player_to_votes.clear();
         state.player_to_beauty_votes.clear();
+        state.forced_random_voters.clear();
         state.storyteller_point_change.clear();
         state.beauty_point_change.clear();
 
@@ -3521,12 +3713,31 @@ impl Room {
                 let keep_start = votes.len().saturating_sub(votes_per_guesser);
                 *votes = votes.split_off(keep_start);
             }
+            let had_missing_votes = votes.len() < votes_per_guesser;
+            if !had_missing_votes {
+                continue;
+            }
 
             let mut rng = rand::thread_rng();
+            let mut available = valid_cards
+                .iter()
+                .filter(|card| !votes.contains(*card))
+                .cloned()
+                .collect::<Vec<_>>();
+            available.shuffle(&mut rng);
             while votes.len() < votes_per_guesser {
-                let card = valid_cards.choose(&mut rng).unwrap().clone();
+                let Some(card) = available.pop() else {
+                    break;
+                };
                 votes.push(card);
             }
+            if votes.len() < votes_per_guesser {
+                return Err(anyhow!(
+                    "Not enough distinct voting cards available for {}",
+                    player
+                ));
+            }
+            state.forced_random_voters.insert(player.to_string());
         }
 
         Ok(())
@@ -4269,6 +4480,7 @@ impl Room {
         state.player_to_current_cards.clear();
         state.player_to_votes.clear();
         state.player_to_beauty_votes.clear();
+        state.forced_random_voters.clear();
         state.storyteller_point_change.clear();
         state.beauty_point_change.clear();
         state.current_description.clear();
@@ -5722,11 +5934,14 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
+                if !matches!(
+                    state.stage,
+                    RoomStage::Joining | RoomStage::ActiveChooses | RoomStage::StellaAssociate
+                ) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
-                                "Stage timers can only be changed during storyteller choosing stage"
+                                "Hint-stage timer settings can only be changed during setup or the active hint stage"
                                     .to_string(),
                             )
                             .into(),
@@ -5758,11 +5973,14 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
+                if !matches!(
+                    state.stage,
+                    RoomStage::Joining | RoomStage::ActiveChooses | RoomStage::StellaAssociate
+                ) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
-                                "Stage timers can only be changed during storyteller choosing stage"
+                                "Hint-stage timer settings can only be changed during setup or the active hint stage"
                                     .to_string(),
                             )
                             .into(),
@@ -5774,6 +5992,44 @@ impl Room {
 
                 state.hint_choosing_timer_duration_s = seconds;
                 self.clamp_stage_timer_settings(&mut state);
+                self.broadcast_msg(self.room_state(&state))?;
+            }
+            ClientMsg::SetForceHintChoosingTimer { enabled } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change hint timer settings".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if matches!(state.stage, RoomStage::End) {
+                    return Ok(());
+                }
+
+                if !matches!(
+                    state.stage,
+                    RoomStage::Joining | RoomStage::ActiveChooses | RoomStage::StellaAssociate
+                ) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Hint-stage timer settings can only be changed during setup or the active hint stage"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                state.force_hint_choosing_timer = enabled;
                 self.broadcast_msg(self.room_state(&state))?;
             }
             ClientMsg::SetCardChoosingTimerEnabled { enabled } => {
@@ -6171,6 +6427,45 @@ impl Room {
                 state.voting_wrong_card_disable_distribution = canonical_distribution;
                 self.broadcast_msg(self.room_state(&state))?;
             }
+            ClientMsg::ForceCurrentStage {} => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can force the current stage".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                let stage_supports_force = matches!(
+                    state.stage,
+                    RoomStage::ActiveChooses
+                        | RoomStage::PlayersChoose
+                        | RoomStage::Voting
+                        | RoomStage::BeautyVoting
+                        | RoomStage::StellaAssociate
+                        | RoomStage::StellaReveal
+                );
+                if !stage_supports_force {
+                    return Ok(());
+                }
+
+                if !self.force_current_stage(&mut state).await? {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Current stage cannot be force-resolved yet".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                }
+            }
             ClientMsg::ForceStartNextRound {} => {
                 if !self.is_moderator(&state, name) {
                     if let Some(tx) = state.player_to_socket.get(name) {
@@ -6516,15 +6811,18 @@ impl Room {
             if player == &active_player {
                 continue;
             }
-            for card in votes.iter() {
-                *votes_for_card.entry(card.to_string()).or_insert(0) += 1;
+            let correct_vote_count = votes.iter().filter(|card| *card == &active_card).count();
+            let is_forced_random_voter = state.forced_random_voters.contains(player);
+            if !is_forced_random_voter {
+                for card in votes.iter() {
+                    *votes_for_card.entry(card.to_string()).or_insert(0) += 1;
+                }
             }
 
-            let correct_vote_count = votes.iter().filter(|card| *card == &active_card).count();
-            if correct_vote_count > 0 {
+            if !is_forced_random_voter && correct_vote_count > 0 {
                 correct_guessers = correct_guessers.saturating_add(1);
             }
-            if correct_vote_count >= 2 {
+            if !is_forced_random_voter && correct_vote_count >= 2 {
                 double_correct_guessers.insert(player.to_string());
             }
         }
@@ -7062,6 +7360,7 @@ impl Room {
             round_start_discard_count,
             hint_choosing_timer_enabled: state.hint_choosing_timer_enabled,
             hint_choosing_timer_duration_s,
+            force_hint_choosing_timer: state.force_hint_choosing_timer,
             card_choosing_timer_enabled: state.card_choosing_timer_enabled,
             card_choosing_timer_duration_s,
             voting_timer_enabled: state.voting_timer_enabled,
@@ -9497,6 +9796,7 @@ mod tests {
                 round_start_discard_count,
                 hint_choosing_timer_enabled,
                 hint_choosing_timer_duration_s,
+                force_hint_choosing_timer,
                 card_choosing_timer_enabled,
                 card_choosing_timer_duration_s,
                 voting_timer_enabled,
@@ -9551,6 +9851,10 @@ mod tests {
                 assert_eq!(
                     hint_choosing_timer_duration_s, 60,
                     "hint choosing timer should default to 60 seconds"
+                );
+                assert!(
+                    !force_hint_choosing_timer,
+                    "forced hint-stage timeout should default to off"
                 );
                 assert!(
                     card_choosing_timer_enabled,
@@ -9836,6 +10140,41 @@ alpha
     }
 
     #[tokio::test]
+    async fn maintenance_forces_hint_stage_timeout_into_storyteller_switch() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            for player in ["a", "b", "c", "d"] {
+                add_player(&mut state, player, 0);
+            }
+            state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into()];
+            state.active_player = 0;
+            state.stage = RoomStage::ActiveChooses;
+            state.stage_started_at_s = Some(get_time_s().saturating_sub(60));
+            state.current_stage_deadline_s = Some(get_time_s().saturating_sub(1));
+            state.force_hint_choosing_timer = true;
+            set_storyteller_count(&mut state, "a", 3);
+            set_storyteller_count(&mut state, "b", 0);
+            set_storyteller_count(&mut state, "c", 1);
+            set_storyteller_count(&mut state, "d", 2);
+        }
+
+        room.run_maintenance().await;
+
+        let state = room.state.read().await;
+        assert!(
+            matches!(state.stage, RoomStage::ActiveChooses),
+            "forced hint-stage timeout should keep the room in storyteller choosing"
+        );
+        assert_eq!(
+            state.player_order[state.active_player], "b",
+            "forced hint-stage timeout should switch to a different lowest-count storyteller"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn maintenance_forced_beauty_timeout_skips_missing_votes() -> Result<()> {
         let room = test_room();
         {
@@ -9959,6 +10298,14 @@ alpha
             state
                 .player_to_current_cards
                 .insert("c".into(), vec!["c-card".into()]);
+            state
+                .player_to_votes
+                .insert("b".into(), vec!["a-card".into()]);
+            state
+                .player_to_votes
+                .insert("c".into(), vec!["b-card".into()]);
+            state.players.get_mut("b").unwrap().ready = true;
+            state.players.get_mut("c").unwrap().ready = true;
         }
 
         room.run_maintenance().await;
@@ -9986,6 +10333,208 @@ alpha
             1,
             "missing votes should be auto-filled for player c"
         );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn moderator_force_current_stage_voting_excludes_random_votes_from_branch_and_decoys(
+    ) -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            for player in ["host", "b", "c", "d"] {
+                add_player(&mut state, player, 0);
+            }
+            state.player_order = vec!["host".into(), "b".into(), "c".into(), "d".into()];
+            state.active_player = 0;
+            state.stage = RoomStage::Voting;
+            state.votes_per_guesser = 1;
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 30_001);
+
+            state
+                .player_to_current_cards
+                .insert("host".into(), vec!["a-card".into()]);
+            state
+                .player_to_current_cards
+                .insert("b".into(), vec!["b-card".into()]);
+            state
+                .player_to_current_cards
+                .insert("c".into(), vec!["c-card".into()]);
+            state
+                .player_to_current_cards
+                .insert("d".into(), vec!["d-card".into()]);
+
+            state
+                .player_to_votes
+                .insert("b".into(), vec!["c-card".into()]);
+            state
+                .player_to_votes
+                .insert("c".into(), vec!["a-card".into()]);
+            state.players.get_mut("b").unwrap().ready = true;
+            state.players.get_mut("c").unwrap().ready = true;
+            state.player_to_disabled_voting_cards.insert(
+                "d".into(),
+                vec!["a-card".into(), "c-card".into(), "d-card".into()],
+            );
+        }
+
+        room.handle_client_msg("host", 30_001, to_ws(ClientMsg::ForceCurrentStage {}))
+            .await?;
+
+        let state = room.state.read().await;
+        assert!(
+            matches!(state.stage, RoomStage::Results),
+            "force current stage should advance voting into results"
+        );
+        assert_eq!(
+            state.storyteller_point_change.get("host").copied(),
+            Some(3),
+            "forced random votes should not flip storyteller outcome when manual voters keep it in the win branch"
+        );
+        assert_eq!(
+            state.storyteller_point_change.get("b").copied(),
+            Some(0),
+            "forced random votes should not add decoy points to the owner of the forced vote target"
+        );
+        assert_eq!(
+            state.storyteller_point_change.get("c").copied(),
+            Some(4),
+            "manual correct votes should still score normally while still granting decoy points from real voters"
+        );
+        assert_eq!(
+            state.storyteller_point_change.get("d").copied(),
+            Some(0),
+            "forced voter should still use their own random vote for personal scoring only"
+        );
+        assert!(
+            state.forced_random_voters.contains("d"),
+            "forced voter metadata should track which ballot was auto-filled"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn forced_voting_waits_for_two_manual_voters() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            for player in ["host", "b", "c", "d"] {
+                add_player(&mut state, player, 0);
+            }
+            state.player_order = vec!["host".into(), "b".into(), "c".into(), "d".into()];
+            state.active_player = 0;
+            state.stage = RoomStage::Voting;
+            state.force_voting_timer = true;
+            state.stage_started_at_s = Some(get_time_s().saturating_sub(180));
+            state.current_stage_deadline_s = Some(get_time_s().saturating_sub(1));
+            state.votes_per_guesser = 1;
+            state
+                .player_to_current_cards
+                .insert("host".into(), vec!["a-card".into()]);
+            state
+                .player_to_current_cards
+                .insert("b".into(), vec!["b-card".into()]);
+            state
+                .player_to_current_cards
+                .insert("c".into(), vec!["c-card".into()]);
+            state
+                .player_to_current_cards
+                .insert("d".into(), vec!["d-card".into()]);
+            state
+                .player_to_votes
+                .insert("b".into(), vec!["a-card".into()]);
+            state.players.get_mut("b").unwrap().ready = true;
+        }
+
+        room.run_maintenance().await;
+
+        let state = room.state.read().await;
+        assert!(
+            matches!(state.stage, RoomStage::Voting),
+            "forced voting should stay disabled until at least two manual voters have locked ballots"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn moderator_force_current_stage_fills_stella_associate_using_manual_median() -> Result<()>
+    {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            state.game_mode = GameMode::Stella;
+            state.stage = RoomStage::StellaAssociate;
+            state.player_order = vec!["host".into(), "b".into(), "c".into(), "d".into()];
+            state.stella_board_cards = vec![
+                "s1".into(),
+                "s2".into(),
+                "s3".into(),
+                "s4".into(),
+                "s5".into(),
+                "s6".into(),
+            ];
+            state.stella_selection_min = 1;
+            state.stella_selection_max = 6;
+            state.stella_clue_word = "spark".into();
+            for player in ["host", "b", "c", "d"] {
+                add_player(&mut state, player, 0);
+            }
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 30_002);
+            state
+                .stella_player_selections
+                .insert("host".into(), vec!["s1".into(), "s2".into()]);
+            state.stella_player_selections.insert(
+                "b".into(),
+                vec!["s2".into(), "s3".into(), "s4".into(), "s5".into()],
+            );
+            state.players.get_mut("host").unwrap().ready = true;
+            state.players.get_mut("b").unwrap().ready = true;
+        }
+
+        room.handle_client_msg("host", 30_002, to_ws(ClientMsg::ForceCurrentStage {}))
+            .await?;
+
+        let state = room.state.read().await;
+        assert!(
+            matches!(state.stage, RoomStage::StellaReveal),
+            "force current stage should advance associate into reveal"
+        );
+        assert_eq!(
+            state
+                .stella_player_selections
+                .get("c")
+                .map(|cards| cards.len()),
+            Some(3),
+            "missing associate selections should use the rounded median manual selection count"
+        );
+        assert_eq!(
+            state
+                .stella_player_selections
+                .get("d")
+                .map(|cards| cards.len()),
+            Some(3),
+            "every missing player should receive the same median-sized random selection"
+        );
+        for player in ["c", "d"] {
+            let cards = state.stella_player_selections.get(player).unwrap();
+            assert_eq!(
+                cards.iter().collect::<HashSet<_>>().len(),
+                cards.len(),
+                "forced associate selections should not contain duplicates"
+            );
+            assert!(
+                cards.iter().all(|card| state
+                    .stella_board_cards
+                    .iter()
+                    .any(|board_card| board_card == card)),
+                "forced associate selections should only contain board cards"
+            );
+        }
 
         Ok(())
     }

@@ -49,6 +49,7 @@
 	export let roundStartDiscardCount = 3;
 	export let hintChoosingTimerEnabled = true;
 	export let hintChoosingTimerDurationS = 60;
+	export let forceHintChoosingTimer = false;
 	export let cardChoosingTimerEnabled = true;
 	export let cardChoosingTimerDurationS = 30;
 	export let votingTimerEnabled = true;
@@ -186,6 +187,7 @@
 	{roundStartDiscardCount}
 	{hintChoosingTimerEnabled}
 	{hintChoosingTimerDurationS}
+	{forceHintChoosingTimer}
 	{cardChoosingTimerEnabled}
 	{cardChoosingTimerDurationS}
 	{votingTimerEnabled}

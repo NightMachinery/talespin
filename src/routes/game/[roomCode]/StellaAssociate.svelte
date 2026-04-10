@@ -3,6 +3,7 @@
 	import type GameServer from '$lib/gameServer';
 	import type { GameMode, ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
 	import Images from './Images.svelte';
+	import StageActionButtons from './StageActionButtons.svelte';
 	import StageShell from './StageShell.svelte';
 
 	export let displayImages: string[] = [];
@@ -43,6 +44,7 @@
 	export let roundStartDiscardCount = 3;
 	export let hintChoosingTimerEnabled = true;
 	export let hintChoosingTimerDurationS = 60;
+	export let forceHintChoosingTimer = false;
 	export let cardChoosingTimerEnabled = true;
 	export let cardChoosingTimerDurationS = 30;
 	export let votingTimerEnabled = true;
@@ -84,9 +86,12 @@
 	let syncedRoundKey = '';
 	let syncedSelectedKey = '';
 	let draggedQueueCard = '';
+	let isModerator = false;
+	let canForceRandomSelection = false;
 	const toastStore = getToastStore();
 	$: isObserver = !!observers[name];
 	$: isModerator = new Set(moderators).has(name);
+	$: canForceRandomSelection = isModerator && Object.values(players).some((player) => player.ready);
 	$: canSubmit =
 		!isObserver &&
 		localSelectedCards.length >= stellaSelectionMin &&
@@ -214,6 +219,7 @@
 	{roundStartDiscardCount}
 	{hintChoosingTimerEnabled}
 	{hintChoosingTimerDurationS}
+	{forceHintChoosingTimer}
 	{cardChoosingTimerEnabled}
 	{cardChoosingTimerDurationS}
 	{votingTimerEnabled}
@@ -248,7 +254,7 @@
 	{deckRefillFlashToken}
 	{winCondition}
 	{gameMode}
-	showMobileActions={!isObserver}
+	showMobileActions={!isObserver || isModerator}
 >
 	<svelte:fragment slot="leftRail">
 		<div class="card light space-y-2 p-4">
@@ -318,6 +324,19 @@
 			</div>
 		{/if}
 		{#if isModerator}
+			<div class="card light p-4">
+				<StageActionButtons
+					actions={[
+						{
+							label: 'Force Random',
+							disabled: !canForceRandomSelection,
+							onClick: () => gameServer.forceCurrentStage()
+						}
+					]}
+				/>
+			</div>
+		{/if}
+		{#if isModerator}
 			<div class="card light p-4 space-y-2">
 				<button class="btn variant-filled w-full" on:click={() => gameServer.resetStellaClue()}
 					>Reset clue</button
@@ -341,6 +360,17 @@
 			<button class="btn variant-filled w-full" disabled={!canSubmit} on:click={submitSelection}
 				>{submitLabel}</button
 			>
+		{/if}
+		{#if isModerator}
+			<StageActionButtons
+				actions={[
+					{
+						label: 'Force Random',
+						disabled: !canForceRandomSelection,
+						onClick: () => gameServer.forceCurrentStage()
+					}
+				]}
+			/>
 		{/if}
 		{#if isModerator}
 			<button class="btn variant-filled w-full" on:click={() => gameServer.resetStellaClue()}

@@ -73,6 +73,7 @@
 	export let roundStartDiscardCount = 3;
 	export let hintChoosingTimerEnabled = true;
 	export let hintChoosingTimerDurationS = 60;
+	export let forceHintChoosingTimer = false;
 	export let cardChoosingTimerEnabled = true;
 	export let cardChoosingTimerDurationS = 30;
 	export let votingTimerEnabled = true;
@@ -120,7 +121,8 @@
 	$: canChangeCardsPerHand = isDixitMode && stage === 'ActiveChooses';
 	$: canChangePreVotingSettings = isDixitMode && stage === 'ActiveChooses';
 	$: canRefreshHands = isDixitMode && stage === 'ActiveChooses';
-	$: canChangeStageTimers = isDixitMode && stage === 'ActiveChooses';
+	$: canChangeStageTimers =
+		(isDixitMode && stage === 'ActiveChooses') || (isStellaMode && stage === 'StellaAssociate');
 	$: canChangeStellaSettings = isStellaMode && stage === 'StellaAssociate';
 	$: canSwitchStellaWordPack =
 		isStellaMode &&
@@ -132,7 +134,7 @@
 		? 'Can only be changed during the Resonance associate stage.'
 		: SETTINGS_EDIT_STAGE_HINT;
 	$: timerSettingsEditHint = isStellaMode
-		? 'Can only be changed during game setup.'
+		? 'Can only be changed during the Resonance associate stage.'
 		: SETTINGS_EDIT_STAGE_HINT;
 	$: storytellerWinCondition = storytellerLossComplement + 1;
 	$: storytellerWinConditionMin = storytellerLossComplementMin + 1;
@@ -469,6 +471,12 @@
 	function updateHintChoosingTimerDuration(event: Event) {
 		updateStageTimerDuration(event, hintChoosingTimerDurationS, (seconds) =>
 			gameServer.setHintChoosingTimerDuration(seconds)
+		);
+	}
+
+	function updateForceHintChoosingTimer(event: Event) {
+		updateStageTimerToggle(event, forceHintChoosingTimer, (enabled) =>
+			gameServer.setForceHintChoosingTimer(enabled)
 		);
 	}
 
@@ -987,6 +995,20 @@
 									>{STAGE_TIMER_DURATION_MIN_S}–{STAGE_TIMER_DURATION_MAX_S}s</span
 								>
 							</div>
+							<label class="mt-2 flex items-start gap-3 text-sm">
+								<input
+									type="checkbox"
+									class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
+									checked={forceHintChoosingTimer}
+									on:change={updateForceHintChoosingTimer}
+									disabled={!isModerator || !canChangeStageTimers}
+								/>
+								<span>
+									{isStellaMode
+										? 'Force timeout by locking random selections from the median manual count'
+										: 'Force timeout by switching to a different storyteller'}
+								</span>
+							</label>
 						</div>
 
 						{#if isDixitMode}
