@@ -26,8 +26,7 @@
 			const rank =
 				previousEntry !== null &&
 				previousEntry.rounds_won === entry.rounds_won &&
-				previousEntry.votes_received === entry.votes_received &&
-				previousEntry.display_name === entry.display_name
+				previousEntry.votes_received === entry.votes_received
 					? previousRank
 					: index + 1;
 			previousEntry = entry;
