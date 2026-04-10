@@ -19,12 +19,18 @@
 					a.display_name.localeCompare(b.display_name)
 			);
 
-		let previousRoundsWon: number | null = null;
+		let previousEntry: MostBeautifulPlayerStats | null = null;
 		let previousRank = 0;
 
 		return sorted.map((entry, index) => {
-			const rank = previousRoundsWon === entry.rounds_won ? previousRank : index + 1;
-			previousRoundsWon = entry.rounds_won;
+			const rank =
+				previousEntry !== null &&
+				previousEntry.rounds_won === entry.rounds_won &&
+				previousEntry.votes_received === entry.votes_received &&
+				previousEntry.display_name === entry.display_name
+					? previousRank
+					: index + 1;
+			previousEntry = entry;
 			previousRank = rank;
 			return { ...entry, rank };
 		});

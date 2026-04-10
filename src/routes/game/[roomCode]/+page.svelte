@@ -186,6 +186,7 @@
 		'End'
 	]);
 	let previousScoutTurnKey = '';
+	let hasLoadedMostBeautifulStats = false;
 	let lastMostBeautifulStatsRefreshStage = '';
 
 	// store
@@ -223,10 +224,15 @@
 	}
 	$: if (
 		hasReceivedRoomState &&
-		MOST_BEAUTIFUL_STATS_REFRESH_STAGES.has(stage) &&
-		stage !== lastMostBeautifulStatsRefreshStage
+		gameMode === 'dixit_plus' &&
+		(!hasLoadedMostBeautifulStats ||
+			(MOST_BEAUTIFUL_STATS_REFRESH_STAGES.has(stage) &&
+				stage !== lastMostBeautifulStatsRefreshStage))
 	) {
-		lastMostBeautifulStatsRefreshStage = stage;
+		hasLoadedMostBeautifulStats = true;
+		if (MOST_BEAUTIFUL_STATS_REFRESH_STAGES.has(stage)) {
+			lastMostBeautifulStatsRefreshStage = stage;
+		}
 		void refreshMostBeautifulStats();
 	}
 

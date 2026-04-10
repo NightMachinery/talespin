@@ -1012,7 +1012,8 @@ impl Room {
             .filter(|player| {
                 active_player != Some(player.as_str())
                     && !state.forced_random_voters.contains(player.as_str())
-                    && state.players.contains_key(player.as_str())
+                    && (state.players.contains_key(player.as_str())
+                        || state.observers.contains_key(player.as_str()))
             })
             .count()
     }
@@ -1271,12 +1272,19 @@ impl Room {
             return Ok(false);
         }
 
-        if self.beauty_enabled_for_round(state) {
-            self.init_beauty_voting(state).await?;
-        } else {
-            self.init_results(state)?;
-        }
+        self.advance_voting_stage(state).await?;
         Ok(true)
+    }
+
+    async fn advance_voting_stage(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+    ) -> Result<()> {
+        if self.beauty_enabled_for_round(state) {
+            self.init_beauty_voting(state).await
+        } else {
+            self.init_results(state)
+        }
     }
 
     async fn force_current_stage(
@@ -3122,7 +3130,7 @@ impl Room {
 
                 let ready_count = state.players.values().filter(|player| player.ready).count();
                 if ready_count >= state.players.len().saturating_sub(1) {
-                    self.init_results(state)?;
+                    self.advance_voting_stage(state).await?;
                 } else {
                     // Intentionally do not recompute player_to_disabled_voting_cards here.
                     // Those per-player disabled cards are private info that has already been
@@ -3477,11 +3485,7 @@ impl Room {
         if state.players.values().filter(|player| player.ready).count()
             >= state.players.len().saturating_sub(1)
         {
-            if self.beauty_enabled_for_round(state) {
-                self.init_beauty_voting(state).await?;
-            } else {
-                self.init_results(state)?;
-            }
+            self.advance_voting_stage(state).await?;
         }
 
         Ok(())
@@ -10461,6 +10465,70 @@ alpha
     }
 
     #[tokio::test]
+    async fn moderator_force_current_stage_counts_observer_ballots() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            for player in ["host", "b", "c", "d"] {
+                add_player(&mut state, player, 0);
+            }
+            state.player_order = vec!["host".into(), "b".into(), "c".into(), "d".into()];
+            state.active_player = 0;
+            state.stage = RoomStage::Voting;
+            state.votes_per_guesser = 1;
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 30_003);
+            setup_connected_member(&mut state, "b", "t-b", 30_004);
+
+            state
+                .player_to_current_cards
+                .insert("host".into(), vec!["a-card".into()]);
+            state
+                .player_to_current_cards
+                .insert("b".into(), vec!["b-card".into()]);
+            state
+                .player_to_current_cards
+                .insert("c".into(), vec!["c-card".into()]);
+            state
+                .player_to_current_cards
+                .insert("d".into(), vec!["d-card".into()]);
+
+            state
+                .player_to_votes
+                .insert("b".into(), vec!["a-card".into()]);
+            state
+                .player_to_votes
+                .insert("c".into(), vec!["a-card".into()]);
+            state.players.get_mut("b").unwrap().ready = true;
+            state.players.get_mut("c").unwrap().ready = true;
+        }
+
+        room.handle_client_msg(
+            "b",
+            30_004,
+            to_ws(ClientMsg::SetObserver {
+                player: "b".to_string(),
+                enabled: true,
+            }),
+        )
+        .await?;
+        room.handle_client_msg("host", 30_003, to_ws(ClientMsg::ForceCurrentStage {}))
+            .await?;
+
+        let state = room.state.read().await;
+        assert!(
+            matches!(state.stage, RoomStage::Results),
+            "force current stage should count submitted observer ballots toward the manual voting threshold"
+        );
+        assert!(
+            state.observers.contains_key("b"),
+            "the preserved ballot should belong to an observer after self-observing"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn moderator_force_current_stage_fills_stella_associate_using_manual_median() -> Result<()>
     {
         let room = test_room();
@@ -12688,6 +12756,62 @@ alpha
                 .and_then(|observer| observer.points),
             Some(9),
             "observered player should receive both their guess points and decoy bonus"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn observering_last_unready_voter_enters_beauty_voting_when_enabled() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            for player in ["a", "b", "c", "d"] {
+                add_player(&mut state, player, 0);
+            }
+            state.stage = RoomStage::Voting;
+            state.game_mode = GameMode::DixitPlus;
+            state.beauty_enabled = true;
+            state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into()];
+            state.active_player = 0;
+            state
+                .player_to_current_cards
+                .insert("a".into(), vec!["ca".into()]);
+            state
+                .player_to_current_cards
+                .insert("b".into(), vec!["cb".into()]);
+            state
+                .player_to_current_cards
+                .insert("c".into(), vec!["cc".into()]);
+            state
+                .player_to_current_cards
+                .insert("d".into(), vec!["cd".into()]);
+            state.player_to_votes.insert("b".into(), vec!["ca".into()]);
+            state.player_to_votes.insert("c".into(), vec!["ca".into()]);
+            state.players.get_mut("b").unwrap().ready = true;
+            state.players.get_mut("c").unwrap().ready = true;
+            setup_connected_member(&mut state, "d", "t-d", 8_102);
+        }
+
+        room.handle_client_msg(
+            "d",
+            8_102,
+            to_ws(ClientMsg::SetObserver {
+                player: "d".to_string(),
+                enabled: true,
+            }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert!(
+            matches!(state.stage, RoomStage::BeautyVoting),
+            "beauty-enabled voting should enter BeautyVoting instead of skipping directly to results when removals finish storyteller voting"
+        );
+        assert_eq!(
+            state.player_to_votes.get("b"),
+            Some(&vec!["ca".to_string()]),
+            "storyteller voting ballots should be preserved into beauty voting"
         );
 
         Ok(())
