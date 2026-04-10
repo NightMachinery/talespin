@@ -23,6 +23,7 @@
 	import { formatWinCondition } from '$lib/winCondition';
 	import { Avatar, getToastStore } from '@skeletonlabs/skeleton';
 	import { onDestroy } from 'svelte';
+	import MostBeautifulStatsPanel from './MostBeautifulStatsPanel.svelte';
 
 	export let players: { [key: string]: PlayerInfo } = {};
 	export let roomCode = '';
@@ -809,6 +810,9 @@
 						</p>
 					{/if}
 				</div>
+				{#if gameMode === 'dixit_plus'}
+					<MostBeautifulStatsPanel title="Most Beautiful ranking" />
+				{/if}
 			{/if}
 
 			<div class="card p-4 space-y-2">

@@ -1,13 +1,24 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
+	import type GameServer from '$lib/gameServer';
+	import {
+		beautyLeaderboardPointChange,
+		leaderboardExcludeBeauty,
+		memberBeautyPoints,
+		roomLeaderboardExcludeBeautyDefault,
+		setLeaderboardExcludeBeautyPreference,
+		storytellerLeaderboardPointChange
+	} from '$lib/mostBeautiful';
 	import type { ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
 	import { OFFLINE_STATUS_LABEL } from '$lib/presence';
-	import { rankPlayersByPoints, type RankedPlayerEntry } from '$lib/ranking';
+	import { rankEntriesByPoints, type RankedPlayerEntry } from '$lib/ranking';
 	import { formatWinCondition } from '$lib/winCondition';
 
 	export let players: { [key: string]: PlayerInfo } = {};
 	export let observers: { [key: string]: ObserverInfo } = {};
-	// export let name = '';
+	export let name = '';
+	export let moderators: string[] = [];
+	export let gameServer: GameServer;
 	export let stage = '';
 	export let activePlayer = '';
 	export let pointChange: { [key: string]: number } = {};
@@ -26,13 +37,32 @@
 	let cardsRemainingFlashing = false;
 	let cardsRemainingFlashTimeout: ReturnType<typeof setTimeout> | undefined = undefined;
 	let sortedObserverEntries: [string, ObserverInfo][] = [];
+	let adjustedObserverEntries: Array<{
+		name: string;
+		info: ObserverInfo;
+		displayPoints: number | null;
+		displayPointChange: number;
+	}> = [];
 
 	$: {
-		rankedPlayers = rankPlayersByPoints(players);
+		rankedPlayers = rankEntriesByPoints(
+			Object.entries(players).map(([entryName, info]) => ({
+				name: entryName,
+				points: displayedPointsForPlayer(entryName, info.points)
+			}))
+		);
 	}
 	$: sortedObserverEntries = Object.entries(observers).sort(([a], [b]) => a.localeCompare(b));
+	$: adjustedObserverEntries = sortedObserverEntries.map(([observerName, info]) => ({
+		name: observerName,
+		info,
+		displayPoints:
+			info.points === null ? null : displayedPointsForPlayer(observerName, info.points ?? 0),
+		displayPointChange: displayedPointChangeForPlayer(observerName)
+	}));
 
 	$: winConditionLabel = formatWinCondition(winCondition);
+	$: isModerator = new Set(moderators).has(name);
 
 	$: if (deckRefillFlashToken > previousFlashToken) {
 		previousFlashToken = deckRefillFlashToken;
@@ -80,44 +110,99 @@
 	function formatObserverPoints(points: number | null) {
 		return points === null ? 'NA' : `${points}`;
 	}
+
+	function beautyPointsForPlayer(playerName: string) {
+		return $memberBeautyPoints[playerName] ?? 0;
+	}
+
+	function displayedPointsForPlayer(playerName: string, points: number) {
+		return $leaderboardExcludeBeauty ? points - beautyPointsForPlayer(playerName) : points;
+	}
+
+	function displayedPointChangeForPlayer(playerName: string) {
+		if (!$leaderboardExcludeBeauty) {
+			return pointChange[playerName] ?? 0;
+		}
+		if (stage === 'Results') {
+			return $storytellerLeaderboardPointChange[playerName] ?? 0;
+		}
+		if (stage === 'BeautyResults') {
+			return 0;
+		}
+		return pointChange[playerName] ?? 0;
+	}
+
+	function handleExcludeBeautyToggle(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		setLeaderboardExcludeBeautyPreference(input.checked);
+	}
+
+	function handleRoomDefaultToggle(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		gameServer.setLeaderboardExcludeBeautyDefault(input.checked);
+	}
 </script>
 
 <div class="w-full">
 	<div class="card light p-4">
 		<h2 class="text-xl">Round {roundNum}</h2>
-		<div>
-			{#each rankedPlayers as entry}
-				<div class="flex items-center justify-between gap-2">
-					<div class="flex-auto">
-						{entry.rank}.
-						<span
-							class={`${entry.name === activePlayer ? 'boujee-text' : ''} ${!players[entry.name].connected ? 'opacity-50 grayscale' : ''}`}
-						>
-							{entry.name}
-						</span>
-						{#if darkPlayer !== '' && entry.name === darkPlayer}
-							<span title="In the Dark">🌑</span>
-						{/if}
-						{#if !players[entry.name].connected}
-							<span class="text-error-500">({OFFLINE_STATUS_LABEL})</span>
-						{/if}
-
-						{#if shouldShowReadyIndicator(entry.name)}
-							{#if players[entry.name].ready}
-								<span>🟢</span>
-							{:else}
-								<span>🔴</span>
+		<div class="mt-3 space-y-2 text-sm">
+			<label class="flex items-start gap-3">
+				<input
+					type="checkbox"
+					class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
+					checked={$leaderboardExcludeBeauty}
+					on:change={handleExcludeBeautyToggle}
+				/>
+				<span>Exclude beauty votes from leaderboard</span>
+			</label>
+			{#if isModerator && stage !== 'End'}
+				<label class="flex items-start gap-3 text-xs opacity-80">
+					<input
+						type="checkbox"
+						class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
+						checked={$roomLeaderboardExcludeBeautyDefault}
+						on:change={handleRoomDefaultToggle}
+					/>
+					<span>Force-push this beauty toggle default to everyone in the room</span>
+				</label>
+			{/if}
+		</div>
+		<div class="mt-3">
+			<div>
+				{#each rankedPlayers as entry}
+					<div class="flex items-center justify-between gap-2">
+						<div class="flex-auto">
+							{entry.rank}.
+							<span
+								class={`${entry.name === activePlayer ? 'boujee-text' : ''} ${!players[entry.name].connected ? 'opacity-50 grayscale' : ''}`}
+							>
+								{entry.name}
+							</span>
+							{#if darkPlayer !== '' && entry.name === darkPlayer}
+								<span title="In the Dark">🌑</span>
 							{/if}
-						{/if}
+							{#if !players[entry.name].connected}
+								<span class="text-error-500">({OFFLINE_STATUS_LABEL})</span>
+							{/if}
+
+							{#if shouldShowReadyIndicator(entry.name)}
+								{#if players[entry.name].ready}
+									<span>🟢</span>
+								{:else}
+									<span>🔴</span>
+								{/if}
+							{/if}
+						</div>
+						<div class="shrink-0">
+							{#if shouldShowPointChange() && displayedPointChangeForPlayer(entry.name) !== 0}
+								<span class="opacity-50">(+{displayedPointChangeForPlayer(entry.name)})</span>
+							{/if}
+							{entry.points}
+						</div>
 					</div>
-					<div class="shrink-0">
-						{#if shouldShowPointChange() && typeof pointChange[entry.name] === 'number' && pointChange[entry.name] !== 0}
-							<span class="opacity-50">(+{pointChange[entry.name]})</span>
-						{/if}
-						{entry.points}
-					</div>
-				</div>
-			{/each}
+				{/each}
+			</div>
 		</div>
 		<br />
 		<p>{winConditionLabel}</p>
@@ -130,24 +215,24 @@
 			<div class="mt-3 text-sm opacity-80">
 				<p class="font-semibold">Observers</p>
 				<div class="mt-1 space-y-1">
-					{#each sortedObserverEntries as [observerName, info]}
+					{#each adjustedObserverEntries as observerEntry}
 						<div
-							class={`flex items-center justify-between gap-2 ${!info.connected ? 'opacity-50' : ''}`}
+							class={`flex items-center justify-between gap-2 ${!observerEntry.info.connected ? 'opacity-50' : ''}`}
 						>
 							<div class="min-w-0 flex-auto break-words">
-								{observerName}
-								{#if info.join_requested || info.auto_join_on_next_round}
+								{observerEntry.name}
+								{#if observerEntry.info.join_requested || observerEntry.info.auto_join_on_next_round}
 									<span class="opacity-70"> (joining next round)</span>
 								{/if}
-								{#if !info.connected}
+								{#if !observerEntry.info.connected}
 									<span class="opacity-70"> ({OFFLINE_STATUS_LABEL})</span>
 								{/if}
 							</div>
 							<div class="shrink-0">
-								{#if shouldShowPointChange() && typeof pointChange[observerName] === 'number' && pointChange[observerName] !== 0}
-									<span class="opacity-50">(+{pointChange[observerName]})</span>
+								{#if shouldShowPointChange() && observerEntry.displayPointChange !== 0}
+									<span class="opacity-50">(+{observerEntry.displayPointChange})</span>
 								{/if}
-								{formatObserverPoints(info.points)}
+								{formatObserverPoints(observerEntry.displayPoints)}
 							</div>
 						</div>
 					{/each}

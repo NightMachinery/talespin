@@ -7,6 +7,15 @@
 	import { getToastStore } from '@skeletonlabs/skeleton';
 
 	import {
+		applyRoomLeaderboardExcludeBeautyDefault,
+		beautyLeaderboardPointChange,
+		memberBeautyPoints,
+		refreshMostBeautifulStats,
+		resetMostBeautifulClientState,
+		setMostBeautifulRoom,
+		storytellerLeaderboardPointChange
+	} from '$lib/mostBeautiful';
+	import {
 		clearAssignedRoomName,
 		getJoinNameForRoom,
 		nameStore,
@@ -97,8 +106,11 @@
 	let cardChoosingTimerDurationS = 30;
 	let votingTimerEnabled = true;
 	let votingTimerDurationS = 180;
+	let beautyTimerEnabled = true;
+	let beautyTimerDurationS = 60;
 	let forceCardChoosingTimer = false;
 	let forceVotingTimer = false;
+	let forceBeautyTimer = false;
 	let serverTimeMs: number | null = null;
 	let currentStageDeadlineS: number | null = null;
 	let votingWrongCardDisableDistribution = [...DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION];
@@ -127,6 +139,8 @@
 	let deckRefillCount = 0;
 	let deckRefillFlashToken = 0;
 	let hasReceivedRoomState = false;
+	let leaderboardExcludeBeautyDefault = false;
+	let leaderboardExcludeBeautyDefaultVersion = 0;
 	let winCondition: WinCondition = {
 		mode: 'points',
 		target_points: 10
@@ -164,7 +178,9 @@
 		'BeautyResults',
 		'StellaResults'
 	]);
+	const MOST_BEAUTIFUL_STATS_REFRESH_STAGES = new Set(['Joining', 'Results', 'BeautyResults', 'End']);
 	let previousScoutTurnKey = '';
+	let lastMostBeautifulStatsRefreshStage = '';
 
 	// store
 	let toastStore = getToastStore();
@@ -199,6 +215,14 @@
 		previousScoutTurnKey = scoutTurnCueKey;
 		void playScoutTurnCue();
 	}
+	$: if (
+		hasReceivedRoomState &&
+		MOST_BEAUTIFUL_STATS_REFRESH_STAGES.has(stage) &&
+		stage !== lastMostBeautifulStatsRefreshStage
+	) {
+		lastMostBeautifulStatsRefreshStage = stage;
+		void refreshMostBeautifulStats();
+	}
 
 	function clearStoredAssignedName() {
 		if (roomCode !== '') {
@@ -227,6 +251,7 @@
 	}
 
 	onDestroy(() => {
+		resetMostBeautifulClientState();
 		if (gameServer) {
 			rejoin = false;
 			gameServer.close();
@@ -239,6 +264,7 @@
 			roomPassword = window.sessionStorage.getItem(`room_password_${roomCode}`) || '';
 		}
 
+		setMostBeautifulRoom(roomCode);
 		name = getJoinNameForRoom(roomCode, preferredName, token);
 		if (name === '') {
 			goto(`/?room=${roomCode}`);
@@ -323,14 +349,27 @@
 				cardChoosingTimerDurationS = data.RoomState.card_choosing_timer_duration_s ?? 30;
 				votingTimerEnabled = data.RoomState.voting_timer_enabled ?? true;
 				votingTimerDurationS = data.RoomState.voting_timer_duration_s ?? 180;
+				beautyTimerEnabled = data.RoomState.beauty_timer_enabled ?? true;
+				beautyTimerDurationS = data.RoomState.beauty_timer_duration_s ?? 60;
 				forceCardChoosingTimer = data.RoomState.force_card_choosing_timer ?? false;
 				forceVotingTimer = data.RoomState.force_voting_timer ?? false;
+				forceBeautyTimer = data.RoomState.force_beauty_timer ?? false;
 				serverTimeMs = data.RoomState.server_time_ms ?? null;
 				currentStageDeadlineS = data.RoomState.current_stage_deadline_s ?? null;
 				votingWrongCardDisableDistribution = data.RoomState
 					.voting_wrong_card_disable_distribution ?? [
 					...DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION
 				];
+				memberBeautyPoints.set(data.RoomState.member_to_beauty_points ?? {});
+				leaderboardExcludeBeautyDefault =
+					data.RoomState.leaderboard_exclude_beauty_default ?? false;
+				leaderboardExcludeBeautyDefaultVersion =
+					data.RoomState.leaderboard_exclude_beauty_default_version ?? 0;
+				applyRoomLeaderboardExcludeBeautyDefault(
+					roomCode,
+					leaderboardExcludeBeautyDefault,
+					leaderboardExcludeBeautyDefaultVersion
+				);
 				stellaBoardSize = data.RoomState.stella_board_size ?? 15;
 				stellaBoardSizeMin = data.RoomState.stella_board_size_min ?? 1;
 				stellaBoardSizeMax = data.RoomState.stella_board_size_max ?? 100;
@@ -375,6 +414,8 @@
 				playerToBeautyVotes = {};
 				storytellerPointChange = {};
 				beautyPointChange = {};
+				storytellerLeaderboardPointChange.set({});
+				beautyLeaderboardPointChange.set({});
 				beautyVoteTotals = {};
 				beautyWinningCards = [];
 				storytellerChosenCard = '';
@@ -386,6 +427,8 @@
 				playerToBeautyVotes = {};
 				storytellerPointChange = {};
 				beautyPointChange = {};
+				storytellerLeaderboardPointChange.set({});
+				beautyLeaderboardPointChange.set({});
 				beautyVoteTotals = {};
 				beautyWinningCards = [];
 				storytellerChosenCard = data.PlayersChoose.chosen_card || '';
@@ -399,6 +442,8 @@
 				playerToBeautyVotes = {};
 				beautyVoteTotals = {};
 				beautyWinningCards = [];
+				storytellerLeaderboardPointChange.set({});
+				beautyLeaderboardPointChange.set({});
 				storytellerChosenCard = '';
 			} else if (data.BeginBeautyVoting) {
 				setStage('BeautyVoting');
@@ -408,6 +453,8 @@
 				beautyVotesPerPlayer = data.BeginBeautyVoting.votes_per_player ?? beautyVotesPerPlayer;
 				beautyAllowDuplicateVotes =
 					data.BeginBeautyVoting.allow_duplicate_votes ?? beautyAllowDuplicateVotes;
+				storytellerLeaderboardPointChange.set({});
+				beautyLeaderboardPointChange.set({});
 				votingDisabledCards = [];
 			} else if (data.Results) {
 				setStage('Results');
@@ -420,6 +467,8 @@
 				pointChange = data.Results.point_change;
 				storytellerPointChange = data.Results.storyteller_point_change || {};
 				beautyPointChange = data.Results.beauty_point_change || {};
+				storytellerLeaderboardPointChange.set(storytellerPointChange);
+				beautyLeaderboardPointChange.set(beautyPointChange);
 				beautyVoteTotals = data.Results.beauty_vote_totals || {};
 				beautyWinningCards = data.Results.beauty_winning_cards || [];
 				votingDisabledCards = [];
@@ -435,6 +484,8 @@
 				pointChange = data.BeautyResults.point_change || {};
 				storytellerPointChange = {};
 				beautyPointChange = data.BeautyResults.point_change || {};
+				storytellerLeaderboardPointChange.set({});
+				beautyLeaderboardPointChange.set(beautyPointChange);
 				beautyVoteTotals = data.BeautyResults.beauty_vote_totals || {};
 				beautyWinningCards = data.BeautyResults.beauty_winning_cards || [];
 				votingDisabledCards = [];
@@ -449,6 +500,8 @@
 				stellaRevealedCardChoosers = {};
 				stellaCardPoints = {};
 				pointChange = {};
+				storytellerLeaderboardPointChange.set({});
+				beautyLeaderboardPointChange.set({});
 			} else if (data.StellaReveal) {
 				setStage('StellaReveal');
 				displayImages = data.StellaReveal.board_cards || [];
@@ -459,6 +512,8 @@
 				stellaRevealedCardChoosers = data.StellaReveal.revealed_card_choosers || {};
 				stellaCardPoints = data.StellaReveal.card_points || {};
 				pointChange = data.StellaReveal.point_change || {};
+				storytellerLeaderboardPointChange.set({});
+				beautyLeaderboardPointChange.set({});
 				activePlayer = data.StellaReveal.scout || activePlayer;
 				stellaDarkPlayer = data.StellaReveal.dark_player || stellaDarkPlayer;
 			} else if (data.StellaResults) {
@@ -470,6 +525,8 @@
 				stellaRevealedCardChoosers = data.StellaResults.revealed_card_choosers || {};
 				stellaCardPoints = data.StellaResults.card_points || {};
 				pointChange = data.StellaResults.point_change || {};
+				storytellerLeaderboardPointChange.set({});
+				beautyLeaderboardPointChange.set({});
 				stellaDarkPlayer = data.StellaResults.dark_player || stellaDarkPlayer;
 			} else if (data.ErrorMsg) {
 				toastStore.trigger({
@@ -608,8 +665,11 @@
 			{cardChoosingTimerDurationS}
 			{votingTimerEnabled}
 			{votingTimerDurationS}
+			{beautyTimerEnabled}
+			{beautyTimerDurationS}
 			{forceCardChoosingTimer}
 			{forceVotingTimer}
+			{forceBeautyTimer}
 			{stellaBoardSize}
 			{stellaBoardSizeMin}
 			{stellaBoardSizeMax}
@@ -682,8 +742,11 @@
 			{cardChoosingTimerDurationS}
 			{votingTimerEnabled}
 			{votingTimerDurationS}
+			{beautyTimerEnabled}
+			{beautyTimerDurationS}
 			{forceCardChoosingTimer}
 			{forceVotingTimer}
+			{forceBeautyTimer}
 			{stellaBoardSize}
 			{stellaBoardSizeMin}
 			{stellaBoardSizeMax}
@@ -761,8 +824,11 @@
 			{cardChoosingTimerDurationS}
 			{votingTimerEnabled}
 			{votingTimerDurationS}
+			{beautyTimerEnabled}
+			{beautyTimerDurationS}
 			{forceCardChoosingTimer}
 			{forceVotingTimer}
+			{forceBeautyTimer}
 			{stellaBoardSize}
 			{stellaBoardSizeMin}
 			{stellaBoardSizeMax}
@@ -833,8 +899,11 @@
 			{cardChoosingTimerDurationS}
 			{votingTimerEnabled}
 			{votingTimerDurationS}
+			{beautyTimerEnabled}
+			{beautyTimerDurationS}
 			{forceCardChoosingTimer}
 			{forceVotingTimer}
+			{forceBeautyTimer}
 			{stellaBoardSize}
 			{stellaBoardSizeMin}
 			{stellaBoardSizeMax}
@@ -906,8 +975,11 @@
 			{cardChoosingTimerDurationS}
 			{votingTimerEnabled}
 			{votingTimerDurationS}
+			{beautyTimerEnabled}
+			{beautyTimerDurationS}
 			{forceCardChoosingTimer}
 			{forceVotingTimer}
+			{forceBeautyTimer}
 			{stellaBoardSize}
 			{stellaBoardSizeMin}
 			{stellaBoardSizeMax}
@@ -979,8 +1051,11 @@
 			{cardChoosingTimerDurationS}
 			{votingTimerEnabled}
 			{votingTimerDurationS}
+			{beautyTimerEnabled}
+			{beautyTimerDurationS}
 			{forceCardChoosingTimer}
 			{forceVotingTimer}
+			{forceBeautyTimer}
 			{stellaBoardSize}
 			{stellaBoardSizeMin}
 			{stellaBoardSizeMax}
@@ -1055,8 +1130,11 @@
 			{cardChoosingTimerDurationS}
 			{votingTimerEnabled}
 			{votingTimerDurationS}
+			{beautyTimerEnabled}
+			{beautyTimerDurationS}
 			{forceCardChoosingTimer}
 			{forceVotingTimer}
+			{forceBeautyTimer}
 			{stellaBoardSize}
 			{stellaBoardSizeMin}
 			{stellaBoardSizeMax}
@@ -1130,8 +1208,11 @@
 			{cardChoosingTimerDurationS}
 			{votingTimerEnabled}
 			{votingTimerDurationS}
+			{beautyTimerEnabled}
+			{beautyTimerDurationS}
 			{forceCardChoosingTimer}
 			{forceVotingTimer}
+			{forceBeautyTimer}
 			{stellaBoardSize}
 			{stellaBoardSizeMin}
 			{stellaBoardSizeMax}
@@ -1203,8 +1284,11 @@
 			{cardChoosingTimerDurationS}
 			{votingTimerEnabled}
 			{votingTimerDurationS}
+			{beautyTimerEnabled}
+			{beautyTimerDurationS}
 			{forceCardChoosingTimer}
 			{forceVotingTimer}
+			{forceBeautyTimer}
 			{stellaBoardSize}
 			{stellaBoardSizeMin}
 			{stellaBoardSizeMax}
@@ -1277,8 +1361,11 @@
 			{cardChoosingTimerDurationS}
 			{votingTimerEnabled}
 			{votingTimerDurationS}
+			{beautyTimerEnabled}
+			{beautyTimerDurationS}
 			{forceCardChoosingTimer}
 			{forceVotingTimer}
+			{forceBeautyTimer}
 			{stellaBoardSize}
 			{stellaBoardSizeMin}
 			{stellaBoardSizeMax}
@@ -1306,7 +1393,7 @@
 		/>
 	{:else if stage === 'End'}
 		<div class="pt-10">
-			<End {players} {observers} />
+			<End {players} {observers} {gameMode} />
 		</div>
 	{/if}
 	{#if stage === 'Joining' || stage === 'End'}

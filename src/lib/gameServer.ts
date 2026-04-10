@@ -345,6 +345,22 @@ class GameServer {
 		});
 	}
 
+	setBeautyTimerEnabled(enabled: boolean) {
+		this.send({
+			SetBeautyTimerEnabled: {
+				enabled
+			}
+		});
+	}
+
+	setBeautyTimerDuration(seconds: number) {
+		this.send({
+			SetBeautyTimerDuration: {
+				seconds
+			}
+		});
+	}
+
 	setForceCardChoosingTimer(enabled: boolean) {
 		this.send({
 			SetForceCardChoosingTimer: {
@@ -356,6 +372,22 @@ class GameServer {
 	setForceVotingTimer(enabled: boolean) {
 		this.send({
 			SetForceVotingTimer: {
+				enabled
+			}
+		});
+	}
+
+	setForceBeautyTimer(enabled: boolean) {
+		this.send({
+			SetForceBeautyTimer: {
+				enabled
+			}
+		});
+	}
+
+	setLeaderboardExcludeBeautyDefault(enabled: boolean) {
+		this.send({
+			SetLeaderboardExcludeBeautyDefault: {
 				enabled
 			}
 		});

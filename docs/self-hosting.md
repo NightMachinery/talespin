@@ -13,7 +13,7 @@
 `self_host.zsh` owns a managed Talespin block in `~/Caddyfile`:
 
 - markers: `# BEGIN talespin self-host` / `# END talespin self-host`
-- `/create`, `/exists`, `/stats`, `/ws`, `/ws/*`, `/cards`, `/cards/*` -> `127.0.0.1:8081`
+- `/create`, `/exists`, `/stats`, `/most-beautiful-stats`, `/ws`, `/ws/*`, `/cards`, `/cards/*` -> `127.0.0.1:8081`
 - all other paths ->
   - production: static files from `~/base/talespin/build`
   - development: `127.0.0.1:4173`

@@ -53,8 +53,11 @@
 	export let cardChoosingTimerDurationS = 30;
 	export let votingTimerEnabled = true;
 	export let votingTimerDurationS = 180;
+	export let beautyTimerEnabled = true;
+	export let beautyTimerDurationS = 60;
 	export let forceCardChoosingTimer = false;
 	export let forceVotingTimer = false;
+	export let forceBeautyTimer = false;
 	export let stellaBoardSize = 15;
 	export let stellaBoardSizeMin = 1;
 	export let stellaBoardSizeMax = 100;
@@ -233,8 +236,11 @@
 	{cardChoosingTimerDurationS}
 	{votingTimerEnabled}
 	{votingTimerDurationS}
+	{beautyTimerEnabled}
+	{beautyTimerDurationS}
 	{forceCardChoosingTimer}
 	{forceVotingTimer}
+	{forceBeautyTimer}
 	{stellaBoardSize}
 	{stellaBoardSizeMin}
 	{stellaBoardSizeMax}

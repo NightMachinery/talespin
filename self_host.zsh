@@ -301,7 +301,7 @@ ${site_address} {
     encode zstd gzip
 
     @talespin_backend {
-        path /create /exists /stats /ws /ws/* /cards /cards/*
+        path /create /exists /stats /most-beautiful-stats /ws /ws/* /cards /cards/*
     }
 
     handle @talespin_backend {
@@ -321,7 +321,7 @@ ${site_address} {
     encode zstd gzip
 
     @talespin_backend {
-        path /create /exists /stats /ws /ws/* /cards /cards/*
+        path /create /exists /stats /most-beautiful-stats /ws /ws/* /cards /cards/*
     }
 
     handle @talespin_backend {

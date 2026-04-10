@@ -12,6 +12,11 @@ use std::{
 };
 use tokio::sync::{broadcast, mpsc, RwLock, RwLockWriteGuard};
 
+use crate::most_beautiful_stats::{
+    MostBeautifulRoundRecord, MostBeautifulRoundWinRecord, MostBeautifulStatsStore,
+    MostBeautifulVoteRecord,
+};
+
 const MODERATOR_ABSENCE_PROMOTION_DELAY_S: u64 = 5 * 60;
 const DEFAULT_CARDS_PER_HAND: u16 = 12;
 const MAX_CARDS_PER_HAND: u16 = 100;
@@ -31,6 +36,7 @@ const MAX_STAGE_TIMER_DURATION_S: u16 = 60 * 60;
 const DEFAULT_HINT_CHOOSING_TIMER_DURATION_S: u16 = 60;
 const DEFAULT_CARD_CHOOSING_TIMER_DURATION_S: u16 = 30;
 const DEFAULT_VOTING_TIMER_DURATION_S: u16 = 3 * 60;
+const DEFAULT_BEAUTY_TIMER_DURATION_S: u16 = 60;
 const DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION: [f64; 1] = [1.0];
 const VOTING_WRONG_CARD_DISABLE_SUM_TOLERANCE: f64 = 1e-6;
 const DEFAULT_BEAUTY_ENABLED: bool = false;
@@ -157,11 +163,17 @@ pub enum ServerMsg {
         card_choosing_timer_duration_s: u16,
         voting_timer_enabled: bool,
         voting_timer_duration_s: u16,
+        beauty_timer_enabled: bool,
+        beauty_timer_duration_s: u16,
         force_card_choosing_timer: bool,
         force_voting_timer: bool,
+        force_beauty_timer: bool,
         server_time_ms: u64,
         current_stage_deadline_s: Option<u64>,
         voting_wrong_card_disable_distribution: Vec<f64>,
+        member_to_beauty_points: HashMap<String, u16>,
+        leaderboard_exclude_beauty_default: bool,
+        leaderboard_exclude_beauty_default_version: u64,
         stella_board_size: u16,
         stella_board_size_min: u16,
         stella_board_size_max: u16,
@@ -360,10 +372,22 @@ pub enum ClientMsg {
     SetVotingTimerDuration {
         seconds: u16,
     },
+    SetBeautyTimerEnabled {
+        enabled: bool,
+    },
+    SetBeautyTimerDuration {
+        seconds: u16,
+    },
     SetForceCardChoosingTimer {
         enabled: bool,
     },
     SetForceVotingTimer {
+        enabled: bool,
+    },
+    SetForceBeautyTimer {
+        enabled: bool,
+    },
+    SetLeaderboardExcludeBeautyDefault {
         enabled: bool,
     },
     SetVotingWrongCardDisableDistribution {
@@ -560,10 +584,16 @@ struct RoomState {
     voting_timer_enabled: bool,
     // voting timer duration in seconds
     voting_timer_duration_s: u16,
+    // whether to show a countdown during Most Beautiful voting
+    beauty_timer_enabled: bool,
+    // Most Beautiful timer duration in seconds
+    beauty_timer_duration_s: u16,
     // auto-fill missing player card choices at timeout
     force_card_choosing_timer: bool,
     // auto-fill missing votes at timeout
     force_voting_timer: bool,
+    // skip missing Most Beautiful votes at timeout
+    force_beauty_timer: bool,
     // probability distribution over additional wrong cards disabled per player during voting
     voting_wrong_card_disable_distribution: Vec<f64>,
     // store general stats about each player
@@ -606,6 +636,8 @@ struct RoomState {
     storyteller_point_change: HashMap<String, u16>,
     // cached beauty-stage point change for the current round
     beauty_point_change: HashMap<String, u16>,
+    // accumulated beauty points already applied to each member this game
+    member_to_beauty_points: HashMap<String, u16>,
     // stella shared board cards for the current round
     stella_board_cards: Vec<String>,
     // current stella clue word
@@ -654,6 +686,10 @@ struct RoomState {
     win_condition: WinCondition,
     // increments whenever draw deck is refilled from base deck
     deck_refill_count: u32,
+    // room-wide default for whether leaderboards should exclude beauty points
+    leaderboard_exclude_beauty_default: bool,
+    // bump when moderators force-push a new leaderboard beauty-default view
+    leaderboard_exclude_beauty_default_version: u64,
 }
 
 // main object representing a game
@@ -669,6 +705,8 @@ pub struct Room {
     default_stella_word_pack: Arc<Vec<String>>,
     // all runtime-switchable Resonance word packs
     stella_word_pack_presets: Arc<Vec<StellaWordPackPreset>>,
+    // persisted Most Beautiful stats shared by all rooms in this server
+    most_beautiful_stats: Arc<MostBeautifulStatsStore>,
     // cap for players + observers in a room
     max_members: usize,
     // last access in seconds
@@ -707,6 +745,7 @@ impl Room {
         creator: Option<String>,
         max_members: usize,
         room_password_hash: Option<String>,
+        most_beautiful_stats: Arc<MostBeautifulStatsStore>,
         default_stella_word_pack: Arc<Vec<String>>,
         stella_word_pack_presets: Arc<Vec<StellaWordPackPreset>>,
     ) -> Self {
@@ -762,8 +801,11 @@ impl Room {
             card_choosing_timer_duration_s: DEFAULT_CARD_CHOOSING_TIMER_DURATION_S,
             voting_timer_enabled: true,
             voting_timer_duration_s: DEFAULT_VOTING_TIMER_DURATION_S,
+            beauty_timer_enabled: true,
+            beauty_timer_duration_s: DEFAULT_BEAUTY_TIMER_DURATION_S,
             force_card_choosing_timer: false,
             force_voting_timer: false,
+            force_beauty_timer: false,
             voting_wrong_card_disable_distribution: DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION
                 .to_vec(),
             players: HashMap::new(),
@@ -784,6 +826,7 @@ impl Room {
             player_to_beauty_votes: HashMap::new(),
             storyteller_point_change: HashMap::new(),
             beauty_point_change: HashMap::new(),
+            member_to_beauty_points: HashMap::new(),
             stella_board_cards: Vec::new(),
             stella_clue_word: String::new(),
             stella_word_pack: (*default_stella_word_pack).clone(),
@@ -808,6 +851,8 @@ impl Room {
             round: 0,
             win_condition,
             deck_refill_count: 0,
+            leaderboard_exclude_beauty_default: false,
+            leaderboard_exclude_beauty_default_version: 0,
         };
 
         let (tx, _) = broadcast::channel(10);
@@ -818,6 +863,7 @@ impl Room {
             base_deck,
             default_stella_word_pack,
             stella_word_pack_presets,
+            most_beautiful_stats,
             max_members,
             last_access: AtomicU64::new(get_time_s()),
         }
@@ -1028,6 +1074,8 @@ impl Room {
             Self::clamp_stage_timer_duration_s(state.card_choosing_timer_duration_s);
         state.voting_timer_duration_s =
             Self::clamp_stage_timer_duration_s(state.voting_timer_duration_s);
+        state.beauty_timer_duration_s =
+            Self::clamp_stage_timer_duration_s(state.beauty_timer_duration_s);
         self.refresh_current_stage_deadline(state);
     }
 
@@ -1067,8 +1115,8 @@ impl Room {
             RoomStage::Voting if state.voting_timer_enabled => Some(u64::from(
                 Self::clamp_stage_timer_duration_s(state.voting_timer_duration_s),
             )),
-            RoomStage::BeautyVoting if state.voting_timer_enabled => Some(u64::from(
-                Self::clamp_stage_timer_duration_s(state.voting_timer_duration_s),
+            RoomStage::BeautyVoting if state.beauty_timer_enabled => Some(u64::from(
+                Self::clamp_stage_timer_duration_s(state.beauty_timer_duration_s),
             )),
             _ => None,
         }
@@ -1125,7 +1173,7 @@ impl Room {
                 }
                 Ok(true)
             }
-            RoomStage::BeautyVoting if state.force_voting_timer => {
+            RoomStage::BeautyVoting if state.force_beauty_timer => {
                 self.init_results(state)?;
                 Ok(true)
             }
@@ -1515,6 +1563,108 @@ impl Room {
         }
 
         point_change
+    }
+
+    fn apply_member_beauty_point_change(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+        point_change: &HashMap<String, u16>,
+    ) {
+        for (player, points) in point_change {
+            let entry = state
+                .member_to_beauty_points
+                .entry(player.clone())
+                .or_insert(0);
+            *entry = entry.saturating_add(*points);
+        }
+    }
+
+    fn record_most_beautiful_round_stats(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+    ) -> Result<()> {
+        let member_hashes = state
+            .name_tokens
+            .iter()
+            .map(|(name, token)| {
+                let mut hasher = Sha256::new();
+                hasher.update(token.as_bytes());
+                (name.clone(), format!("{:x}", hasher.finalize()))
+            })
+            .collect::<HashMap<_, _>>();
+        let card_to_owner = state
+            .player_to_current_cards
+            .iter()
+            .flat_map(|(owner, cards)| cards.iter().map(|card| (card.clone(), owner.clone())))
+            .collect::<HashMap<_, _>>();
+        let mut aggregated_votes: HashMap<(String, String, String), u16> = HashMap::new();
+
+        for (voter, cards) in &state.player_to_beauty_votes {
+            if !member_hashes.contains_key(voter) {
+                continue;
+            }
+            for card_hash in cards {
+                let Some(owner_name) = card_to_owner.get(card_hash) else {
+                    continue;
+                };
+                if !member_hashes.contains_key(owner_name) {
+                    continue;
+                }
+                *aggregated_votes
+                    .entry((voter.clone(), owner_name.clone(), card_hash.clone()))
+                    .or_insert(0) += 1;
+            }
+        }
+
+        let votes = aggregated_votes
+            .into_iter()
+            .filter_map(|((voter_name, owner_name, card_hash), vote_count)| {
+                let voter_hash = member_hashes.get(&voter_name)?.clone();
+                let owner_hash = member_hashes.get(&owner_name)?.clone();
+                Some(MostBeautifulVoteRecord {
+                    voter_hash,
+                    voter_display_name: voter_name,
+                    owner_hash,
+                    owner_display_name: owner_name,
+                    card_hash,
+                    vote_count,
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let winning_cards = self.compute_beauty_winning_cards(state);
+        let mut unique_winners = HashMap::<String, String>::new();
+        for card_hash in &winning_cards {
+            let Some(owner_name) = card_to_owner.get(card_hash) else {
+                continue;
+            };
+            let Some(owner_hash) = member_hashes.get(owner_name).cloned() else {
+                continue;
+            };
+            unique_winners
+                .entry(owner_hash)
+                .or_insert_with(|| owner_name.clone());
+        }
+        let is_tie = unique_winners.len() > 1;
+        let wins = unique_winners
+            .into_iter()
+            .map(
+                |(winner_hash, winner_display_name)| MostBeautifulRoundWinRecord {
+                    winner_hash,
+                    winner_display_name,
+                    is_tie,
+                },
+            )
+            .collect::<Vec<_>>();
+
+        self.most_beautiful_stats
+            .record_round(&MostBeautifulRoundRecord {
+                recorded_at_s: get_time_s(),
+                room_id: state.room_id.clone(),
+                round_num: state.round,
+                votes,
+                wins,
+            })
     }
 
     fn merge_point_changes(
@@ -3382,73 +3532,6 @@ impl Room {
         Ok(())
     }
 
-    fn autofill_missing_beauty_votes(&self, state: &mut RwLockWriteGuard<RoomState>) -> Result<()> {
-        let center_cards = self.get_center_cards(state);
-        let votes_per_player = self.effective_beauty_votes_per_player(state);
-
-        for player in state.player_order.clone().iter() {
-            let beauty_allow_duplicate_votes = state.beauty_allow_duplicate_votes;
-            let disabled_cards = self
-                .beauty_disabled_cards_for_player(state, player)
-                .into_iter()
-                .collect::<HashSet<_>>();
-            let valid_cards = center_cards
-                .iter()
-                .filter(|card| !disabled_cards.contains(card.as_str()))
-                .cloned()
-                .collect::<Vec<_>>();
-            if valid_cards.is_empty() {
-                return Err(anyhow!("No valid beauty cards available for {}", player));
-            }
-            if !beauty_allow_duplicate_votes && valid_cards.len() < votes_per_player {
-                return Err(anyhow!(
-                    "Not enough distinct beauty cards available for {}",
-                    player
-                ));
-            }
-
-            let votes = state
-                .player_to_beauty_votes
-                .entry(player.to_string())
-                .or_default();
-            if votes.len() > votes_per_player {
-                let keep_start = votes.len().saturating_sub(votes_per_player);
-                *votes = votes.split_off(keep_start);
-            }
-            if !beauty_allow_duplicate_votes {
-                let mut deduped = Vec::new();
-                let mut seen = HashSet::new();
-                for card in votes.iter().rev() {
-                    if seen.insert(card.clone()) {
-                        deduped.push(card.clone());
-                    }
-                }
-                deduped.reverse();
-                *votes = deduped;
-            }
-
-            let mut rng = rand::thread_rng();
-            let mut available = valid_cards.clone();
-            if !beauty_allow_duplicate_votes {
-                available.retain(|card| !votes.contains(card));
-                available.shuffle(&mut rng);
-                while votes.len() < votes_per_player {
-                    let Some(card) = available.pop() else {
-                        break;
-                    };
-                    votes.push(card);
-                }
-            } else {
-                while votes.len() < votes_per_player {
-                    let card = valid_cards.choose(&mut rng).unwrap().clone();
-                    votes.push(card);
-                }
-            }
-        }
-
-        Ok(())
-    }
-
     async fn init_beauty_voting(&self, state: &mut RwLockWriteGuard<'_, RoomState>) -> Result<()> {
         self.autofill_missing_storyteller_votes(state)?;
         self.set_stage(state, RoomStage::BeautyVoting);
@@ -3471,6 +3554,7 @@ impl Room {
         self.set_stage(state, RoomStage::BeautyResults);
         let beauty_point_change = state.beauty_point_change.clone();
         self.apply_point_change(state, &beauty_point_change);
+        self.apply_member_beauty_point_change(state, &beauty_point_change);
         self.clear_ready(state);
 
         self.broadcast_msg(self.get_msg(None, state)?)?;
@@ -3481,15 +3565,16 @@ impl Room {
 
     fn init_results(&self, state: &mut RwLockWriteGuard<RoomState>) -> Result<()> {
         let from_beauty_voting = matches!(state.stage, RoomStage::BeautyVoting);
-        if from_beauty_voting {
-            self.autofill_missing_beauty_votes(state)?;
-        } else {
+        if !from_beauty_voting {
             self.autofill_missing_storyteller_votes(state)?;
         }
 
         self.set_stage(state, RoomStage::Results);
         state.storyteller_point_change = self.compute_results(state);
         state.beauty_point_change = self.compute_beauty_point_change(state);
+        if from_beauty_voting {
+            self.record_most_beautiful_round_stats(state)?;
+        }
 
         if self.uses_separate_beauty_results_stage(state) {
             let storyteller_point_change = state.storyteller_point_change.clone();
@@ -3497,7 +3582,9 @@ impl Room {
         } else {
             let combined_point_change = self
                 .merge_point_changes(&state.storyteller_point_change, &state.beauty_point_change);
+            let beauty_point_change = state.beauty_point_change.clone();
             self.apply_point_change(state, &combined_point_change);
+            self.apply_member_beauty_point_change(state, &beauty_point_change);
         }
 
         self.clear_ready(state);
@@ -4162,6 +4249,7 @@ impl Room {
             state.votes_per_guesser = self.default_votes_per_guesser_on_game_start(state);
             state.nominations_per_guesser =
                 self.default_nominations_per_guesser_on_game_start(state);
+            state.member_to_beauty_points.clear();
         }
 
         self.clamp_storyteller_loss_complement(state);
@@ -5834,6 +5922,78 @@ impl Room {
                 self.clamp_stage_timer_settings(&mut state);
                 self.broadcast_msg(self.room_state(&state))?;
             }
+            ClientMsg::SetBeautyTimerEnabled { enabled } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change beauty timer settings".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if matches!(state.stage, RoomStage::End) {
+                    return Ok(());
+                }
+
+                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Stage timers can only be changed during storyteller choosing stage"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                state.beauty_timer_enabled = enabled;
+                self.clamp_stage_timer_settings(&mut state);
+                self.broadcast_msg(self.room_state(&state))?;
+            }
+            ClientMsg::SetBeautyTimerDuration { seconds } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change beauty timer settings".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if matches!(state.stage, RoomStage::End) {
+                    return Ok(());
+                }
+
+                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Stage timers can only be changed during storyteller choosing stage"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                state.beauty_timer_duration_s = seconds;
+                self.clamp_stage_timer_settings(&mut state);
+                self.broadcast_msg(self.room_state(&state))?;
+            }
             ClientMsg::SetForceCardChoosingTimer { enabled } => {
                 if !self.is_moderator(&state, name) {
                     if let Some(tx) = state.player_to_socket.get(name) {
@@ -5903,6 +6063,66 @@ impl Room {
                 }
 
                 state.force_voting_timer = enabled;
+                self.broadcast_msg(self.room_state(&state))?;
+            }
+            ClientMsg::SetForceBeautyTimer { enabled } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change beauty timer settings".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if matches!(state.stage, RoomStage::End) {
+                    return Ok(());
+                }
+
+                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Stage timers can only be changed during storyteller choosing stage"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                state.force_beauty_timer = enabled;
+                self.broadcast_msg(self.room_state(&state))?;
+            }
+            ClientMsg::SetLeaderboardExcludeBeautyDefault { enabled } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change leaderboard beauty defaults"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if matches!(state.stage, RoomStage::End) {
+                    return Ok(());
+                }
+
+                state.leaderboard_exclude_beauty_default = enabled;
+                state.leaderboard_exclude_beauty_default_version = state
+                    .leaderboard_exclude_beauty_default_version
+                    .saturating_add(1);
                 self.broadcast_msg(self.room_state(&state))?;
             }
             ClientMsg::SetVotingWrongCardDisableDistribution { distribution } => {
@@ -6774,6 +6994,8 @@ impl Room {
             Self::clamp_stage_timer_duration_s(state.card_choosing_timer_duration_s);
         let voting_timer_duration_s =
             Self::clamp_stage_timer_duration_s(state.voting_timer_duration_s);
+        let beauty_timer_duration_s =
+            Self::clamp_stage_timer_duration_s(state.beauty_timer_duration_s);
         let voting_wrong_card_disable_distribution = self
             .canonicalize_voting_wrong_card_disable_distribution(
                 &state.voting_wrong_card_disable_distribution,
@@ -6844,11 +7066,18 @@ impl Room {
             card_choosing_timer_duration_s,
             voting_timer_enabled: state.voting_timer_enabled,
             voting_timer_duration_s,
+            beauty_timer_enabled: state.beauty_timer_enabled,
+            beauty_timer_duration_s,
             force_card_choosing_timer: state.force_card_choosing_timer,
             force_voting_timer: state.force_voting_timer,
+            force_beauty_timer: state.force_beauty_timer,
             server_time_ms: get_time_ms(),
             current_stage_deadline_s: state.current_stage_deadline_s,
             voting_wrong_card_disable_distribution,
+            member_to_beauty_points: state.member_to_beauty_points.clone(),
+            leaderboard_exclude_beauty_default: state.leaderboard_exclude_beauty_default,
+            leaderboard_exclude_beauty_default_version: state
+                .leaderboard_exclude_beauty_default_version,
             stella_board_size: state
                 .stella_board_size
                 .clamp(stella_board_size_min, stella_board_size_max),
@@ -6918,6 +7147,14 @@ mod tests {
             Some("host".to_string()),
             64,
             None,
+            Arc::new(
+                MostBeautifulStatsStore::new(std::env::temp_dir().join(format!(
+                    "talespin-room-test-{}-{}.sqlite3",
+                    std::process::id(),
+                    rand::random::<u64>()
+                )))
+                .expect("failed to create test Most Beautiful stats store"),
+            ),
             test_default_stella_word_pack(),
             test_stella_word_pack_presets(),
         )
@@ -7936,7 +8173,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn init_results_from_beauty_voting_autofills_without_using_own_cards() -> Result<()> {
+    async fn init_results_from_beauty_voting_keeps_only_submitted_votes() -> Result<()> {
         let room = test_room();
         let mut state = room.state.write().await;
 
@@ -7969,25 +8206,10 @@ mod tests {
 
         room.init_results(&mut state)?;
 
-        let b_votes = state
-            .player_to_beauty_votes
-            .get("b")
-            .cloned()
-            .ok_or_else(|| anyhow!("Expected autofilled beauty votes for b"))?;
         assert_eq!(
-            b_votes.len(),
-            2,
-            "missing beauty votes should be backfilled"
-        );
-        assert!(
-            b_votes.iter().all(|card| card != "cb"),
-            "beauty autofill must avoid the voter's own card, got {:?}",
-            b_votes
-        );
-        assert_eq!(
-            b_votes.iter().collect::<HashSet<_>>().len(),
-            2,
-            "non-duplicate beauty autofill should keep votes distinct"
+            state.player_to_beauty_votes.get("b"),
+            Some(&vec!["ca".to_string()]),
+            "beauty results should keep only the actually submitted beauty votes"
         );
 
         Ok(())
@@ -9279,10 +9501,16 @@ mod tests {
                 card_choosing_timer_duration_s,
                 voting_timer_enabled,
                 voting_timer_duration_s,
+                beauty_timer_enabled,
+                beauty_timer_duration_s,
                 force_card_choosing_timer,
                 force_voting_timer,
+                force_beauty_timer,
                 current_stage_deadline_s,
                 voting_wrong_card_disable_distribution,
+                member_to_beauty_points,
+                leaderboard_exclude_beauty_default,
+                leaderboard_exclude_beauty_default_version,
                 stella_word_pack_size,
                 stella_word_pack_words,
                 ..
@@ -9341,12 +9569,24 @@ mod tests {
                     "voting timer should default to 180 seconds"
                 );
                 assert!(
+                    beauty_timer_enabled,
+                    "beauty timer should default to enabled"
+                );
+                assert_eq!(
+                    beauty_timer_duration_s, 60,
+                    "beauty timer should default to 60 seconds"
+                );
+                assert!(
                     !force_card_choosing_timer,
                     "forced card choosing timeout should default to off"
                 );
                 assert!(
                     !force_voting_timer,
                     "forced voting timeout should default to off"
+                );
+                assert!(
+                    !force_beauty_timer,
+                    "forced beauty timeout should default to off"
                 );
                 assert!(
                     current_stage_deadline_s.is_none(),
@@ -9356,6 +9596,18 @@ mod tests {
                     voting_wrong_card_disable_distribution,
                     vec![1.0],
                     "wrong-card disable distribution should default to Off"
+                );
+                assert!(
+                    member_to_beauty_points.is_empty(),
+                    "beauty point totals should start empty"
+                );
+                assert!(
+                    !leaderboard_exclude_beauty_default,
+                    "leaderboard beauty exclusion should default to off"
+                );
+                assert_eq!(
+                    leaderboard_exclude_beauty_default_version, 0,
+                    "leaderboard beauty default version should start at 0"
                 );
                 assert_eq!(
                     usize::from(stella_word_pack_size),
@@ -9402,6 +9654,29 @@ alpha
     }
 
     #[tokio::test]
+    async fn beauty_timer_deadline_uses_beauty_duration_instead_of_voting_duration() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        state.stage = RoomStage::BeautyVoting;
+        state.stage_started_at_s = Some(1_000);
+        state.voting_timer_enabled = true;
+        state.voting_timer_duration_s = 180;
+        state.beauty_timer_enabled = true;
+        state.beauty_timer_duration_s = 42;
+
+        room.refresh_current_stage_deadline(&mut state);
+
+        assert_eq!(
+            state.current_stage_deadline_s,
+            Some(1_042),
+            "beauty voting deadline should use the dedicated beauty timer duration"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn moderator_can_update_hint_timer_and_refresh_current_deadline() -> Result<()> {
         let room = test_room();
         {
@@ -9432,6 +9707,72 @@ alpha
             state.current_stage_deadline_s,
             Some(1_042),
             "current storyteller deadline should be recomputed from stage start"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn moderator_can_update_beauty_timer_from_storyteller_stage() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            add_player(&mut state, "p2", 0);
+            add_player(&mut state, "p3", 0);
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 10_200);
+            room.set_stage(&mut state, RoomStage::ActiveChooses);
+            state.stage_started_at_s = Some(2_000);
+            room.refresh_current_stage_deadline(&mut state);
+        }
+
+        room.handle_client_msg(
+            "host",
+            10_200,
+            to_ws(ClientMsg::SetBeautyTimerDuration { seconds: 42 }),
+        )
+        .await?;
+
+        let state = room.state.write().await;
+        assert_eq!(
+            state.beauty_timer_duration_s, 42,
+            "moderator update should persist the new beauty timer duration"
+        );
+        assert_eq!(
+            state.current_stage_deadline_s,
+            Some(2_060),
+            "changing the beauty timer outside beauty voting should not alter the storyteller deadline"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn moderator_can_force_push_leaderboard_exclude_beauty_default() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 10_201);
+        }
+
+        room.handle_client_msg(
+            "host",
+            10_201,
+            to_ws(ClientMsg::SetLeaderboardExcludeBeautyDefault { enabled: true }),
+        )
+        .await?;
+
+        let state = room.state.write().await;
+        assert!(
+            state.leaderboard_exclude_beauty_default,
+            "moderator toggle should update the room-wide leaderboard beauty default"
+        );
+        assert_eq!(
+            state.leaderboard_exclude_beauty_default_version, 1,
+            "changing the room-wide default should bump its version"
         );
 
         Ok(())
@@ -9489,6 +9830,68 @@ alpha
                 .unwrap_or_default(),
             1,
             "missing chooser submissions should be auto-filled"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn maintenance_forced_beauty_timeout_skips_missing_votes() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            for player in ["a", "b", "c", "d"] {
+                add_player(&mut state, player, 0);
+                setup_connected_member(
+                    &mut state,
+                    player,
+                    &format!("token-{player}"),
+                    20_000 + u64::from(player.as_bytes()[0]),
+                );
+            }
+            state.stage = RoomStage::BeautyVoting;
+            state.game_mode = GameMode::DixitPlus;
+            state.beauty_enabled = true;
+            state.force_beauty_timer = true;
+            state.stage_started_at_s = Some(get_time_s().saturating_sub(60));
+            state.current_stage_deadline_s = Some(get_time_s().saturating_sub(1));
+            state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into()];
+            state.active_player = 0;
+            state.current_description = "clue".to_string();
+            state.beauty_votes_per_player = 2;
+            state
+                .player_to_current_cards
+                .insert("a".into(), vec!["ca".into()]);
+            state
+                .player_to_current_cards
+                .insert("b".into(), vec!["cb".into()]);
+            state
+                .player_to_current_cards
+                .insert("c".into(), vec!["cc".into()]);
+            state
+                .player_to_current_cards
+                .insert("d".into(), vec!["cd".into()]);
+            state
+                .player_to_beauty_votes
+                .insert("b".into(), vec!["ca".into()]);
+        }
+
+        room.run_maintenance().await;
+
+        let state = room.state.write().await;
+        assert!(
+            matches!(state.stage, RoomStage::Results),
+            "forced beauty timeout should advance directly to results"
+        );
+        assert_eq!(
+            state.player_to_beauty_votes.len(),
+            1,
+            "missing beauty ballots should be skipped instead of auto-filled"
+        );
+        assert_eq!(
+            state.player_to_beauty_votes.get("b"),
+            Some(&vec!["ca".to_string()]),
+            "submitted beauty votes should be preserved unchanged"
         );
 
         Ok(())

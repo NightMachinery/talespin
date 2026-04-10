@@ -77,8 +77,11 @@
 	export let cardChoosingTimerDurationS = 30;
 	export let votingTimerEnabled = true;
 	export let votingTimerDurationS = 180;
+	export let beautyTimerEnabled = true;
+	export let beautyTimerDurationS = 60;
 	export let forceCardChoosingTimer = false;
 	export let forceVotingTimer = false;
+	export let forceBeautyTimer = false;
 	export let stellaBoardSize = 15;
 	export let stellaBoardSizeMin = 1;
 	export let stellaBoardSizeMax = 100;
@@ -493,6 +496,18 @@
 		);
 	}
 
+	function updateBeautyTimerEnabled(event: Event) {
+		updateStageTimerToggle(event, beautyTimerEnabled, (enabled) =>
+			gameServer.setBeautyTimerEnabled(enabled)
+		);
+	}
+
+	function updateBeautyTimerDuration(event: Event) {
+		updateStageTimerDuration(event, beautyTimerDurationS, (seconds) =>
+			gameServer.setBeautyTimerDuration(seconds)
+		);
+	}
+
 	function updateForceCardChoosingTimer(event: Event) {
 		updateStageTimerToggle(event, forceCardChoosingTimer, (enabled) =>
 			gameServer.setForceCardChoosingTimer(enabled)
@@ -502,6 +517,12 @@
 	function updateForceVotingTimer(event: Event) {
 		updateStageTimerToggle(event, forceVotingTimer, (enabled) =>
 			gameServer.setForceVotingTimer(enabled)
+		);
+	}
+
+	function updateForceBeautyTimer(event: Event) {
+		updateStageTimerToggle(event, forceBeautyTimer, (enabled) =>
+			gameServer.setForceBeautyTimer(enabled)
 		);
 	}
 
@@ -1056,6 +1077,49 @@
 										disabled={!isModerator || !canChangeStageTimers}
 									/>
 									<span>Force timeout by auto-submitting random votes</span>
+								</label>
+							</div>
+							<div class="rounded border border-white/15 px-2 py-2">
+								<div class="flex items-start justify-between gap-3">
+									<div>
+										<p class="font-medium">Most Beautiful</p>
+										<p class="text-xs opacity-70">Optional beauty voting countdown.</p>
+									</div>
+									<label class="flex items-center gap-2 text-sm">
+										<input
+											type="checkbox"
+											class="h-4 w-4 cursor-pointer accent-primary-500"
+											checked={beautyTimerEnabled}
+											on:change={updateBeautyTimerEnabled}
+											disabled={!isModerator || !canChangeStageTimers}
+										/>
+										<span>Enabled</span>
+									</label>
+								</div>
+								<div class="mt-2 flex items-center gap-2">
+									<input
+										type="number"
+										class="w-24 rounded border px-2 py-1 text-gray-700 shadow"
+										min={STAGE_TIMER_DURATION_MIN_S}
+										max={STAGE_TIMER_DURATION_MAX_S}
+										step="1"
+										value={beautyTimerDurationS}
+										on:change={updateBeautyTimerDuration}
+										disabled={!isModerator || !canChangeStageTimers}
+									/>
+									<span class="text-xs opacity-75"
+										>{STAGE_TIMER_DURATION_MIN_S}–{STAGE_TIMER_DURATION_MAX_S}s</span
+									>
+								</div>
+								<label class="mt-2 flex items-start gap-3 text-sm">
+									<input
+										type="checkbox"
+										class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
+										checked={forceBeautyTimer}
+										on:change={updateForceBeautyTimer}
+										disabled={!isModerator || !canChangeStageTimers}
+									/>
+									<span>Force timeout by skipping missing beauty votes</span>
 								</label>
 							</div>
 						{/if}

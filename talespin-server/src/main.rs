@@ -29,8 +29,10 @@ use tower_http::{
 };
 
 mod avif;
+mod most_beautiful_stats;
 mod room;
 
+use most_beautiful_stats::{MostBeautifulStatsResponse, MostBeautifulStatsStore};
 use rand::distributions::{Distribution, Uniform};
 use room::{
     canonical_member_name, get_time_s, hash_room_password, Room, ServerMsg, StellaWordPackPreset,
@@ -58,6 +60,7 @@ const VALIDATE_CACHE_HITS_ENV: &str = "TALESPIN_VALIDATE_CACHE_HITS_P";
 const PRODUCTION_ENV: &str = "TALESPIN_PRODUCTION_P";
 const DEFAULT_WIN_POINTS_ENV: &str = "TALESPIN_DEFAULT_WIN_POINTS";
 const MAX_MEMBERS_ENV: &str = "TALESPIN_MAX_MEMBERS";
+const MB_STATS_DB_PATH_ENV: &str = "TALESPIN_MB_STATS_DB_PATH";
 
 const DEFAULT_CARD_ASPECT_RATIO: &str = "2:3";
 const DEFAULT_CARD_LONG_SIDE: u32 = 1536;
@@ -65,6 +68,7 @@ const DEFAULT_WIN_POINTS: u16 = 10;
 const DEFAULT_MAX_MEMBERS: usize = 64;
 const DEFAULT_CACHE_DIR: &str = "~/.cache/talespin";
 const CACHE_SUBDIR_CARDS: &str = "cards";
+const DEFAULT_MB_STATS_DB_FILENAME: &str = "most_beautiful_stats.sqlite3";
 
 const CARD_JPEG_QUALITY: u8 = 90;
 const NORMALIZATION_PIPELINE_VERSION: &str = "v1";
@@ -465,6 +469,18 @@ fn parse_max_members_from_env() -> usize {
     }
 
     DEFAULT_MAX_MEMBERS
+}
+
+fn cache_root_dir_from_env() -> PathBuf {
+    env::var(CACHE_DIR_ENV)
+        .map(|v| expand_home(v.trim()))
+        .unwrap_or_else(|_| expand_home(DEFAULT_CACHE_DIR))
+}
+
+fn parse_mb_stats_db_path_from_env() -> PathBuf {
+    env::var(MB_STATS_DB_PATH_ENV)
+        .map(|value| expand_home(value.trim()))
+        .unwrap_or_else(|_| cache_root_dir_from_env().join(DEFAULT_MB_STATS_DB_FILENAME))
 }
 
 fn env_is_y(key: &str) -> bool {
@@ -1028,6 +1044,7 @@ struct ServerState {
     base_deck: Arc<Vec<String>>,
     cards: Arc<HashMap<String, PathBuf>>,
     card_content_type: &'static str,
+    most_beautiful_stats: Arc<MostBeautifulStatsStore>,
     default_stella_word_pack: Arc<Vec<String>>,
     stella_word_pack_presets: Arc<Vec<StellaWordPackPreset>>,
     default_win_points_target: u16,
@@ -1041,6 +1058,9 @@ impl ServerState {
         let config = NormalizationConfig::from_env()?;
         let default_win_points_target = parse_default_win_points_from_env();
         let max_members = parse_max_members_from_env();
+        let most_beautiful_stats = Arc::new(MostBeautifulStatsStore::new(
+            parse_mb_stats_db_path_from_env(),
+        )?);
         let word_pack_presets = load_word_pack_presets(Path::new(WORD_PACKS_DIR))?;
         let default_word_pack = choose_default_word_pack(&word_pack_presets)?;
         let extra_image_dirs = get_extra_image_dirs();
@@ -1053,6 +1073,7 @@ impl ServerState {
             disable_builtin_images,
             sniff_extensionless_images,
         )?;
+        most_beautiful_stats.register_card_paths(get_time_s(), &loaded_cards.cards)?;
 
         println!(
             "Loaded {} cards ({} built-in, {} extra, {} failed; builtins {}; extensionless sniff {}; ratio {}:{}, long side {}; cache format {}; avif encoder {}; avif threads {}; cache validation {}; cache {}; default word pack {}; loaded word packs {}; default points target {}; max members {})",
@@ -1085,6 +1106,7 @@ impl ServerState {
             base_deck: Arc::new(loaded_cards.deck),
             cards: Arc::new(loaded_cards.cards),
             card_content_type: config.cache_format.mime_type(),
+            most_beautiful_stats,
             default_stella_word_pack: Arc::new(default_word_pack.words.clone()),
             stella_word_pack_presets: Arc::new(word_pack_presets),
             default_win_points_target,
@@ -1114,6 +1136,7 @@ impl ServerState {
             creator_name,
             self.max_members,
             room_password_hash,
+            self.most_beautiful_stats.clone(),
             self.default_stella_word_pack.clone(),
             self.stella_word_pack_presets.clone(),
         );
@@ -1224,6 +1247,7 @@ async fn main() {
         .route("/create", post(create_room_handler))
         .route("/exists", post(exists_handler))
         .route("/stats", get(stats_handler))
+        .route("/most-beautiful-stats", get(most_beautiful_stats_handler))
         .route("/", get(root))
         .layer(TraceLayer::new_for_http())
         .layer(cors)
@@ -1338,6 +1362,23 @@ async fn exists_handler(
 
 async fn stats_handler(State(state): State<Arc<ServerState>>) -> String {
     serde_json::to_string(&state.stats()).unwrap()
+}
+
+async fn most_beautiful_stats_handler(
+    State(state): State<Arc<ServerState>>,
+) -> Result<Json<MostBeautifulStatsResponse>, StatusCode> {
+    state
+        .most_beautiful_stats
+        .aggregated_stats()
+        .map(Json)
+        .map_err(|err| {
+            println!(
+                "Failed to load Most Beautiful stats from {}: {}",
+                state.most_beautiful_stats.path().display(),
+                err
+            );
+            StatusCode::INTERNAL_SERVER_ERROR
+        })
 }
 
 async fn root() -> &'static str {
