@@ -43,6 +43,7 @@
 	export let beautyVotesPerPlayerMin = 1;
 	export let beautyVotesPerPlayerMax = 1;
 	export let beautyAllowDuplicateVotes = false;
+	export let beautySplitPointsOnTie = true;
 	export let beautyPointsBonus = 2;
 	export let beautyPointsBonusMin = 0;
 	export let beautyPointsBonusMax = 10;
@@ -247,6 +248,12 @@
 		const input = event.currentTarget as HTMLInputElement;
 		if (!canEditSettings) return;
 		gameServer.setBeautyAllowDuplicateVotes(input.checked);
+	}
+
+	function updateBeautySplitPointsOnTie(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		if (!canEditSettings) return;
+		gameServer.setBeautySplitPointsOnTie(input.checked);
 	}
 
 	function updateBeautyPointsBonus(event: Event) {
@@ -607,6 +614,16 @@
 										disabled={!canEditSettings}
 									/>
 									<span>Allow duplicate beauty votes on the same card</span>
+								</label>
+								<label class="flex items-start gap-3 text-sm">
+									<input
+										type="checkbox"
+										class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
+										checked={beautySplitPointsOnTie}
+										on:change={updateBeautySplitPointsOnTie}
+										disabled={!canEditSettings}
+									/>
+									<span>Split beauty bonus among tied owners, rounding up</span>
 								</label>
 								<div>
 									<label class="text-sm font-semibold" for="beautyResultsDisplayMode">

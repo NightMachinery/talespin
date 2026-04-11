@@ -7,6 +7,8 @@ This folder contains practical notes for running and maintaining the self-hosted
 - `docs/win_condition.md`: supported win modes, defaults, and deck-finish behavior
 - `docs/user_auth.md`: player identity persistence across refresh
 - `docs/fit_to_height_cards.md`: fit-to-height option notes and caveats
+- `docs/most-beautiful/README.md`: Most Beautiful settings, leaderboard modes, tie splitting, and audit history
 
 # Unrelated Docs for Other Projects
+
 - `docs/secret-hitler-users.md`: portable product spec for any-time-join + creator/mod/observer dynamics in Secret Hitler

@@ -51,10 +51,9 @@
 			{#each rankedStats as entry}
 				<div>
 					<div class="font-semibold">
-						{entry.rank}. {entry.display_name}: got {entry.votes_received} vote{entry.votes_received === 1
-							? ''
-							: 's'}, won {entry.rounds_won} round{entry.rounds_won === 1 ? '' : 's'} ({entry.tie_round_wins}
-						tie{entry.tie_round_wins === 1 ? '' : 's'}, {entry.decisive_round_wins} decisive)
+						{entry.rank}. {entry.display_name} — {entry.rounds_won}W / {entry.tie_round_wins}T / {entry.decisive_round_wins}D
+						· {entry.votes_received}
+						vote{entry.votes_received === 1 ? '' : 's'}
 					</div>
 					{#if entry.voters.filter((voter) => voter.votes > 0).length > 0}
 						<div class="mt-1 pl-4 text-sm opacity-85">

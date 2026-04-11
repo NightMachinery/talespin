@@ -29,6 +29,7 @@
 	export let beautyVotesPerPlayerMin = 1;
 	export let beautyVotesPerPlayerMax = 1;
 	export let beautyAllowDuplicateVotes = false;
+	export let beautySplitPointsOnTie = true;
 	export let beautyPointsBonus = 2;
 	export let beautyPointsBonusMin = 0;
 	export let beautyPointsBonusMax = 10;
@@ -205,6 +206,7 @@
 	{beautyVotesPerPlayerMin}
 	{beautyVotesPerPlayerMax}
 	{beautyAllowDuplicateVotes}
+	{beautySplitPointsOnTie}
 	{beautyPointsBonus}
 	{beautyPointsBonusMin}
 	{beautyPointsBonusMax}

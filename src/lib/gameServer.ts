@@ -233,6 +233,14 @@ class GameServer {
 		});
 	}
 
+	setBeautySplitPointsOnTie(enabled: boolean) {
+		this.send({
+			SetBeautySplitPointsOnTie: {
+				enabled
+			}
+		});
+	}
+
 	setBeautyResultsDisplayMode(mode: 'summary' | 'separate' | 'combined') {
 		this.send({
 			SetBeautyResultsDisplayMode: {
@@ -393,10 +401,10 @@ class GameServer {
 		});
 	}
 
-	setLeaderboardExcludeBeautyDefault(enabled: boolean) {
+	setLeaderboardViewModeDefault(mode: 'total' | 'story_only' | 'beauty_only' | 'combined') {
 		this.send({
-			SetLeaderboardExcludeBeautyDefault: {
-				enabled
+			SetLeaderboardViewModeDefault: {
+				mode
 			}
 		});
 	}

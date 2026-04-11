@@ -13,6 +13,7 @@
 	export let beautyVotesPerPlayer = 1;
 	export let beautyVotesPerPlayerMax = 1;
 	export let beautyAllowDuplicateVotes = false;
+	export let beautySplitPointsOnTie = true;
 	export let beautyPointsBonus = 2;
 	export let beautyResultsDisplayMode: BeautyResultsDisplayMode = 'combined';
 
@@ -95,7 +96,10 @@
 				</li>
 				<li>
 					Beauty winners: each top-voted owner gets +{beautyPointsBonus}
-					{beautyPointsBonus === 1 ? ' point' : ' points'} once per round.
+					{beautyPointsBonus === 1 ? ' point' : ' points'}
+					{beautySplitPointsOnTie
+						? ' split among tied owners with rounding up when needed.'
+						: ' once per tied owner.'}
 				</li>
 				<li>
 					Beauty duplicates: {beautyAllowDuplicateVotes ? 'allowed' : 'not allowed'}. Reveal mode: {beautyResultsDisplayMode}.

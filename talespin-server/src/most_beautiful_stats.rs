@@ -56,6 +56,52 @@ pub struct MostBeautifulStatsResponse {
 }
 
 #[derive(Debug, Clone)]
+pub struct MostBeautifulGameAuditCardRecord {
+    pub card_hash: String,
+    pub owner_hash: String,
+    pub owner_display_name: String,
+    pub submitted_by_hash: String,
+    pub submitted_by_display_name: String,
+    pub is_storyteller_card: bool,
+    pub center_order: u16,
+}
+
+#[derive(Debug, Clone)]
+pub struct MostBeautifulGameAuditVoteRecord {
+    pub voter_hash: String,
+    pub voter_display_name: String,
+    pub card_hash: String,
+    pub vote_count: u16,
+}
+
+#[derive(Debug, Clone)]
+pub struct MostBeautifulGameAuditScoreRecord {
+    pub player_hash: String,
+    pub player_display_name: String,
+    pub story_delta: u16,
+    pub beauty_delta: u16,
+    pub total_after_round: u16,
+    pub beauty_total_after_round: u16,
+}
+
+#[derive(Debug, Clone)]
+pub struct MostBeautifulGameAuditRoundRecord {
+    pub game_id: String,
+    pub room_id: String,
+    pub game_started_at_s: u64,
+    pub recorded_at_s: u64,
+    pub round_num: u16,
+    pub storyteller_hash: String,
+    pub storyteller_display_name: String,
+    pub clue: String,
+    pub results_display_mode: String,
+    pub card_entries: Vec<MostBeautifulGameAuditCardRecord>,
+    pub story_votes: Vec<MostBeautifulGameAuditVoteRecord>,
+    pub beauty_votes: Vec<MostBeautifulGameAuditVoteRecord>,
+    pub score_log: Vec<MostBeautifulGameAuditScoreRecord>,
+}
+
+#[derive(Debug, Clone)]
 pub struct MostBeautifulStatsStore {
     db_path: PathBuf,
 }
@@ -152,6 +198,95 @@ impl MostBeautifulStatsStore {
             CREATE INDEX IF NOT EXISTS idx_mb_vote_voter ON mb_vote_events(voter_hash);
             CREATE INDEX IF NOT EXISTS idx_mb_vote_card ON mb_vote_events(card_hash);
             CREATE INDEX IF NOT EXISTS idx_mb_round_winner ON mb_round_win_events(winner_hash);
+
+            CREATE TABLE IF NOT EXISTS mb_games (
+                game_id TEXT PRIMARY KEY,
+                room_id TEXT NOT NULL,
+                started_at INTEGER NOT NULL,
+                ended_at INTEGER,
+                completed INTEGER NOT NULL DEFAULT 0,
+                total_rounds INTEGER NOT NULL DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS mb_game_rounds (
+                game_id TEXT NOT NULL,
+                round_num INTEGER NOT NULL,
+                recorded_at INTEGER NOT NULL,
+                storyteller_hash TEXT NOT NULL,
+                storyteller_display_name TEXT NOT NULL,
+                clue TEXT NOT NULL,
+                results_display_mode TEXT NOT NULL,
+                PRIMARY KEY (game_id, round_num),
+                FOREIGN KEY (game_id) REFERENCES mb_games(game_id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS mb_game_round_cards (
+                game_id TEXT NOT NULL,
+                round_num INTEGER NOT NULL,
+                card_hash TEXT NOT NULL,
+                owner_hash TEXT NOT NULL,
+                owner_display_name TEXT NOT NULL,
+                submitted_by_hash TEXT NOT NULL,
+                submitted_by_display_name TEXT NOT NULL,
+                is_storyteller_card INTEGER NOT NULL,
+                center_order INTEGER NOT NULL,
+                PRIMARY KEY (game_id, round_num, card_hash),
+                FOREIGN KEY (game_id, round_num)
+                    REFERENCES mb_game_rounds(game_id, round_num)
+                    ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS mb_game_round_story_votes (
+                game_id TEXT NOT NULL,
+                round_num INTEGER NOT NULL,
+                voter_hash TEXT NOT NULL,
+                voter_display_name TEXT NOT NULL,
+                card_hash TEXT NOT NULL,
+                vote_count INTEGER NOT NULL,
+                PRIMARY KEY (game_id, round_num, voter_hash, card_hash),
+                FOREIGN KEY (game_id, round_num)
+                    REFERENCES mb_game_rounds(game_id, round_num)
+                    ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS mb_game_round_beauty_votes (
+                game_id TEXT NOT NULL,
+                round_num INTEGER NOT NULL,
+                voter_hash TEXT NOT NULL,
+                voter_display_name TEXT NOT NULL,
+                card_hash TEXT NOT NULL,
+                vote_count INTEGER NOT NULL,
+                PRIMARY KEY (game_id, round_num, voter_hash, card_hash),
+                FOREIGN KEY (game_id, round_num)
+                    REFERENCES mb_game_rounds(game_id, round_num)
+                    ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS mb_game_round_scores (
+                game_id TEXT NOT NULL,
+                round_num INTEGER NOT NULL,
+                player_hash TEXT NOT NULL,
+                player_display_name TEXT NOT NULL,
+                story_delta INTEGER NOT NULL,
+                beauty_delta INTEGER NOT NULL,
+                total_after_round INTEGER NOT NULL,
+                beauty_total_after_round INTEGER NOT NULL,
+                PRIMARY KEY (game_id, round_num, player_hash),
+                FOREIGN KEY (game_id, round_num)
+                    REFERENCES mb_game_rounds(game_id, round_num)
+                    ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_mb_game_round_storyteller
+                ON mb_game_rounds(storyteller_hash);
+            CREATE INDEX IF NOT EXISTS idx_mb_game_round_card_owner
+                ON mb_game_round_cards(owner_hash);
+            CREATE INDEX IF NOT EXISTS idx_mb_game_story_vote_voter
+                ON mb_game_round_story_votes(voter_hash);
+            CREATE INDEX IF NOT EXISTS idx_mb_game_beauty_vote_voter
+                ON mb_game_round_beauty_votes(voter_hash);
+            CREATE INDEX IF NOT EXISTS idx_mb_game_round_score_player
+                ON mb_game_round_scores(player_hash);
             "#,
         )
         .context("Failed to initialize Most Beautiful stats schema")?;
@@ -303,6 +438,247 @@ impl MostBeautifulStatsStore {
 
         tx.commit()
             .context("Failed to commit Most Beautiful stats transaction")?;
+        Ok(())
+    }
+
+    pub fn record_game_audit_round(
+        &self,
+        record: &MostBeautifulGameAuditRoundRecord,
+    ) -> Result<()> {
+        let mut conn = self.connect()?;
+        let tx = conn
+            .transaction()
+            .context("Failed to open Most Beautiful game-audit transaction")?;
+
+        tx.execute(
+            r#"
+            INSERT INTO mb_games (game_id, room_id, started_at, total_rounds)
+            VALUES (?1, ?2, ?3, ?4)
+            ON CONFLICT(game_id) DO UPDATE SET
+                room_id = excluded.room_id,
+                started_at = MIN(started_at, excluded.started_at),
+                total_rounds = MAX(total_rounds, excluded.total_rounds)
+            "#,
+            params![
+                record.game_id,
+                record.room_id,
+                record.game_started_at_s,
+                record.round_num
+            ],
+        )
+        .context("Failed to upsert Most Beautiful game audit row")?;
+
+        Self::upsert_player(
+            &tx,
+            &record.storyteller_hash,
+            &record.storyteller_display_name,
+            record.recorded_at_s,
+        )?;
+
+        tx.execute(
+            r#"
+            INSERT INTO mb_game_rounds (
+                game_id,
+                round_num,
+                recorded_at,
+                storyteller_hash,
+                storyteller_display_name,
+                clue,
+                results_display_mode
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            ON CONFLICT(game_id, round_num) DO UPDATE SET
+                recorded_at = excluded.recorded_at,
+                storyteller_hash = excluded.storyteller_hash,
+                storyteller_display_name = excluded.storyteller_display_name,
+                clue = excluded.clue,
+                results_display_mode = excluded.results_display_mode
+            "#,
+            params![
+                record.game_id,
+                record.round_num,
+                record.recorded_at_s,
+                record.storyteller_hash,
+                record.storyteller_display_name,
+                record.clue,
+                record.results_display_mode
+            ],
+        )
+        .context("Failed to upsert Most Beautiful game round row")?;
+
+        tx.execute(
+            "DELETE FROM mb_game_round_cards WHERE game_id = ?1 AND round_num = ?2",
+            params![record.game_id, record.round_num],
+        )
+        .context("Failed to clear prior Most Beautiful game round cards")?;
+        tx.execute(
+            "DELETE FROM mb_game_round_story_votes WHERE game_id = ?1 AND round_num = ?2",
+            params![record.game_id, record.round_num],
+        )
+        .context("Failed to clear prior Most Beautiful game round storyteller votes")?;
+        tx.execute(
+            "DELETE FROM mb_game_round_beauty_votes WHERE game_id = ?1 AND round_num = ?2",
+            params![record.game_id, record.round_num],
+        )
+        .context("Failed to clear prior Most Beautiful game round beauty votes")?;
+        tx.execute(
+            "DELETE FROM mb_game_round_scores WHERE game_id = ?1 AND round_num = ?2",
+            params![record.game_id, record.round_num],
+        )
+        .context("Failed to clear prior Most Beautiful game round scores")?;
+
+        for card in &record.card_entries {
+            Self::upsert_player(
+                &tx,
+                &card.owner_hash,
+                &card.owner_display_name,
+                record.recorded_at_s,
+            )?;
+            Self::upsert_player(
+                &tx,
+                &card.submitted_by_hash,
+                &card.submitted_by_display_name,
+                record.recorded_at_s,
+            )?;
+            tx.execute(
+                r#"
+                INSERT INTO mb_game_round_cards (
+                    game_id,
+                    round_num,
+                    card_hash,
+                    owner_hash,
+                    owner_display_name,
+                    submitted_by_hash,
+                    submitted_by_display_name,
+                    is_storyteller_card,
+                    center_order
+                )
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                "#,
+                params![
+                    record.game_id,
+                    record.round_num,
+                    card.card_hash,
+                    card.owner_hash,
+                    card.owner_display_name,
+                    card.submitted_by_hash,
+                    card.submitted_by_display_name,
+                    i64::from(card.is_storyteller_card),
+                    card.center_order
+                ],
+            )
+            .context("Failed to insert Most Beautiful game round card")?;
+        }
+
+        Self::insert_game_vote_records(
+            &tx,
+            "mb_game_round_story_votes",
+            record,
+            &record.story_votes,
+        )?;
+        Self::insert_game_vote_records(
+            &tx,
+            "mb_game_round_beauty_votes",
+            record,
+            &record.beauty_votes,
+        )?;
+
+        for score in &record.score_log {
+            Self::upsert_player(
+                &tx,
+                &score.player_hash,
+                &score.player_display_name,
+                record.recorded_at_s,
+            )?;
+            tx.execute(
+                r#"
+                INSERT INTO mb_game_round_scores (
+                    game_id,
+                    round_num,
+                    player_hash,
+                    player_display_name,
+                    story_delta,
+                    beauty_delta,
+                    total_after_round,
+                    beauty_total_after_round
+                )
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                "#,
+                params![
+                    record.game_id,
+                    record.round_num,
+                    score.player_hash,
+                    score.player_display_name,
+                    score.story_delta,
+                    score.beauty_delta,
+                    score.total_after_round,
+                    score.beauty_total_after_round
+                ],
+            )
+            .context("Failed to insert Most Beautiful game round score")?;
+        }
+
+        tx.commit()
+            .context("Failed to commit Most Beautiful game-audit transaction")?;
+        Ok(())
+    }
+
+    fn insert_game_vote_records(
+        tx: &rusqlite::Transaction<'_>,
+        table_name: &str,
+        record: &MostBeautifulGameAuditRoundRecord,
+        votes: &[MostBeautifulGameAuditVoteRecord],
+    ) -> Result<()> {
+        let query = format!(
+            "INSERT INTO {} (game_id, round_num, voter_hash, voter_display_name, card_hash, vote_count) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            table_name
+        );
+        for vote in votes {
+            Self::upsert_player(
+                tx,
+                &vote.voter_hash,
+                &vote.voter_display_name,
+                record.recorded_at_s,
+            )?;
+            tx.execute(
+                &query,
+                params![
+                    record.game_id,
+                    record.round_num,
+                    vote.voter_hash,
+                    vote.voter_display_name,
+                    vote.card_hash,
+                    vote.vote_count
+                ],
+            )
+            .with_context(|| {
+                format!(
+                    "Failed to insert Most Beautiful game vote into {}",
+                    table_name
+                )
+            })?;
+        }
+        Ok(())
+    }
+
+    pub fn mark_game_complete(
+        &self,
+        game_id: &str,
+        ended_at_s: u64,
+        total_rounds: u16,
+    ) -> Result<()> {
+        let conn = self.connect()?;
+        conn.execute(
+            r#"
+            UPDATE mb_games
+            SET ended_at = ?2,
+                completed = 1,
+                total_rounds = MAX(total_rounds, ?3)
+            WHERE game_id = ?1
+            "#,
+            params![game_id, ended_at_s, total_rounds],
+        )
+        .context("Failed to mark Most Beautiful game audit complete")?;
         Ok(())
     }
 
@@ -651,6 +1027,107 @@ mod tests {
             )
             .optional()?;
         assert_eq!(stored_vote_card_hash.as_deref(), Some("card-a"));
+
+        std::fs::remove_file(&path).ok();
+        Ok(())
+    }
+
+    #[test]
+    fn store_persists_game_audit_rounds_and_completion() -> Result<()> {
+        let path = temp_db_path();
+        let store = MostBeautifulStatsStore::new(&path)?;
+
+        store.record_game_audit_round(&MostBeautifulGameAuditRoundRecord {
+            game_id: "game-1".to_string(),
+            room_id: "room-a".to_string(),
+            game_started_at_s: 10,
+            recorded_at_s: 12,
+            round_num: 1,
+            storyteller_hash: "story-h".to_string(),
+            storyteller_display_name: "Story".to_string(),
+            clue: "moon".to_string(),
+            results_display_mode: "combined".to_string(),
+            card_entries: vec![
+                MostBeautifulGameAuditCardRecord {
+                    card_hash: "card-a".to_string(),
+                    owner_hash: "story-h".to_string(),
+                    owner_display_name: "Story".to_string(),
+                    submitted_by_hash: "story-h".to_string(),
+                    submitted_by_display_name: "Story".to_string(),
+                    is_storyteller_card: true,
+                    center_order: 0,
+                },
+                MostBeautifulGameAuditCardRecord {
+                    card_hash: "card-b".to_string(),
+                    owner_hash: "p2-h".to_string(),
+                    owner_display_name: "P2".to_string(),
+                    submitted_by_hash: "p2-h".to_string(),
+                    submitted_by_display_name: "P2".to_string(),
+                    is_storyteller_card: false,
+                    center_order: 1,
+                },
+            ],
+            story_votes: vec![MostBeautifulGameAuditVoteRecord {
+                voter_hash: "p2-h".to_string(),
+                voter_display_name: "P2".to_string(),
+                card_hash: "card-a".to_string(),
+                vote_count: 1,
+            }],
+            beauty_votes: vec![MostBeautifulGameAuditVoteRecord {
+                voter_hash: "story-h".to_string(),
+                voter_display_name: "Story".to_string(),
+                card_hash: "card-b".to_string(),
+                vote_count: 1,
+            }],
+            score_log: vec![
+                MostBeautifulGameAuditScoreRecord {
+                    player_hash: "story-h".to_string(),
+                    player_display_name: "Story".to_string(),
+                    story_delta: 3,
+                    beauty_delta: 0,
+                    total_after_round: 3,
+                    beauty_total_after_round: 0,
+                },
+                MostBeautifulGameAuditScoreRecord {
+                    player_hash: "p2-h".to_string(),
+                    player_display_name: "P2".to_string(),
+                    story_delta: 3,
+                    beauty_delta: 2,
+                    total_after_round: 5,
+                    beauty_total_after_round: 2,
+                },
+            ],
+        })?;
+        store.mark_game_complete("game-1", 20, 1)?;
+
+        let conn = store.connect()?;
+        let completed: (bool, u64, u64) = conn.query_row(
+            "SELECT completed, ended_at, total_rounds FROM mb_games WHERE game_id = ?1",
+            params!["game-1"],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?;
+        assert_eq!(completed, (true, 20, 1));
+
+        let card_count: u64 = conn.query_row(
+            "SELECT COUNT(*) FROM mb_game_round_cards WHERE game_id = ?1 AND round_num = 1",
+            params!["game-1"],
+            |row| row.get(0),
+        )?;
+        assert_eq!(card_count, 2);
+
+        let beauty_vote_count: u64 = conn.query_row(
+            "SELECT COUNT(*) FROM mb_game_round_beauty_votes WHERE game_id = ?1 AND round_num = 1",
+            params!["game-1"],
+            |row| row.get(0),
+        )?;
+        assert_eq!(beauty_vote_count, 1);
+
+        let p2_score: (u16, u16) = conn.query_row(
+            "SELECT total_after_round, beauty_total_after_round FROM mb_game_round_scores WHERE game_id = ?1 AND round_num = 1 AND player_hash = ?2",
+            params!["game-1", "p2-h"],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        assert_eq!(p2_score, (5, 2));
 
         std::fs::remove_file(&path).ok();
         Ok(())

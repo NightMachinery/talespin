@@ -7,7 +7,7 @@
 	import { getToastStore } from '@skeletonlabs/skeleton';
 
 	import {
-		applyRoomLeaderboardExcludeBeautyDefault,
+		applyRoomLeaderboardViewModeDefault,
 		beautyLeaderboardPointChange,
 		memberBeautyPoints,
 		refreshMostBeautifulStats,
@@ -30,7 +30,9 @@
 	} from '$lib/stageChangeAudio';
 	import type {
 		BeautyResultsDisplayMode,
+		DixitEndRoundHistoryEntry,
 		GameMode,
+		LeaderboardViewMode,
 		ObserverInfo,
 		PlayerInfo,
 		StellaQueuedRevealMode,
@@ -85,6 +87,7 @@
 	let beautyVotesPerPlayerMin = 1;
 	let beautyVotesPerPlayerMax = 1;
 	let beautyAllowDuplicateVotes = false;
+	let beautySplitPointsOnTie = true;
 	let beautyPointsBonus = 2;
 	let beautyPointsBonusMin = 0;
 	let beautyPointsBonusMax = 10;
@@ -140,8 +143,9 @@
 	let deckRefillCount = 0;
 	let deckRefillFlashToken = 0;
 	let hasReceivedRoomState = false;
-	let leaderboardExcludeBeautyDefault = false;
+	let leaderboardViewModeDefault: LeaderboardViewMode = 'total';
 	let leaderboardExcludeBeautyDefaultVersion = 0;
+	let dixitEndRoundHistory: DixitEndRoundHistoryEntry[] = [];
 	let winCondition: WinCondition = {
 		mode: 'points',
 		target_points: 10
@@ -179,15 +183,8 @@
 		'BeautyResults',
 		'StellaResults'
 	]);
-	const MOST_BEAUTIFUL_STATS_REFRESH_STAGES = new Set([
-		'Joining',
-		'Results',
-		'BeautyResults',
-		'End'
-	]);
 	let previousScoutTurnKey = '';
 	let hasLoadedMostBeautifulStats = false;
-	let lastMostBeautifulStatsRefreshStage = '';
 
 	// store
 	let toastStore = getToastStore();
@@ -222,20 +219,6 @@
 		previousScoutTurnKey = scoutTurnCueKey;
 		void playScoutTurnCue();
 	}
-	$: if (
-		hasReceivedRoomState &&
-		gameMode === 'dixit_plus' &&
-		(!hasLoadedMostBeautifulStats ||
-			(MOST_BEAUTIFUL_STATS_REFRESH_STAGES.has(stage) &&
-				stage !== lastMostBeautifulStatsRefreshStage))
-	) {
-		hasLoadedMostBeautifulStats = true;
-		if (MOST_BEAUTIFUL_STATS_REFRESH_STAGES.has(stage)) {
-			lastMostBeautifulStatsRefreshStage = stage;
-		}
-		void refreshMostBeautifulStats();
-	}
-
 	function clearStoredAssignedName() {
 		if (roomCode !== '') {
 			clearAssignedRoomName(roomCode);
@@ -295,6 +278,7 @@
 				joinCurrentRoom();
 			}
 		});
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		gameServer.addMsgHandler((data: any) => {
 			console.log(data);
 
@@ -337,6 +321,7 @@
 				beautyVotesPerPlayerMin = data.RoomState.beauty_votes_per_player_min ?? 1;
 				beautyVotesPerPlayerMax = data.RoomState.beauty_votes_per_player_max ?? 1;
 				beautyAllowDuplicateVotes = data.RoomState.beauty_allow_duplicate_votes ?? false;
+				beautySplitPointsOnTie = data.RoomState.beauty_split_points_on_tie ?? true;
 				beautyPointsBonus = data.RoomState.beauty_points_bonus ?? 2;
 				beautyPointsBonusMin = data.RoomState.beauty_points_bonus_min ?? 0;
 				beautyPointsBonusMax = data.RoomState.beauty_points_bonus_max ?? 10;
@@ -374,15 +359,15 @@
 					...DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION
 				];
 				memberBeautyPoints.set(data.RoomState.member_to_beauty_points ?? {});
-				leaderboardExcludeBeautyDefault =
-					data.RoomState.leaderboard_exclude_beauty_default ?? false;
+				leaderboardViewModeDefault = data.RoomState.leaderboard_view_mode_default ?? 'total';
 				leaderboardExcludeBeautyDefaultVersion =
-					data.RoomState.leaderboard_exclude_beauty_default_version ?? 0;
-				applyRoomLeaderboardExcludeBeautyDefault(
+					data.RoomState.leaderboard_view_mode_default_version ?? 0;
+				applyRoomLeaderboardViewModeDefault(
 					roomCode,
-					leaderboardExcludeBeautyDefault,
+					leaderboardViewModeDefault,
 					leaderboardExcludeBeautyDefaultVersion
 				);
+				dixitEndRoundHistory = data.RoomState.dixit_end_round_history ?? [];
 				stellaBoardSize = data.RoomState.stella_board_size ?? 15;
 				stellaBoardSizeMin = data.RoomState.stella_board_size_min ?? 1;
 				stellaBoardSizeMax = data.RoomState.stella_board_size_max ?? 100;
@@ -412,6 +397,10 @@
 					deckRefillFlashToken += 1;
 				}
 				hasReceivedRoomState = true;
+				if (gameMode === 'dixit_plus' && !hasLoadedMostBeautifulStats) {
+					hasLoadedMostBeautifulStats = true;
+					void refreshMostBeautifulStats();
+				}
 				if (!rejoin) {
 					toastStore.trigger({
 						message: '👋 Connected to room!',
@@ -487,6 +476,9 @@
 				votingDisabledCards = [];
 				beautyDisabledCards = [];
 				storytellerChosenCard = '';
+				if (gameMode === 'dixit_plus') {
+					void refreshMostBeautifulStats();
+				}
 			} else if (data.BeautyResults) {
 				setStage('BeautyResults');
 				currentStageDeadlineS = null;
@@ -503,6 +495,9 @@
 				beautyWinningCards = data.BeautyResults.beauty_winning_cards || [];
 				votingDisabledCards = [];
 				beautyDisabledCards = [];
+				if (gameMode === 'dixit_plus') {
+					void refreshMostBeautifulStats();
+				}
 			} else if (data.StellaAssociate) {
 				setStage('StellaAssociate');
 				displayImages = data.StellaAssociate.board_cards || [];
@@ -581,6 +576,9 @@
 				setStage('End');
 				currentStageDeadlineS = null;
 				storytellerChosenCard = '';
+				if (gameMode === 'dixit_plus') {
+					void refreshMostBeautifulStats();
+				}
 			}
 		});
 
@@ -657,6 +655,7 @@
 			{beautyVotesPerPlayerMin}
 			{beautyVotesPerPlayerMax}
 			{beautyAllowDuplicateVotes}
+			{beautySplitPointsOnTie}
 			{beautyPointsBonus}
 			{beautyPointsBonusMin}
 			{beautyPointsBonusMax}
@@ -735,6 +734,7 @@
 			{beautyVotesPerPlayerMin}
 			{beautyVotesPerPlayerMax}
 			{beautyAllowDuplicateVotes}
+			{beautySplitPointsOnTie}
 			{beautyPointsBonus}
 			{beautyPointsBonusMin}
 			{beautyPointsBonusMax}
@@ -818,6 +818,7 @@
 			{beautyVotesPerPlayerMin}
 			{beautyVotesPerPlayerMax}
 			{beautyAllowDuplicateVotes}
+			{beautySplitPointsOnTie}
 			{beautyPointsBonus}
 			{beautyPointsBonusMin}
 			{beautyPointsBonusMax}
@@ -894,6 +895,7 @@
 			{beautyVotesPerPlayerMin}
 			{beautyVotesPerPlayerMax}
 			{beautyAllowDuplicateVotes}
+			{beautySplitPointsOnTie}
 			{beautyPointsBonus}
 			{beautyPointsBonusMin}
 			{beautyPointsBonusMax}
@@ -971,6 +973,7 @@
 			{beautyVotesPerPlayerMin}
 			{beautyVotesPerPlayerMax}
 			{beautyAllowDuplicateVotes}
+			{beautySplitPointsOnTie}
 			{beautyPointsBonus}
 			{beautyPointsBonusMin}
 			{beautyPointsBonusMax}
@@ -1048,6 +1051,7 @@
 			{beautyVotesPerPlayerMin}
 			{beautyVotesPerPlayerMax}
 			{beautyAllowDuplicateVotes}
+			{beautySplitPointsOnTie}
 			{beautyPointsBonus}
 			{beautyPointsBonusMin}
 			{beautyPointsBonusMax}
@@ -1128,6 +1132,7 @@
 			{beautyVotesPerPlayerMin}
 			{beautyVotesPerPlayerMax}
 			{beautyAllowDuplicateVotes}
+			{beautySplitPointsOnTie}
 			{beautyPointsBonus}
 			{beautyPointsBonusMin}
 			{beautyPointsBonusMax}
@@ -1207,6 +1212,7 @@
 			{beautyVotesPerPlayerMin}
 			{beautyVotesPerPlayerMax}
 			{beautyAllowDuplicateVotes}
+			{beautySplitPointsOnTie}
 			{beautyPointsBonus}
 			{beautyPointsBonusMin}
 			{beautyPointsBonusMax}
@@ -1284,6 +1290,7 @@
 			{beautyVotesPerPlayerMin}
 			{beautyVotesPerPlayerMax}
 			{beautyAllowDuplicateVotes}
+			{beautySplitPointsOnTie}
 			{beautyPointsBonus}
 			{beautyPointsBonusMin}
 			{beautyPointsBonusMax}
@@ -1362,6 +1369,7 @@
 			{beautyVotesPerPlayerMin}
 			{beautyVotesPerPlayerMax}
 			{beautyAllowDuplicateVotes}
+			{beautySplitPointsOnTie}
 			{beautyPointsBonus}
 			{beautyPointsBonusMin}
 			{beautyPointsBonusMax}
@@ -1416,7 +1424,7 @@
 		/>
 	{:else if stage === 'End'}
 		<div class="pt-10">
-			<End {players} {observers} {gameMode} />
+			<End {players} {observers} {gameMode} {name} {roundNum} {dixitEndRoundHistory} />
 		</div>
 	{/if}
 	{#if stage === 'Joining' || stage === 'End'}
@@ -1431,6 +1439,7 @@
 				{beautyVotesPerPlayer}
 				{beautyVotesPerPlayerMax}
 				{beautyAllowDuplicateVotes}
+				{beautySplitPointsOnTie}
 				{beautyPointsBonus}
 				{beautyResultsDisplayMode}
 				{bonusCorrectGuessOnThresholdCorrectLoss}

@@ -56,6 +56,7 @@
 	export let beautyVotesPerPlayerMin = 1;
 	export let beautyVotesPerPlayerMax = 1;
 	export let beautyAllowDuplicateVotes = false;
+	export let beautySplitPointsOnTie = true;
 	export let beautyPointsBonus = 2;
 	export let beautyPointsBonusMin = 0;
 	export let beautyPointsBonusMax = 10;
@@ -322,6 +323,15 @@
 			return;
 		}
 		gameServer.setBeautyAllowDuplicateVotes(input.checked);
+	}
+
+	function updateBeautySplitPointsOnTie(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		if (!isModerator || !canChangePreVotingSettings) {
+			input.checked = beautySplitPointsOnTie;
+			return;
+		}
+		gameServer.setBeautySplitPointsOnTie(input.checked);
 	}
 
 	function updateBeautyPointsBonus(event: Event) {
@@ -1101,49 +1111,51 @@
 									<span>Force timeout by auto-submitting random votes</span>
 								</label>
 							</div>
-							<div class="rounded border border-white/15 px-2 py-2">
-								<div class="flex items-start justify-between gap-3">
-									<div>
-										<p class="font-medium">Most Beautiful</p>
-										<p class="text-xs opacity-70">Optional beauty voting countdown.</p>
+							{#if isDixitMode}
+								<div class="rounded border border-white/15 px-2 py-2">
+									<div class="flex items-start justify-between gap-3">
+										<div>
+											<p class="font-medium">Most Beautiful</p>
+											<p class="text-xs opacity-70">Optional beauty voting countdown.</p>
+										</div>
+										<label class="flex items-center gap-2 text-sm">
+											<input
+												type="checkbox"
+												class="h-4 w-4 cursor-pointer accent-primary-500"
+												checked={beautyTimerEnabled}
+												on:change={updateBeautyTimerEnabled}
+												disabled={!isModerator || !canChangeStageTimers}
+											/>
+											<span>Enabled</span>
+										</label>
 									</div>
-									<label class="flex items-center gap-2 text-sm">
+									<div class="mt-2 flex items-center gap-2">
 										<input
-											type="checkbox"
-											class="h-4 w-4 cursor-pointer accent-primary-500"
-											checked={beautyTimerEnabled}
-											on:change={updateBeautyTimerEnabled}
+											type="number"
+											class="w-24 rounded border px-2 py-1 text-gray-700 shadow"
+											min={STAGE_TIMER_DURATION_MIN_S}
+											max={STAGE_TIMER_DURATION_MAX_S}
+											step="1"
+											value={beautyTimerDurationS}
+											on:change={updateBeautyTimerDuration}
 											disabled={!isModerator || !canChangeStageTimers}
 										/>
-										<span>Enabled</span>
+										<span class="text-xs opacity-75"
+											>{STAGE_TIMER_DURATION_MIN_S}–{STAGE_TIMER_DURATION_MAX_S}s</span
+										>
+									</div>
+									<label class="mt-2 flex items-start gap-3 text-sm">
+										<input
+											type="checkbox"
+											class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
+											checked={forceBeautyTimer}
+											on:change={updateForceBeautyTimer}
+											disabled={!isModerator || !canChangeStageTimers}
+										/>
+										<span>Force timeout by skipping missing beauty votes</span>
 									</label>
 								</div>
-								<div class="mt-2 flex items-center gap-2">
-									<input
-										type="number"
-										class="w-24 rounded border px-2 py-1 text-gray-700 shadow"
-										min={STAGE_TIMER_DURATION_MIN_S}
-										max={STAGE_TIMER_DURATION_MAX_S}
-										step="1"
-										value={beautyTimerDurationS}
-										on:change={updateBeautyTimerDuration}
-										disabled={!isModerator || !canChangeStageTimers}
-									/>
-									<span class="text-xs opacity-75"
-										>{STAGE_TIMER_DURATION_MIN_S}–{STAGE_TIMER_DURATION_MAX_S}s</span
-									>
-								</div>
-								<label class="mt-2 flex items-start gap-3 text-sm">
-									<input
-										type="checkbox"
-										class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
-										checked={forceBeautyTimer}
-										on:change={updateForceBeautyTimer}
-										disabled={!isModerator || !canChangeStageTimers}
-									/>
-									<span>Force timeout by skipping missing beauty votes</span>
-								</label>
-							</div>
+							{/if}
 						{/if}
 					</div>
 					{#if !canChangeStageTimers}
@@ -1487,6 +1499,16 @@
 								disabled={!isModerator || !canChangePreVotingSettings}
 							/>
 							<span>Allow duplicate beauty votes on the same card</span>
+						</label>
+						<label class="mt-3 flex items-start gap-3 text-sm">
+							<input
+								type="checkbox"
+								class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
+								checked={beautySplitPointsOnTie}
+								on:change={updateBeautySplitPointsOnTie}
+								disabled={!isModerator || !canChangePreVotingSettings}
+							/>
+							<span>Split beauty bonus among tied owners, rounding up</span>
 						</label>
 						<div class="mt-3">
 							<label class="text-sm font-medium" for="beauty-results-display-mode">

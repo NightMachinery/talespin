@@ -13,8 +13,9 @@ use std::{
 use tokio::sync::{broadcast, mpsc, RwLock, RwLockWriteGuard};
 
 use crate::most_beautiful_stats::{
-    MostBeautifulRoundRecord, MostBeautifulRoundWinRecord, MostBeautifulStatsStore,
-    MostBeautifulVoteRecord,
+    MostBeautifulGameAuditCardRecord, MostBeautifulGameAuditRoundRecord,
+    MostBeautifulGameAuditScoreRecord, MostBeautifulGameAuditVoteRecord, MostBeautifulRoundRecord,
+    MostBeautifulRoundWinRecord, MostBeautifulStatsStore, MostBeautifulVoteRecord,
 };
 
 const MODERATOR_ABSENCE_PROMOTION_DELAY_S: u64 = 5 * 60;
@@ -41,6 +42,7 @@ const DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION: [f64; 1] = [1.0];
 const VOTING_WRONG_CARD_DISABLE_SUM_TOLERANCE: f64 = 1e-6;
 const DEFAULT_BEAUTY_ENABLED: bool = false;
 const DEFAULT_BEAUTY_ALLOW_DUPLICATE_VOTES: bool = false;
+const DEFAULT_BEAUTY_SPLIT_POINTS_ON_TIE: bool = true;
 const DEFAULT_BEAUTY_POINTS_BONUS: u16 = 2;
 const MIN_BEAUTY_POINTS_BONUS: u16 = 0;
 const MAX_BEAUTY_POINTS_BONUS: u16 = 10;
@@ -70,6 +72,28 @@ pub enum BeautyResultsDisplayMode {
     Summary,
     Separate,
     Combined,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LeaderboardViewMode {
+    Total,
+    StoryOnly,
+    BeautyOnly,
+    Combined,
+}
+
+#[derive(Debug, Serialize, Clone, PartialEq, Eq)]
+pub struct DixitEndRoundHistoryEntry {
+    round_num: u16,
+    storyteller: String,
+    clue: String,
+    active_players: Vec<String>,
+    story_deltas: HashMap<String, u16>,
+    beauty_deltas: HashMap<String, u16>,
+    total_after_round: HashMap<String, u16>,
+    beauty_total_after_round: HashMap<String, u16>,
+    results_display_mode: BeautyResultsDisplayMode,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -142,6 +166,7 @@ pub enum ServerMsg {
         beauty_votes_per_player_min: u16,
         beauty_votes_per_player_max: u16,
         beauty_allow_duplicate_votes: bool,
+        beauty_split_points_on_tie: bool,
         beauty_points_bonus: u16,
         beauty_points_bonus_min: u16,
         beauty_points_bonus_max: u16,
@@ -173,8 +198,9 @@ pub enum ServerMsg {
         current_stage_deadline_s: Option<u64>,
         voting_wrong_card_disable_distribution: Vec<f64>,
         member_to_beauty_points: HashMap<String, u16>,
-        leaderboard_exclude_beauty_default: bool,
-        leaderboard_exclude_beauty_default_version: u64,
+        leaderboard_view_mode_default: LeaderboardViewMode,
+        leaderboard_view_mode_default_version: u64,
+        dixit_end_round_history: Vec<DixitEndRoundHistoryEntry>,
         stella_board_size: u16,
         stella_board_size_min: u16,
         stella_board_size_max: u16,
@@ -328,6 +354,9 @@ pub enum ClientMsg {
     SetBeautyAllowDuplicateVotes {
         enabled: bool,
     },
+    SetBeautySplitPointsOnTie {
+        enabled: bool,
+    },
     SetBeautyPointsBonus {
         points: u16,
     },
@@ -391,8 +420,8 @@ pub enum ClientMsg {
     SetForceBeautyTimer {
         enabled: bool,
     },
-    SetLeaderboardExcludeBeautyDefault {
-        enabled: bool,
+    SetLeaderboardViewModeDefault {
+        mode: LeaderboardViewMode,
     },
     SetVotingWrongCardDisableDistribution {
         distribution: Vec<f64>,
@@ -559,6 +588,8 @@ struct RoomState {
     beauty_votes_per_player: u16,
     // whether beauty voting allows duplicate votes on the same card
     beauty_allow_duplicate_votes: bool,
+    // whether to split beauty bonus among tied winning owners, rounding up
+    beauty_split_points_on_tie: bool,
     // bonus points awarded to each beauty winner
     beauty_points_bonus: u16,
     // how beauty results are revealed
@@ -647,6 +678,12 @@ struct RoomState {
     beauty_point_change: HashMap<String, u16>,
     // accumulated beauty points already applied to each member this game
     member_to_beauty_points: HashMap<String, u16>,
+    // in-progress/current Dixit game id for persisted audit history
+    current_dixit_game_id: Option<String>,
+    // timestamp when the current Dixit game began
+    current_dixit_game_started_at_s: Option<u64>,
+    // condensed per-round history used by the end-game Dixit leaderboard
+    dixit_end_round_history: Vec<DixitEndRoundHistoryEntry>,
     // stella shared board cards for the current round
     stella_board_cards: Vec<String>,
     // current stella clue word
@@ -695,10 +732,10 @@ struct RoomState {
     win_condition: WinCondition,
     // increments whenever draw deck is refilled from base deck
     deck_refill_count: u32,
-    // room-wide default for whether leaderboards should exclude beauty points
-    leaderboard_exclude_beauty_default: bool,
-    // bump when moderators force-push a new leaderboard beauty-default view
-    leaderboard_exclude_beauty_default_version: u64,
+    // room-wide default leaderboard mode for Dixit rooms
+    leaderboard_view_mode_default: LeaderboardViewMode,
+    // bump when moderators force-push a new leaderboard view mode
+    leaderboard_view_mode_default_version: u64,
 }
 
 // main object representing a game
@@ -795,6 +832,7 @@ impl Room {
             beauty_enabled: DEFAULT_BEAUTY_ENABLED,
             beauty_votes_per_player: 1,
             beauty_allow_duplicate_votes: DEFAULT_BEAUTY_ALLOW_DUPLICATE_VOTES,
+            beauty_split_points_on_tie: DEFAULT_BEAUTY_SPLIT_POINTS_ON_TIE,
             beauty_points_bonus: DEFAULT_BEAUTY_POINTS_BONUS,
             beauty_results_display_mode: BeautyResultsDisplayMode::Combined,
             cards_per_hand: DEFAULT_CARDS_PER_HAND,
@@ -838,6 +876,9 @@ impl Room {
             storyteller_point_change: HashMap::new(),
             beauty_point_change: HashMap::new(),
             member_to_beauty_points: HashMap::new(),
+            current_dixit_game_id: None,
+            current_dixit_game_started_at_s: None,
+            dixit_end_round_history: Vec::new(),
             stella_board_cards: Vec::new(),
             stella_clue_word: String::new(),
             stella_word_pack: (*default_stella_word_pack).clone(),
@@ -862,8 +903,8 @@ impl Room {
             round: 0,
             win_condition,
             deck_refill_count: 0,
-            leaderboard_exclude_beauty_default: false,
-            leaderboard_exclude_beauty_default_version: 0,
+            leaderboard_view_mode_default: LeaderboardViewMode::Total,
+            leaderboard_view_mode_default_version: 0,
         };
 
         let (tx, _) = broadcast::channel(10);
@@ -1730,8 +1771,17 @@ impl Room {
             })
             .collect::<HashSet<_>>();
 
+        let points_per_winner = if state.beauty_split_points_on_tie && winning_owners.len() > 1 {
+            let winner_count = u16::try_from(winning_owners.len())
+                .unwrap_or(u16::MAX)
+                .max(1);
+            state.beauty_points_bonus.saturating_add(winner_count - 1) / winner_count
+        } else {
+            state.beauty_points_bonus
+        };
+
         for player in winning_owners {
-            point_change.insert(player, state.beauty_points_bonus);
+            point_change.insert(player, points_per_winner);
         }
 
         point_change
@@ -1837,6 +1887,244 @@ impl Room {
                 votes,
                 wins,
             })
+    }
+
+    fn member_hash_for_name(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+        member_name: &str,
+    ) -> String {
+        if let Some(token) = state.name_tokens.get(member_name) {
+            let mut hasher = Sha256::new();
+            hasher.update(token.as_bytes());
+            return format!("{:x}", hasher.finalize());
+        }
+
+        let mut hasher = Sha256::new();
+        hasher.update(state.room_id.as_bytes());
+        hasher.update([0]);
+        hasher.update(member_name.as_bytes());
+        format!("{:x}", hasher.finalize())
+    }
+
+    fn beauty_results_display_mode_label(mode: BeautyResultsDisplayMode) -> &'static str {
+        match mode {
+            BeautyResultsDisplayMode::Summary => "summary",
+            BeautyResultsDisplayMode::Separate => "separate",
+            BeautyResultsDisplayMode::Combined => "combined",
+        }
+    }
+
+    fn build_audit_vote_records(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+        player_to_votes: &HashMap<String, Vec<String>>,
+    ) -> Vec<MostBeautifulGameAuditVoteRecord> {
+        let mut aggregated_votes: HashMap<(String, String), u16> = HashMap::new();
+        for (voter_name, cards) in player_to_votes {
+            for card_hash in cards {
+                *aggregated_votes
+                    .entry((voter_name.clone(), card_hash.clone()))
+                    .or_insert(0) += 1;
+            }
+        }
+
+        let mut records = aggregated_votes
+            .into_iter()
+            .map(
+                |((voter_name, card_hash), vote_count)| MostBeautifulGameAuditVoteRecord {
+                    voter_hash: self.member_hash_for_name(state, &voter_name),
+                    voter_display_name: voter_name,
+                    card_hash,
+                    vote_count,
+                },
+            )
+            .collect::<Vec<_>>();
+        records.sort_by(|a, b| {
+            a.voter_display_name
+                .cmp(&b.voter_display_name)
+                .then(a.card_hash.cmp(&b.card_hash))
+        });
+        records
+    }
+
+    fn record_current_dixit_round_audit_and_history(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+    ) -> Result<()> {
+        if !matches!(state.game_mode, GameMode::DixitPlus) {
+            return Ok(());
+        }
+
+        let Some(game_id) = state.current_dixit_game_id.clone() else {
+            return Ok(());
+        };
+        let Some(game_started_at_s) = state.current_dixit_game_started_at_s else {
+            return Ok(());
+        };
+        let Some(storyteller_name) = state.player_order.get(state.active_player).cloned() else {
+            return Ok(());
+        };
+
+        let storyteller_hash = self.member_hash_for_name(state, &storyteller_name);
+        let card_to_owner = state
+            .player_to_current_cards
+            .iter()
+            .flat_map(|(owner, cards)| cards.iter().map(|card| (card.clone(), owner.clone())))
+            .collect::<HashMap<_, _>>();
+        let center_cards = self.get_center_cards(state);
+        let storyteller_cards = state
+            .player_to_current_cards
+            .get(&storyteller_name)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .collect::<HashSet<_>>();
+        let card_entries = center_cards
+            .iter()
+            .enumerate()
+            .filter_map(|(index, card_hash)| {
+                let owner_name = card_to_owner.get(card_hash)?.clone();
+                let owner_hash = self.member_hash_for_name(state, &owner_name);
+                Some(MostBeautifulGameAuditCardRecord {
+                    card_hash: card_hash.clone(),
+                    owner_hash: owner_hash.clone(),
+                    owner_display_name: owner_name.clone(),
+                    submitted_by_hash: owner_hash,
+                    submitted_by_display_name: owner_name,
+                    is_storyteller_card: storyteller_cards.contains(card_hash),
+                    center_order: u16::try_from(index).unwrap_or(u16::MAX),
+                })
+            })
+            .collect::<Vec<_>>();
+        let story_votes = self.build_audit_vote_records(state, &state.player_to_votes);
+        let beauty_votes = self.build_audit_vote_records(state, &state.player_to_beauty_votes);
+        let combined_point_change =
+            self.merge_point_changes(&state.storyteller_point_change, &state.beauty_point_change);
+
+        let mut score_member_names = state
+            .players
+            .keys()
+            .chain(state.observers.keys())
+            .cloned()
+            .collect::<Vec<_>>();
+        score_member_names.sort();
+
+        let mut total_after_round = HashMap::new();
+        let mut beauty_total_after_round = HashMap::new();
+        let mut score_log = Vec::new();
+
+        for member_name in score_member_names {
+            let current_total = state
+                .players
+                .get(&member_name)
+                .map(|player| player.points)
+                .or_else(|| {
+                    state
+                        .observers
+                        .get(&member_name)
+                        .and_then(|observer| observer.points)
+                })
+                .unwrap_or(0);
+            let story_delta = state
+                .storyteller_point_change
+                .get(&member_name)
+                .copied()
+                .unwrap_or(0);
+            let beauty_delta = state
+                .beauty_point_change
+                .get(&member_name)
+                .copied()
+                .unwrap_or(0);
+            let total_after = current_total.saturating_add(
+                combined_point_change
+                    .get(&member_name)
+                    .copied()
+                    .unwrap_or(0),
+            );
+            let beauty_after = state
+                .member_to_beauty_points
+                .get(&member_name)
+                .copied()
+                .unwrap_or(0)
+                .saturating_add(beauty_delta);
+
+            total_after_round.insert(member_name.clone(), total_after);
+            beauty_total_after_round.insert(member_name.clone(), beauty_after);
+            score_log.push(MostBeautifulGameAuditScoreRecord {
+                player_hash: self.member_hash_for_name(state, &member_name),
+                player_display_name: member_name,
+                story_delta,
+                beauty_delta,
+                total_after_round: total_after,
+                beauty_total_after_round: beauty_after,
+            });
+        }
+
+        self.most_beautiful_stats
+            .record_game_audit_round(&MostBeautifulGameAuditRoundRecord {
+                game_id,
+                room_id: state.room_id.clone(),
+                game_started_at_s,
+                recorded_at_s: get_time_s(),
+                round_num: state.round,
+                storyteller_hash,
+                storyteller_display_name: storyteller_name.clone(),
+                clue: state.current_description.clone(),
+                results_display_mode: Self::beauty_results_display_mode_label(
+                    state.beauty_results_display_mode,
+                )
+                .to_string(),
+                card_entries,
+                story_votes,
+                beauty_votes,
+                score_log,
+            })?;
+
+        let round_history_entry = DixitEndRoundHistoryEntry {
+            round_num: state.round,
+            storyteller: storyteller_name,
+            clue: state.current_description.clone(),
+            active_players: state.player_order.clone(),
+            story_deltas: state.storyteller_point_change.clone(),
+            beauty_deltas: state.beauty_point_change.clone(),
+            total_after_round,
+            beauty_total_after_round,
+            results_display_mode: state.beauty_results_display_mode,
+        };
+        state.dixit_end_round_history.push(round_history_entry);
+
+        Ok(())
+    }
+
+    fn start_new_dixit_game_tracking(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
+        let mut hasher = Sha256::new();
+        hasher.update(state.room_id.as_bytes());
+        hasher.update(get_time_ms().to_le_bytes());
+        hasher.update(rand::thread_rng().gen::<u64>().to_le_bytes());
+        state.current_dixit_game_id = Some(format!("{:x}", hasher.finalize()));
+        state.current_dixit_game_started_at_s = Some(get_time_s());
+        state.dixit_end_round_history.clear();
+    }
+
+    fn finalize_current_dixit_game(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+    ) -> Result<()> {
+        if !matches!(state.game_mode, GameMode::DixitPlus) {
+            return Ok(());
+        }
+        if let Some(game_id) = state.current_dixit_game_id.clone() {
+            self.most_beautiful_stats
+                .mark_game_complete(&game_id, get_time_s(), state.round)?;
+        }
+        Ok(())
+    }
+
+    fn transition_to_end(&self, state: &mut RwLockWriteGuard<'_, RoomState>) -> Result<()> {
+        self.set_stage(state, RoomStage::End);
+        state.paused_reason = None;
+        self.finalize_current_dixit_game(state)
     }
 
     fn merge_point_changes(
@@ -3174,8 +3462,7 @@ impl Room {
                     if self.uses_separate_beauty_results_stage(state) {
                         self.init_beauty_results(state)?;
                     } else if self.should_end_game(state) {
-                        self.set_stage(state, RoomStage::End);
-                        state.paused_reason = None;
+                        self.transition_to_end(state)?;
                         self.broadcast_msg(ServerMsg::EndGame {})?;
                         self.broadcast_msg(self.room_state(state))?;
                     } else {
@@ -3189,8 +3476,7 @@ impl Room {
             RoomStage::BeautyResults => {
                 if state.players.values().all(|player| player.ready) {
                     if self.should_end_game(state) {
-                        self.set_stage(state, RoomStage::End);
-                        state.paused_reason = None;
+                        self.transition_to_end(state)?;
                         self.broadcast_msg(ServerMsg::EndGame {})?;
                         self.broadcast_msg(self.room_state(state))?;
                     } else {
@@ -3204,8 +3490,7 @@ impl Room {
             RoomStage::StellaResults => {
                 if state.players.values().all(|player| player.ready) {
                     if self.should_end_game(state) {
-                        self.set_stage(state, RoomStage::End);
-                        state.paused_reason = None;
+                        self.transition_to_end(state)?;
                         self.broadcast_msg(ServerMsg::EndGame {})?;
                         self.broadcast_msg(self.room_state(state))?;
                     } else {
@@ -3790,6 +4075,7 @@ impl Room {
         if from_beauty_voting {
             self.record_most_beautiful_round_stats(state)?;
         }
+        self.record_current_dixit_round_audit_and_history(state)?;
 
         if self.uses_separate_beauty_results_stage(state) {
             let storyteller_point_change = state.storyteller_point_change.clone();
@@ -4404,7 +4690,7 @@ impl Room {
         state.deck.shuffle(&mut rand::thread_rng());
         self.ensure_deck_size(state, board_size);
         if state.deck.len() < board_size {
-            self.set_stage(state, RoomStage::End);
+            self.transition_to_end(state)?;
             self.broadcast_msg(ServerMsg::EndGame {})?;
             self.broadcast_msg(self.room_state(state))?;
             return Ok(());
@@ -4465,6 +4751,7 @@ impl Room {
             state.nominations_per_guesser =
                 self.default_nominations_per_guesser_on_game_start(state);
             state.member_to_beauty_points.clear();
+            self.start_new_dixit_game_tracking(state);
         }
 
         self.clamp_storyteller_loss_complement(state);
@@ -4523,8 +4810,9 @@ impl Room {
                     Some(card) => card,
                     None => {
                         if matches!(state.win_condition, WinCondition::CardsFinish) {
-                            self.set_stage(state, RoomStage::End);
+                            self.transition_to_end(state)?;
                             self.broadcast_msg(ServerMsg::EndGame {})?;
+                            self.broadcast_msg(self.room_state(state))?;
                             return Ok(());
                         }
                         return Err(anyhow!("Not enough cards in the deck"));
@@ -4645,8 +4933,7 @@ impl Room {
                         {
                             self.init_beauty_results(&mut state)?;
                         } else if self.should_end_game(&state) {
-                            self.set_stage(&mut state, RoomStage::End);
-                            state.paused_reason = None;
+                            self.transition_to_end(&mut state)?;
                             self.broadcast_msg(ServerMsg::EndGame {})?;
                             self.broadcast_msg(self.room_state(&state))?;
                         } else if state.players.len() >= 3 {
@@ -5574,6 +5861,45 @@ impl Room {
                 state.beauty_allow_duplicate_votes = enabled;
                 self.broadcast_msg(self.room_state(&state))?;
             }
+            ClientMsg::SetBeautySplitPointsOnTie { enabled } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change Most Beautiful settings".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if matches!(state.stage, RoomStage::End) {
+                    return Ok(());
+                }
+
+                if !matches!(state.game_mode, GameMode::DixitPlus) {
+                    return Ok(());
+                }
+
+                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Most Beautiful settings can only be changed during storyteller choosing stage"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                state.beauty_split_points_on_tie = enabled;
+                self.broadcast_msg(self.room_state(&state))?;
+            }
             ClientMsg::SetBeautyPointsBonus { points } => {
                 if !self.is_moderator(&state, name) {
                     if let Some(tx) = state.player_to_socket.get(name) {
@@ -6200,6 +6526,10 @@ impl Room {
                     return Ok(());
                 }
 
+                if !matches!(state.game_mode, GameMode::DixitPlus) {
+                    return Ok(());
+                }
+
                 if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
@@ -6233,6 +6563,10 @@ impl Room {
                 }
 
                 if matches!(state.stage, RoomStage::End) {
+                    return Ok(());
+                }
+
+                if !matches!(state.game_mode, GameMode::DixitPlus) {
                     return Ok(());
                 }
 
@@ -6343,6 +6677,10 @@ impl Room {
                     return Ok(());
                 }
 
+                if !matches!(state.game_mode, GameMode::DixitPlus) {
+                    return Ok(());
+                }
+
                 if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
@@ -6360,13 +6698,12 @@ impl Room {
                 state.force_beauty_timer = enabled;
                 self.broadcast_msg(self.room_state(&state))?;
             }
-            ClientMsg::SetLeaderboardExcludeBeautyDefault { enabled } => {
+            ClientMsg::SetLeaderboardViewModeDefault { mode } => {
                 if !self.is_moderator(&state, name) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
-                                "Only moderators can change leaderboard beauty defaults"
-                                    .to_string(),
+                                "Only moderators can change leaderboard view defaults".to_string(),
                             )
                             .into(),
                         )
@@ -6379,9 +6716,13 @@ impl Room {
                     return Ok(());
                 }
 
-                state.leaderboard_exclude_beauty_default = enabled;
-                state.leaderboard_exclude_beauty_default_version = state
-                    .leaderboard_exclude_beauty_default_version
+                if !matches!(state.game_mode, GameMode::DixitPlus) {
+                    return Ok(());
+                }
+
+                state.leaderboard_view_mode_default = mode;
+                state.leaderboard_view_mode_default_version = state
+                    .leaderboard_view_mode_default_version
                     .saturating_add(1);
                 self.broadcast_msg(self.room_state(&state))?;
             }
@@ -6499,8 +6840,7 @@ impl Room {
                 }
 
                 if self.should_end_game(&state) {
-                    self.set_stage(&mut state, RoomStage::End);
-                    state.paused_reason = None;
+                    self.transition_to_end(&mut state)?;
                     self.broadcast_msg(ServerMsg::EndGame {})?;
                     self.broadcast_msg(self.room_state(&state))?;
                     return Ok(());
@@ -7344,6 +7684,7 @@ impl Room {
             beauty_votes_per_player_min: beauty_votes_min,
             beauty_votes_per_player_max: beauty_votes_max,
             beauty_allow_duplicate_votes: state.beauty_allow_duplicate_votes,
+            beauty_split_points_on_tie: state.beauty_split_points_on_tie,
             beauty_points_bonus,
             beauty_points_bonus_min: beauty_points_min,
             beauty_points_bonus_max: beauty_points_max,
@@ -7378,9 +7719,15 @@ impl Room {
             current_stage_deadline_s: state.current_stage_deadline_s,
             voting_wrong_card_disable_distribution,
             member_to_beauty_points: state.member_to_beauty_points.clone(),
-            leaderboard_exclude_beauty_default: state.leaderboard_exclude_beauty_default,
-            leaderboard_exclude_beauty_default_version: state
-                .leaderboard_exclude_beauty_default_version,
+            leaderboard_view_mode_default: state.leaderboard_view_mode_default,
+            leaderboard_view_mode_default_version: state.leaderboard_view_mode_default_version,
+            dixit_end_round_history: if matches!(state.stage, RoomStage::End)
+                && matches!(state.game_mode, GameMode::DixitPlus)
+            {
+                state.dixit_end_round_history.clone()
+            } else {
+                Vec::new()
+            },
             stella_board_size: state
                 .stella_board_size
                 .clamp(stella_board_size_min, stella_board_size_max),
@@ -8529,6 +8876,7 @@ mod tests {
         }
         state.game_mode = GameMode::DixitPlus;
         state.beauty_enabled = true;
+        state.beauty_split_points_on_tie = false;
         state.beauty_points_bonus = 2;
         state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into()];
         state.active_player = 0;
@@ -8573,6 +8921,65 @@ mod tests {
             point_change.get("d").copied(),
             Some(2),
             "every tied winning owner should receive the beauty bonus"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn beauty_point_change_splits_bonus_across_tied_owners_with_ceiling() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        for player in ["a", "b", "c", "d"] {
+            add_player(&mut state, player, 0);
+        }
+        state.game_mode = GameMode::DixitPlus;
+        state.beauty_enabled = true;
+        state.beauty_split_points_on_tie = true;
+        state.beauty_points_bonus = 2;
+        state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into()];
+        state.active_player = 0;
+        state
+            .player_to_current_cards
+            .insert("a".into(), vec!["ca".into()]);
+        state
+            .player_to_current_cards
+            .insert("b".into(), vec!["cb1".into(), "cb2".into()]);
+        state
+            .player_to_current_cards
+            .insert("c".into(), vec!["cc1".into()]);
+        state
+            .player_to_current_cards
+            .insert("d".into(), vec!["cd1".into()]);
+        state
+            .player_to_beauty_votes
+            .insert("a".into(), vec!["cb1".into()]);
+        state
+            .player_to_beauty_votes
+            .insert("b".into(), vec!["cc1".into()]);
+        state
+            .player_to_beauty_votes
+            .insert("c".into(), vec!["cb2".into()]);
+        state
+            .player_to_beauty_votes
+            .insert("d".into(), vec!["cd1".into()]);
+
+        let point_change = room.compute_beauty_point_change(&state);
+        assert_eq!(
+            point_change.get("b").copied(),
+            Some(1),
+            "multiple tied winning cards should still count as one tied owner"
+        );
+        assert_eq!(
+            point_change.get("c").copied(),
+            Some(1),
+            "tied owners should receive ceil(bonus / owner_count)"
+        );
+        assert_eq!(
+            point_change.get("d").copied(),
+            Some(1),
+            "all tied owners should receive the split bonus"
         );
 
         Ok(())
@@ -9810,11 +10217,12 @@ mod tests {
                 force_card_choosing_timer,
                 force_voting_timer,
                 force_beauty_timer,
+                beauty_split_points_on_tie,
                 current_stage_deadline_s,
                 voting_wrong_card_disable_distribution,
                 member_to_beauty_points,
-                leaderboard_exclude_beauty_default,
-                leaderboard_exclude_beauty_default_version,
+                leaderboard_view_mode_default,
+                leaderboard_view_mode_default_version,
                 stella_word_pack_size,
                 stella_word_pack_words,
                 ..
@@ -9897,6 +10305,10 @@ mod tests {
                     "forced beauty timeout should default to off"
                 );
                 assert!(
+                    beauty_split_points_on_tie,
+                    "beauty tie splitting should default to enabled"
+                );
+                assert!(
                     current_stage_deadline_s.is_none(),
                     "joining room state should not expose a current stage deadline"
                 );
@@ -9910,12 +10322,12 @@ mod tests {
                     "beauty point totals should start empty"
                 );
                 assert!(
-                    !leaderboard_exclude_beauty_default,
-                    "leaderboard beauty exclusion should default to off"
+                    matches!(leaderboard_view_mode_default, LeaderboardViewMode::Total),
+                    "leaderboard view should default to total"
                 );
                 assert_eq!(
-                    leaderboard_exclude_beauty_default_version, 0,
-                    "leaderboard beauty default version should start at 0"
+                    leaderboard_view_mode_default_version, 0,
+                    "leaderboard view default version should start at 0"
                 );
                 assert_eq!(
                     usize::from(stella_word_pack_size),
@@ -10057,7 +10469,51 @@ alpha
     }
 
     #[tokio::test]
-    async fn moderator_can_force_push_leaderboard_exclude_beauty_default() -> Result<()> {
+    async fn stella_mode_ignores_beauty_timer_updates_and_leaderboard_view_pushes() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 10_202);
+            state.game_mode = GameMode::Stella;
+            state.beauty_timer_duration_s = 60;
+            state.leaderboard_view_mode_default = LeaderboardViewMode::Total;
+        }
+
+        room.handle_client_msg(
+            "host",
+            10_202,
+            to_ws(ClientMsg::SetBeautyTimerDuration { seconds: 42 }),
+        )
+        .await?;
+        room.handle_client_msg(
+            "host",
+            10_202,
+            to_ws(ClientMsg::SetLeaderboardViewModeDefault {
+                mode: LeaderboardViewMode::Combined,
+            }),
+        )
+        .await?;
+
+        let state = room.state.write().await;
+        assert_eq!(
+            state.beauty_timer_duration_s, 60,
+            "Stella should ignore Most Beautiful timer changes"
+        );
+        assert!(
+            matches!(
+                state.leaderboard_view_mode_default,
+                LeaderboardViewMode::Total
+            ),
+            "Stella should ignore Dixit leaderboard view pushes"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn moderator_can_force_push_leaderboard_view_mode_default() -> Result<()> {
         let room = test_room();
         {
             let mut state = room.state.write().await;
@@ -10069,17 +10525,22 @@ alpha
         room.handle_client_msg(
             "host",
             10_201,
-            to_ws(ClientMsg::SetLeaderboardExcludeBeautyDefault { enabled: true }),
+            to_ws(ClientMsg::SetLeaderboardViewModeDefault {
+                mode: LeaderboardViewMode::Combined,
+            }),
         )
         .await?;
 
         let state = room.state.write().await;
         assert!(
-            state.leaderboard_exclude_beauty_default,
-            "moderator toggle should update the room-wide leaderboard beauty default"
+            matches!(
+                state.leaderboard_view_mode_default,
+                LeaderboardViewMode::Combined
+            ),
+            "moderator update should change the room-wide leaderboard view mode"
         );
         assert_eq!(
-            state.leaderboard_exclude_beauty_default_version, 1,
+            state.leaderboard_view_mode_default_version, 1,
             "changing the room-wide default should bump its version"
         );
 

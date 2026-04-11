@@ -3,15 +3,27 @@
 	import type GameServer from '$lib/gameServer';
 	import {
 		beautyLeaderboardPointChange,
-		leaderboardExcludeBeauty,
+		leaderboardViewMode,
 		memberBeautyPoints,
-		roomLeaderboardExcludeBeautyDefault,
-		setLeaderboardExcludeBeautyPreference,
+		roomLeaderboardViewModeDefault,
+		setLeaderboardViewModePreference,
 		storytellerLeaderboardPointChange
 	} from '$lib/mostBeautiful';
-	import type { ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
+	import {
+		leaderboardDigitWidths,
+		leaderboardModeLabel,
+		rankEntriesByMode,
+		scoreBreakdown,
+		type RankedLeaderboardEntry
+	} from '$lib/leaderboard';
+	import type {
+		GameMode,
+		LeaderboardViewMode,
+		ObserverInfo,
+		PlayerInfo,
+		WinCondition
+	} from '$lib/types';
 	import { OFFLINE_STATUS_LABEL } from '$lib/presence';
-	import { rankEntriesByPoints, type RankedPlayerEntry } from '$lib/ranking';
 	import { formatWinCondition } from '$lib/winCondition';
 
 	export let players: { [key: string]: PlayerInfo } = {};
@@ -26,12 +38,13 @@
 	export let cardsRemaining = 0;
 	export let deckRefillFlashToken = 0;
 	export let darkPlayer = '';
+	export let gameMode: GameMode = 'dixit_plus';
 	export let winCondition: WinCondition = {
 		mode: 'points',
 		target_points: 10
 	};
 
-	let rankedPlayers: RankedPlayerEntry[] = [];
+	let rankedPlayers: RankedLeaderboardEntry[] = [];
 	let winConditionLabel = '';
 	let previousFlashToken = 0;
 	let cardsRemainingFlashing = false;
@@ -40,29 +53,41 @@
 	let adjustedObserverEntries: Array<{
 		name: string;
 		info: ObserverInfo;
-		displayPoints: number | null;
-		displayPointChange: number;
+		breakdown: ReturnType<typeof scoreBreakdown> | null;
+		displayPointChange: number | null;
 	}> = [];
+	let digitWidths = { total: 1, story: 1, beauty: 1 };
 
+	$: isModerator = new Set(moderators).has(name);
+	$: supportsBeautyModes = gameMode === 'dixit_plus';
+	$: activeLeaderboardViewMode = supportsBeautyModes ? $leaderboardViewMode : 'total';
 	$: {
-		rankedPlayers = rankEntriesByPoints(
+		rankedPlayers = rankEntriesByMode(
 			Object.entries(players).map(([entryName, info]) => ({
 				name: entryName,
-				points: displayedPointsForPlayer(entryName, info.points)
-			}))
+				breakdown: scoreBreakdown(info.points, beautyPointsForPlayer(entryName))
+			})),
+			activeLeaderboardViewMode
 		);
 	}
 	$: sortedObserverEntries = Object.entries(observers).sort(([a], [b]) => a.localeCompare(b));
 	$: adjustedObserverEntries = sortedObserverEntries.map(([observerName, info]) => ({
 		name: observerName,
 		info,
-		displayPoints:
-			info.points === null ? null : displayedPointsForPlayer(observerName, info.points ?? 0),
+		breakdown:
+			info.points === null
+				? null
+				: scoreBreakdown(info.points, beautyPointsForPlayer(observerName)),
 		displayPointChange: displayedPointChangeForPlayer(observerName)
 	}));
+	$: digitWidths = leaderboardDigitWidths([
+		...rankedPlayers,
+		...adjustedObserverEntries.flatMap((entry) =>
+			entry.breakdown ? [{ breakdown: entry.breakdown }] : []
+		)
+	]);
 
 	$: winConditionLabel = formatWinCondition(winCondition);
-	$: isModerator = new Set(moderators).has(name);
 
 	$: if (deckRefillFlashToken > previousFlashToken) {
 		previousFlashToken = deckRefillFlashToken;
@@ -107,71 +132,89 @@
 		);
 	}
 
-	function formatObserverPoints(points: number | null) {
-		return points === null ? 'NA' : `${points}`;
-	}
-
 	function beautyPointsForPlayer(playerName: string) {
 		return $memberBeautyPoints[playerName] ?? 0;
 	}
 
-	function displayedPointsForPlayer(playerName: string, points: number) {
-		return $leaderboardExcludeBeauty ? points - beautyPointsForPlayer(playerName) : points;
-	}
-
 	function displayedPointChangeForPlayer(playerName: string) {
-		if (!$leaderboardExcludeBeauty) {
+		if (!supportsBeautyModes) {
 			return pointChange[playerName] ?? 0;
 		}
-		if (stage === 'Results') {
-			return $storytellerLeaderboardPointChange[playerName] ?? 0;
+		switch (activeLeaderboardViewMode) {
+			case 'story_only':
+				if (stage === 'BeautyResults') {
+					return 0;
+				}
+				return $storytellerLeaderboardPointChange[playerName] ?? 0;
+			case 'beauty_only':
+				return $beautyLeaderboardPointChange[playerName] ?? 0;
+			case 'combined':
+				return null;
+			case 'total':
+			default:
+				return pointChange[playerName] ?? 0;
 		}
-		if (stage === 'BeautyResults') {
-			return 0;
-		}
-		return pointChange[playerName] ?? 0;
 	}
 
-	function handleExcludeBeautyToggle(event: Event) {
-		const input = event.currentTarget as HTMLInputElement;
-		setLeaderboardExcludeBeautyPreference(input.checked);
+	function handleViewModeChange(event: Event) {
+		const select = event.currentTarget as HTMLSelectElement;
+		setLeaderboardViewModePreference(select.value as LeaderboardViewMode);
 	}
 
-	function handleRoomDefaultToggle(event: Event) {
-		const input = event.currentTarget as HTMLInputElement;
-		gameServer.setLeaderboardExcludeBeautyDefault(input.checked);
+	function pushCurrentViewToRoom() {
+		gameServer.setLeaderboardViewModeDefault($leaderboardViewMode);
+	}
+
+	function widthStyle(digits: number) {
+		return `min-width: ${digits}ch;`;
 	}
 </script>
 
 <div class="w-full">
 	<div class="card light p-4">
 		<h2 class="text-xl">Round {roundNum}</h2>
-		<div class="mt-3 space-y-2 text-sm">
-			<label class="flex items-start gap-3">
-				<input
-					type="checkbox"
-					class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
-					checked={$leaderboardExcludeBeauty}
-					on:change={handleExcludeBeautyToggle}
-				/>
-				<span>Exclude beauty votes from leaderboard</span>
-			</label>
-			{#if isModerator && stage !== 'End'}
-				<label class="flex items-start gap-3 text-xs opacity-80">
-					<input
-						type="checkbox"
-						class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
-						checked={$roomLeaderboardExcludeBeautyDefault}
-						on:change={handleRoomDefaultToggle}
-					/>
-					<span>Force-push this beauty toggle default to everyone in the room</span>
+		{#if supportsBeautyModes}
+			<div class="mt-3 space-y-2 text-sm">
+				<label class="block">
+					<span class="mb-1 block text-xs font-semibold uppercase tracking-wide opacity-70">
+						Leaderboard view
+					</span>
+					<select
+						class="w-full rounded border px-3 py-2 text-gray-700 shadow"
+						value={$leaderboardViewMode}
+						on:change={handleViewModeChange}
+					>
+						<option value="total">Total</option>
+						<option value="beauty_only">Beauty Only</option>
+						<option value="story_only">Story Only</option>
+						<option value="combined">Combined</option>
+					</select>
 				</label>
-			{/if}
-		</div>
+				{#if isModerator && stage !== 'End'}
+					<div class="space-y-1">
+						<button class="btn variant-soft w-full" on:click={pushCurrentViewToRoom}>
+							Force-push “{leaderboardModeLabel($leaderboardViewMode)}” view to room
+						</button>
+						<p class="text-xs opacity-70">
+							Room default: {leaderboardModeLabel($roomLeaderboardViewModeDefault)}
+						</p>
+					</div>
+				{/if}
+			</div>
+		{/if}
 		<div class="mt-3">
+			{#if activeLeaderboardViewMode === 'combined'}
+				<div
+					class="mb-2 flex items-center justify-end gap-2 pr-1 text-[11px] font-semibold uppercase tracking-wide opacity-60"
+				>
+					<span class="score-column" style={widthStyle(digitWidths.total)}>T</span>
+					<span class="score-column" style={widthStyle(digitWidths.story)}>S</span>
+					<span class="score-column" style={widthStyle(digitWidths.beauty)}>B</span>
+				</div>
+			{/if}
 			<div>
 				{#each rankedPlayers as entry}
-					<div class="flex items-center justify-between gap-2">
+					<div class="flex items-center justify-between gap-2 py-0.5">
 						<div class="flex-auto">
 							{entry.rank}.
 							<span
@@ -185,7 +228,6 @@
 							{#if !players[entry.name].connected}
 								<span class="text-error-500">({OFFLINE_STATUS_LABEL})</span>
 							{/if}
-
 							{#if shouldShowReadyIndicator(entry.name)}
 								{#if players[entry.name].ready}
 									<span>🟢</span>
@@ -194,11 +236,29 @@
 								{/if}
 							{/if}
 						</div>
-						<div class="shrink-0">
-							{#if shouldShowPointChange() && displayedPointChangeForPlayer(entry.name) !== 0}
-								<span class="opacity-50">(+{displayedPointChangeForPlayer(entry.name)})</span>
+						<div class="shrink-0 text-right font-mono tabular-nums">
+							{#if activeLeaderboardViewMode !== 'combined' && shouldShowPointChange() && displayedPointChangeForPlayer(entry.name) !== 0}
+								<span class="mr-2 opacity-50">(+{displayedPointChangeForPlayer(entry.name)})</span>
 							{/if}
-							{entry.points}
+							{#if activeLeaderboardViewMode === 'combined'}
+								<div class="flex items-center justify-end gap-2">
+									<span class="score-column" style={widthStyle(digitWidths.total)}
+										>{entry.breakdown.total}</span
+									>
+									<span class="score-column opacity-85" style={widthStyle(digitWidths.story)}
+										>{entry.breakdown.story}</span
+									>
+									<span class="score-column opacity-85" style={widthStyle(digitWidths.beauty)}
+										>{entry.breakdown.beauty}</span
+									>
+								</div>
+							{:else if activeLeaderboardViewMode === 'beauty_only'}
+								{entry.breakdown.beauty}
+							{:else if activeLeaderboardViewMode === 'story_only'}
+								{entry.breakdown.story}
+							{:else}
+								{entry.breakdown.total}
+							{/if}
 						</div>
 					</div>
 				{/each}
@@ -214,6 +274,15 @@
 		{#if Object.keys(observers).length > 0}
 			<div class="mt-3 text-sm opacity-80">
 				<p class="font-semibold">Observers</p>
+				{#if activeLeaderboardViewMode === 'combined'}
+					<div
+						class="mb-2 mt-1 flex items-center justify-end gap-2 pr-1 text-[11px] font-semibold uppercase tracking-wide opacity-60"
+					>
+						<span class="score-column" style={widthStyle(digitWidths.total)}>T</span>
+						<span class="score-column" style={widthStyle(digitWidths.story)}>S</span>
+						<span class="score-column" style={widthStyle(digitWidths.beauty)}>B</span>
+					</div>
+				{/if}
 				<div class="mt-1 space-y-1">
 					{#each adjustedObserverEntries as observerEntry}
 						<div
@@ -228,11 +297,31 @@
 									<span class="opacity-70"> ({OFFLINE_STATUS_LABEL})</span>
 								{/if}
 							</div>
-							<div class="shrink-0">
-								{#if shouldShowPointChange() && observerEntry.displayPointChange !== 0}
-									<span class="opacity-50">(+{observerEntry.displayPointChange})</span>
+							<div class="shrink-0 text-right font-mono tabular-nums">
+								{#if activeLeaderboardViewMode !== 'combined' && shouldShowPointChange() && observerEntry.displayPointChange !== 0}
+									<span class="mr-2 opacity-50">(+{observerEntry.displayPointChange})</span>
 								{/if}
-								{formatObserverPoints(observerEntry.displayPoints)}
+								{#if observerEntry.breakdown === null}
+									NA
+								{:else if activeLeaderboardViewMode === 'combined'}
+									<div class="flex items-center justify-end gap-2">
+										<span class="score-column" style={widthStyle(digitWidths.total)}
+											>{observerEntry.breakdown.total}</span
+										>
+										<span class="score-column opacity-85" style={widthStyle(digitWidths.story)}
+											>{observerEntry.breakdown.story}</span
+										>
+										<span class="score-column opacity-85" style={widthStyle(digitWidths.beauty)}
+											>{observerEntry.breakdown.beauty}</span
+										>
+									</div>
+								{:else if activeLeaderboardViewMode === 'beauty_only'}
+									{observerEntry.breakdown.beauty}
+								{:else if activeLeaderboardViewMode === 'story_only'}
+									{observerEntry.breakdown.story}
+								{:else}
+									{observerEntry.breakdown.total}
+								{/if}
 							</div>
 						</div>
 					{/each}
@@ -246,6 +335,11 @@
 	.cards-refilled-flash {
 		animation: cards-refilled-pulse 0.9s ease-out;
 		background: rgba(255, 255, 255, 0.2);
+	}
+
+	.score-column {
+		display: inline-block;
+		text-align: right;
 	}
 
 	@keyframes cards-refilled-pulse {

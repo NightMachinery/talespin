@@ -34,6 +34,7 @@
 	export let beautyVotesPerPlayerMin = 1;
 	export let beautyVotesPerPlayerMax = 1;
 	export let beautyAllowDuplicateVotes = false;
+	export let beautySplitPointsOnTie = true;
 	export let beautyPointsBonus = 2;
 	export let beautyPointsBonusMin = 0;
 	export let beautyPointsBonusMax = 10;
@@ -200,6 +201,7 @@
 	{beautyVotesPerPlayerMin}
 	{beautyVotesPerPlayerMax}
 	{beautyAllowDuplicateVotes}
+	{beautySplitPointsOnTie}
 	{beautyPointsBonus}
 	{beautyPointsBonusMin}
 	{beautyPointsBonusMax}
@@ -350,6 +352,7 @@
 							entries={cardToChooserEntries[image]}
 							label={beautyEnabled && beautyResultsDisplayMode === 'combined' ? 'Guess' : ''}
 							avoidTopLeftBadge={showVotingCardNumbers}
+							tone="story"
 						/>
 					{/if}
 					{#if beautyEnabled && beautyResultsDisplayMode === 'combined' && beautyCardToVoterCounts[image]}
@@ -357,6 +360,7 @@
 							entries={beautyCardToChooserEntries[image]}
 							label="Beauty"
 							position="bottom-right"
+							tone="beauty"
 						/>
 					{:else if beautyEnabled && beautyResultsDisplayMode === 'summary' && (typeof beautyVoteTotals[image] === 'number' || beautyWinningCardSet.has(image))}
 						<div

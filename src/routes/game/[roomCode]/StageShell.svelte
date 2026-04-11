@@ -35,6 +35,7 @@
 	export let beautyVotesPerPlayerMin = 1;
 	export let beautyVotesPerPlayerMax = 1;
 	export let beautyAllowDuplicateVotes = false;
+	export let beautySplitPointsOnTie = true;
 	export let beautyPointsBonus = 2;
 	export let beautyPointsBonusMin = 0;
 	export let beautyPointsBonusMax = 10;
@@ -227,6 +228,7 @@
 						{deckRefillFlashToken}
 						{darkPlayer}
 						{winCondition}
+						{gameMode}
 					/>
 
 					<div class="hidden lg:block">
@@ -262,6 +264,7 @@
 								{beautyVotesPerPlayerMin}
 								{beautyVotesPerPlayerMax}
 								{beautyAllowDuplicateVotes}
+								{beautySplitPointsOnTie}
 								{beautyPointsBonus}
 								{beautyPointsBonusMin}
 								{beautyPointsBonusMax}
@@ -333,6 +336,7 @@
 							{beautyVotesPerPlayerMin}
 							{beautyVotesPerPlayerMax}
 							{beautyAllowDuplicateVotes}
+							{beautySplitPointsOnTie}
 							{beautyPointsBonus}
 							{beautyPointsBonusMin}
 							{beautyPointsBonusMax}
@@ -402,6 +406,7 @@
 							{beautyVotesPerPlayer}
 							{beautyVotesPerPlayerMax}
 							{beautyAllowDuplicateVotes}
+							{beautySplitPointsOnTie}
 							{beautyPointsBonus}
 							{beautyResultsDisplayMode}
 							{bonusCorrectGuessOnThresholdCorrectLoss}
