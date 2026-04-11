@@ -74,8 +74,6 @@
 	let allowNewPlayersMidgame = true;
 	let pausedReason = '';
 	let storytellerLossComplement = 0;
-	let storytellerLossThreshold = 1;
-	let storytellerLossDisplayGuesserCount = 1;
 	let storytellerLossComplementMin = 0;
 	let storytellerLossComplementMax = 0;
 	let storytellerLossComplementAuto = true;
@@ -328,9 +326,6 @@
 				allowNewPlayersMidgame = data.RoomState.allow_new_players_midgame ?? true;
 				pausedReason = data.RoomState.paused_reason || '';
 				storytellerLossComplement = data.RoomState.storyteller_loss_complement ?? 0;
-				storytellerLossThreshold = data.RoomState.storyteller_loss_threshold ?? 1;
-				storytellerLossDisplayGuesserCount =
-					data.RoomState.storyteller_loss_display_guesser_count ?? 1;
 				storytellerLossComplementMin = data.RoomState.storyteller_loss_complement_min ?? 0;
 				storytellerLossComplementMax = data.RoomState.storyteller_loss_complement_max ?? 0;
 				storytellerLossComplementAuto = data.RoomState.storyteller_loss_complement_auto ?? true;
@@ -651,8 +646,6 @@
 			{players}
 			{allowNewPlayersMidgame}
 			{storytellerLossComplement}
-			{storytellerLossThreshold}
-			{storytellerLossDisplayGuesserCount}
 			{storytellerLossComplementMin}
 			{storytellerLossComplementMax}
 			{storytellerLossComplementAuto}
@@ -731,8 +724,6 @@
 			{players}
 			{allowNewPlayersMidgame}
 			{storytellerLossComplement}
-			{storytellerLossThreshold}
-			{storytellerLossDisplayGuesserCount}
 			{storytellerLossComplementMin}
 			{storytellerLossComplementMax}
 			{storytellerLossComplementAuto}
@@ -816,8 +807,6 @@
 			{players}
 			{allowNewPlayersMidgame}
 			{storytellerLossComplement}
-			{storytellerLossThreshold}
-			{storytellerLossDisplayGuesserCount}
 			{storytellerLossComplementMin}
 			{storytellerLossComplementMax}
 			{storytellerLossComplementAuto}
@@ -894,8 +883,6 @@
 			{players}
 			{allowNewPlayersMidgame}
 			{storytellerLossComplement}
-			{storytellerLossThreshold}
-			{storytellerLossDisplayGuesserCount}
 			{storytellerLossComplementMin}
 			{storytellerLossComplementMax}
 			{storytellerLossComplementAuto}
@@ -973,8 +960,6 @@
 			{players}
 			{allowNewPlayersMidgame}
 			{storytellerLossComplement}
-			{storytellerLossThreshold}
-			{storytellerLossDisplayGuesserCount}
 			{storytellerLossComplementMin}
 			{storytellerLossComplementMax}
 			{storytellerLossComplementAuto}
@@ -1052,8 +1037,6 @@
 			{players}
 			{allowNewPlayersMidgame}
 			{storytellerLossComplement}
-			{storytellerLossThreshold}
-			{storytellerLossDisplayGuesserCount}
 			{storytellerLossComplementMin}
 			{storytellerLossComplementMax}
 			{storytellerLossComplementAuto}
@@ -1134,8 +1117,6 @@
 			{players}
 			{allowNewPlayersMidgame}
 			{storytellerLossComplement}
-			{storytellerLossThreshold}
-			{storytellerLossDisplayGuesserCount}
 			{storytellerLossComplementMin}
 			{storytellerLossComplementMax}
 			{storytellerLossComplementAuto}
@@ -1215,8 +1196,6 @@
 			{players}
 			{allowNewPlayersMidgame}
 			{storytellerLossComplement}
-			{storytellerLossThreshold}
-			{storytellerLossDisplayGuesserCount}
 			{storytellerLossComplementMin}
 			{storytellerLossComplementMax}
 			{storytellerLossComplementAuto}
@@ -1294,8 +1273,6 @@
 			{players}
 			{allowNewPlayersMidgame}
 			{storytellerLossComplement}
-			{storytellerLossThreshold}
-			{storytellerLossDisplayGuesserCount}
 			{storytellerLossComplementMin}
 			{storytellerLossComplementMax}
 			{storytellerLossComplementAuto}
@@ -1374,8 +1351,6 @@
 			{gameServer}
 			{allowNewPlayersMidgame}
 			{storytellerLossComplement}
-			{storytellerLossThreshold}
-			{storytellerLossDisplayGuesserCount}
 			{storytellerLossComplementMin}
 			{storytellerLossComplementMax}
 			{storytellerLossComplementAuto}
@@ -1449,8 +1424,7 @@
 			<ScoreCheatsheet
 				{gameMode}
 				{activePlayer}
-				{storytellerLossThreshold}
-				{storytellerLossDisplayGuesserCount}
+				{storytellerLossComplement}
 				{votesPerGuesser}
 				{votesPerGuesserMax}
 				{beautyEnabled}

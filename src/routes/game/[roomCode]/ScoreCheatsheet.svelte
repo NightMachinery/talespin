@@ -3,8 +3,7 @@
 
 	export let gameMode: GameMode = 'dixit_plus';
 	export let activePlayer = '';
-	export let storytellerLossThreshold = 1;
-	export let storytellerLossDisplayGuesserCount = 1;
+	export let storytellerLossComplement = 0;
 	export let votesPerGuesser = 1;
 	export let votesPerGuesserMax = 1;
 	export let bonusCorrectGuessOnThresholdCorrectLoss = true;
@@ -22,11 +21,7 @@
 		Math.min(votesPerGuesser, Math.max(votesPerGuesserMax, 1))
 	);
 	$: storytellerLabel = activePlayer || 'Storyteller';
-	$: effectiveStorytellerLossDisplayGuesserCount = Math.max(1, storytellerLossDisplayGuesserCount);
-	$: effectiveStorytellerLossThreshold = Math.max(
-		1,
-		Math.min(storytellerLossThreshold, effectiveStorytellerLossDisplayGuesserCount)
-	);
+	$: storytellerWinCondition = Math.max(1, storytellerLossComplement + 1);
 	$: effectiveBeautyVotesPerPlayer = Math.max(
 		1,
 		Math.min(beautyVotesPerPlayer, Math.max(beautyVotesPerPlayerMax, 1))
@@ -54,9 +49,9 @@
 		</ul>
 	{:else}
 		<p class="mb-2 text-xs opacity-80">
-			Storyteller-loss round = storyteller loses because at least
-			{effectiveStorytellerLossThreshold} of {effectiveStorytellerLossDisplayGuesserCount}
-			guesser{effectiveStorytellerLossDisplayGuesserCount === 1 ? '' : 's'} were correct or wrong.
+			Storyteller wins when at least {storytellerWinCondition} guesser{storytellerWinCondition === 1
+				? ''
+				: 's'} are different from the rest.
 		</p>
 		<ul class="ml-5 list-disc space-y-1 text-sm">
 			<li>

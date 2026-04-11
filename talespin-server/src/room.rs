@@ -131,8 +131,6 @@ pub enum ServerMsg {
         allow_new_players_midgame: bool,
         paused_reason: Option<String>,
         storyteller_loss_complement: u16,
-        storyteller_loss_threshold: u16,
-        storyteller_loss_display_guesser_count: u16,
         storyteller_loss_complement_min: u16,
         storyteller_loss_complement_max: u16,
         storyteller_loss_complement_auto: bool,
@@ -7272,8 +7270,6 @@ impl Room {
         };
         let complement = self
             .effective_storyteller_loss_complement_for_guesser_count(state, display_guesser_count);
-        let storyteller_loss_threshold =
-            display_guesser_count.saturating_sub(usize::from(complement)) as u16;
         let (votes_min, votes_max) = self.votes_per_guesser_bounds(state);
         let votes_per_guesser = state.votes_per_guesser.clamp(votes_min, votes_max);
         let (beauty_votes_min, beauty_votes_max) = self.beauty_votes_per_player_bounds(state);
@@ -7337,8 +7333,6 @@ impl Room {
             allow_new_players_midgame: state.allow_new_players_midgame,
             paused_reason: state.paused_reason.clone(),
             storyteller_loss_complement: complement,
-            storyteller_loss_threshold,
-            storyteller_loss_display_guesser_count: display_guesser_count as u16,
             storyteller_loss_complement_min: complement_min,
             storyteller_loss_complement_max: complement_max,
             storyteller_loss_complement_auto: state.storyteller_loss_complement_auto,
@@ -10726,8 +10720,6 @@ alpha
         match room.room_state(&state) {
             ServerMsg::RoomState {
                 storyteller_loss_complement,
-                storyteller_loss_threshold,
-                storyteller_loss_display_guesser_count,
                 storyteller_loss_complement_auto,
                 ..
             } => {
@@ -10738,14 +10730,6 @@ alpha
                 assert_eq!(
                     storyteller_loss_complement, 0,
                     "room state should display the effective auto-tuned complement for 5 actual guessers"
-                );
-                assert_eq!(
-                    storyteller_loss_display_guesser_count, 5,
-                    "room state should expose the exact guesser count used for threshold display"
-                );
-                assert_eq!(
-                    storyteller_loss_threshold, 5,
-                    "room state should expose the exact storyteller-loss threshold"
                 );
             }
             _ => return Err(anyhow!("Expected RoomState")),

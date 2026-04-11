@@ -22,8 +22,6 @@
 	export let players: { [key: string]: PlayerInfo } = {};
 	export let allowNewPlayersMidgame = true;
 	export let storytellerLossComplement = 0;
-	export let storytellerLossThreshold = 1;
-	export let storytellerLossDisplayGuesserCount = 1;
 	export let storytellerLossComplementMin = 0;
 	export let storytellerLossComplementMax = 0;
 	export let storytellerLossComplementAuto = true;
@@ -210,8 +208,6 @@
 	{stage}
 	{allowNewPlayersMidgame}
 	{storytellerLossComplement}
-	{storytellerLossThreshold}
-	{storytellerLossDisplayGuesserCount}
 	{storytellerLossComplementMin}
 	{storytellerLossComplementMax}
 	{storytellerLossComplementAuto}
