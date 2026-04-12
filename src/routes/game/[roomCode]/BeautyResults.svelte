@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { getDesktopFitRowCount } from '$lib/cardGrid';
+	import { buildBeautyBadgeMetadata } from '$lib/beautyResults';
 	import { CARD_IMAGE_ALT_TEXT } from '$lib/cardImageText';
 	import CardImage from '$lib/CardImage.svelte';
 	import { http_host } from '$lib/gameServer';
@@ -97,6 +98,7 @@
 	let isModerator = false;
 	let canForceStartNextRound = false;
 	let winningCardSet = new Set<string>();
+	let beautyBadges: ReturnType<typeof buildBeautyBadgeMetadata> = {};
 	$: isObserver = !!observers[name];
 	$: isModerator = new Set(moderators).has(name);
 	$: canForceStartNextRound = stage === 'BeautyResults';
@@ -118,6 +120,7 @@
 		cardToVoterCounts = {};
 		cardToChooserEntries = {};
 		winningCardSet = new Set(beautyWinningCards);
+		beautyBadges = buildBeautyBadgeMetadata(beautyVoteTotals);
 		Object.entries(playerToCurrentCards).forEach(([key, values]) => {
 			for (const value of values || []) {
 				cardToPlayer[value] = key;
@@ -304,22 +307,11 @@
 					{#if cardToVoterCounts[image]}
 						<ChooserNameOverlay
 							entries={cardToChooserEntries[image]}
-							label="Beauty"
+							label={beautyBadges[image]?.label ?? ''}
+							labelTier={beautyBadges[image]?.tier ?? 'default'}
 							avoidTopLeftBadge={showVotingCardNumbers}
 							tone="beauty"
 						/>
-					{/if}
-					<div
-						class="absolute bottom-8 left-2 z-20 rounded bg-fuchsia-200 px-2 py-0.5 text-xs font-bold text-black shadow"
-					>
-						Beauty: {beautyVoteTotals[image] ?? 0}
-					</div>
-					{#if winningCardSet.has(image)}
-						<div
-							class="absolute bottom-8 right-2 z-20 rounded bg-success-300 px-2 py-0.5 text-xs font-bold text-black shadow"
-						>
-							Winner
-						</div>
 					{/if}
 					<div
 						style="bottom: 0;"

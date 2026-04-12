@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { getDesktopFitRowCount } from '$lib/cardGrid';
+	import { buildBeautyBadgeMetadata } from '$lib/beautyResults';
 	import { CARD_IMAGE_ALT_TEXT } from '$lib/cardImageText';
 	import CardImage from '$lib/CardImage.svelte';
 	import { http_host } from '$lib/gameServer';
@@ -98,6 +99,7 @@
 	let beautyCardToVoterCounts: { [key: string]: { [key: string]: number } } = {};
 	let beautyCardToChooserEntries: { [key: string]: { name: string; count?: number }[] } = {};
 	let beautyWinningCardSet = new Set<string>();
+	let beautyBadges: ReturnType<typeof buildBeautyBadgeMetadata> = {};
 	let isObserver = false;
 	let isModerator = false;
 	let canForceStartNextRound = false;
@@ -124,6 +126,7 @@
 		beautyCardToVoterCounts = {};
 		beautyCardToChooserEntries = {};
 		beautyWinningCardSet = new Set(beautyWinningCards);
+		beautyBadges = buildBeautyBadgeMetadata(beautyVoteTotals);
 		Object.entries(playerToCurrentCards).forEach(([key, values]) => {
 			for (const value of values || []) {
 				cardToPlayer[value] = key;
@@ -334,7 +337,7 @@
 		<h2 class="mb-2 hidden text-lg font-semibold lg:block">Round cards</h2>
 		<section class={resultsSectionClass} style={resultsDesktopFitStyle}>
 			{#each displayImages as image, cardIndex}
-				<div class={resultsCardClass(activeCard == image)}>
+				<div class={resultsCardClass(activeCard == image || beautyWinningCardSet.has(image))}>
 					<CardImage
 						src={`${http_host}/cards/${image}`}
 						alt={CARD_IMAGE_ALT_TEXT}
@@ -355,28 +358,21 @@
 							tone="story"
 						/>
 					{/if}
-					{#if beautyEnabled && beautyResultsDisplayMode === 'combined' && beautyCardToVoterCounts[image]}
+					{#if beautyEnabled && beautyResultsDisplayMode === 'combined' && beautyBadges[image]}
 						<ChooserNameOverlay
-							entries={beautyCardToChooserEntries[image]}
-							label="Beauty"
+							entries={beautyCardToChooserEntries[image] ?? []}
+							label={beautyBadges[image].label}
+							labelTier={beautyBadges[image].tier}
 							position="bottom-right"
 							tone="beauty"
 						/>
-					{:else if beautyEnabled && beautyResultsDisplayMode === 'summary' && (typeof beautyVoteTotals[image] === 'number' || beautyWinningCardSet.has(image))}
-						<div
-							class="absolute bottom-8 left-2 z-20 rounded bg-fuchsia-200 px-2 py-0.5 text-xs font-bold text-black shadow"
-						>
-							Beauty: {beautyVoteTotals[image] ?? 0}
-						</div>
-					{/if}
-					{#if beautyEnabled && beautyWinningCardSet.has(image)}
-						<div
-							class={`absolute bottom-8 z-20 rounded bg-success-300 px-2 py-0.5 text-xs font-bold text-black shadow ${
-								beautyResultsDisplayMode === 'combined' ? 'left-2' : 'right-2'
-							}`}
-						>
-							Winner
-						</div>
+					{:else if beautyEnabled && beautyResultsDisplayMode === 'summary' && beautyBadges[image]}
+						<ChooserNameOverlay
+							label={beautyBadges[image].label}
+							labelTier={beautyBadges[image].tier}
+							position="bottom-left"
+							tone="beauty"
+						/>
 					{/if}
 					<div
 						style="bottom: 0;"
