@@ -1,8 +1,11 @@
 <script lang="ts">
 	import {
+		mostBeautifulStatsGamesLimit,
 		mostBeautifulStats,
 		mostBeautifulStatsError,
 		mostBeautifulStatsLoading,
+		refreshMostBeautifulStats,
+		setMostBeautifulStatsGamesLimit,
 		type MostBeautifulPlayerStats
 	} from '$lib/mostBeautiful';
 
@@ -36,10 +39,37 @@
 	}
 
 	$: rankedStats = rankPlayers($mostBeautifulStats);
+
+	async function handleGamesLimitChange(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const parsed = Number(input.value);
+		if (!Number.isInteger(parsed) || parsed < 0) {
+			input.value = `${$mostBeautifulStatsGamesLimit}`;
+			return;
+		}
+		if (parsed !== $mostBeautifulStatsGamesLimit) {
+			setMostBeautifulStatsGamesLimit(parsed);
+			await refreshMostBeautifulStats();
+		}
+	}
 </script>
 
 <div class={`card light ${compact ? 'p-3' : 'p-4'}`}>
-	<h2 class={`${compact ? 'text-lg' : 'text-xl'} font-semibold`}>{title}</h2>
+	<div class="flex items-end justify-between gap-3">
+		<h2 class={`${compact ? 'text-lg' : 'text-xl'} font-semibold`}>{title}</h2>
+		<label class="text-right text-xs opacity-80">
+			<span class="mb-1 block font-semibold uppercase tracking-wide opacity-70">Last N games</span>
+			<input
+				type="number"
+				class="w-20 rounded border px-2 py-1 text-right text-gray-700 shadow"
+				min="0"
+				step="1"
+				value={$mostBeautifulStatsGamesLimit}
+				on:change={handleGamesLimitChange}
+			/>
+		</label>
+	</div>
+	<p class="mt-2 text-xs opacity-70">0 = all history. Showing up to the top 30 players.</p>
 	{#if $mostBeautifulStatsLoading && rankedStats.length === 0}
 		<p class="mt-2 text-sm opacity-70">Loading…</p>
 	{:else if $mostBeautifulStatsError}

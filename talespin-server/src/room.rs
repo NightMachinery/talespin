@@ -41,11 +41,15 @@ const DEFAULT_BEAUTY_TIMER_DURATION_S: u16 = 60;
 const DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION: [f64; 1] = [1.0];
 const VOTING_WRONG_CARD_DISABLE_SUM_TOLERANCE: f64 = 1e-6;
 const DEFAULT_BEAUTY_ENABLED: bool = false;
+const DEFAULT_BEAUTY_VOTES_PER_PLAYER: u16 = 2;
 const DEFAULT_BEAUTY_ALLOW_DUPLICATE_VOTES: bool = false;
 const DEFAULT_BEAUTY_SPLIT_POINTS_ON_TIE: bool = true;
 const DEFAULT_BEAUTY_POINTS_BONUS: u16 = 2;
 const MIN_BEAUTY_POINTS_BONUS: u16 = 0;
 const MAX_BEAUTY_POINTS_BONUS: u16 = 10;
+const DEFAULT_BEAUTY_VOTE_POINTS_DIVISOR: u16 = 3;
+const MIN_BEAUTY_VOTE_POINTS_DIVISOR: u16 = 1;
+const MAX_BEAUTY_VOTE_POINTS_DIVISOR: u16 = 100;
 pub(crate) const MAX_MEMBER_NAME_LEN: usize = 30;
 
 pub(crate) fn canonical_member_name(name: &str) -> &str {
@@ -72,6 +76,13 @@ pub enum BeautyResultsDisplayMode {
     Summary,
     Separate,
     Combined,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BeautyScoringMode {
+    VoteDivisor,
+    WinnerBonus,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
@@ -168,6 +179,8 @@ pub enum ServerMsg {
         beauty_allow_duplicate_votes: bool,
         beauty_split_points_on_tie: bool,
         beauty_points_bonus: u16,
+        beauty_scoring_mode: BeautyScoringMode,
+        beauty_vote_points_divisor: u16,
         beauty_points_bonus_min: u16,
         beauty_points_bonus_max: u16,
         beauty_results_display_mode: BeautyResultsDisplayMode,
@@ -359,6 +372,12 @@ pub enum ClientMsg {
     },
     SetBeautyPointsBonus {
         points: u16,
+    },
+    SetBeautyScoringMode {
+        mode: BeautyScoringMode,
+    },
+    SetBeautyVotePointsDivisor {
+        divisor: u16,
     },
     SetBeautyResultsDisplayMode {
         mode: BeautyResultsDisplayMode,
@@ -592,6 +611,10 @@ struct RoomState {
     beauty_split_points_on_tie: bool,
     // bonus points awarded to each beauty winner
     beauty_points_bonus: u16,
+    // how beauty votes convert into points
+    beauty_scoring_mode: BeautyScoringMode,
+    // divisor used by vote-divisor Most Beautiful scoring
+    beauty_vote_points_divisor: u16,
     // how beauty results are revealed
     beauty_results_display_mode: BeautyResultsDisplayMode,
     // hand size target for each active player
@@ -830,10 +853,12 @@ impl Room {
             storyteller_loss_complement_auto: true,
             votes_per_guesser: 1,
             beauty_enabled: DEFAULT_BEAUTY_ENABLED,
-            beauty_votes_per_player: 1,
+            beauty_votes_per_player: DEFAULT_BEAUTY_VOTES_PER_PLAYER,
             beauty_allow_duplicate_votes: DEFAULT_BEAUTY_ALLOW_DUPLICATE_VOTES,
             beauty_split_points_on_tie: DEFAULT_BEAUTY_SPLIT_POINTS_ON_TIE,
             beauty_points_bonus: DEFAULT_BEAUTY_POINTS_BONUS,
+            beauty_scoring_mode: BeautyScoringMode::VoteDivisor,
+            beauty_vote_points_divisor: DEFAULT_BEAUTY_VOTE_POINTS_DIVISOR,
             beauty_results_display_mode: BeautyResultsDisplayMode::Combined,
             cards_per_hand: DEFAULT_CARDS_PER_HAND,
             nominations_per_guesser: DEFAULT_NOMINATIONS_PER_GUESSER,
@@ -1101,13 +1126,20 @@ impl Room {
         let max_own_cards = nominations_per_guesser.max(1);
         let max_votes = total_center_cards
             .saturating_sub(max_own_cards)
-            .max(1)
+            .max(usize::from(DEFAULT_BEAUTY_VOTES_PER_PLAYER))
             .min(usize::from(u16::MAX)) as u16;
         (1, max_votes)
     }
 
     fn beauty_points_bonus_bounds(&self) -> (u16, u16) {
         (MIN_BEAUTY_POINTS_BONUS, MAX_BEAUTY_POINTS_BONUS)
+    }
+
+    fn beauty_vote_points_divisor_bounds(&self) -> (u16, u16) {
+        (
+            MIN_BEAUTY_VOTE_POINTS_DIVISOR,
+            MAX_BEAUTY_VOTE_POINTS_DIVISOR,
+        )
     }
 
     fn cards_per_hand_bounds(&self, state: &RwLockWriteGuard<RoomState>) -> (u16, u16) {
@@ -1414,6 +1446,13 @@ impl Room {
     fn clamp_beauty_points_bonus(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
         let (min_points, max_points) = self.beauty_points_bonus_bounds();
         state.beauty_points_bonus = state.beauty_points_bonus.clamp(min_points, max_points);
+    }
+
+    fn clamp_beauty_vote_points_divisor(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
+        let (min_divisor, max_divisor) = self.beauty_vote_points_divisor_bounds();
+        state.beauty_vote_points_divisor = state
+            .beauty_vote_points_divisor
+            .clamp(min_divisor, max_divisor);
     }
 
     fn clamp_cards_per_hand(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
@@ -1731,6 +1770,29 @@ impl Room {
         votes_for_card
     }
 
+    fn compute_beauty_owner_vote_totals(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+    ) -> HashMap<String, u16> {
+        let card_to_owner = state
+            .player_to_current_cards
+            .iter()
+            .flat_map(|(owner, cards)| cards.iter().map(|card| (card.clone(), owner.clone())))
+            .collect::<HashMap<_, _>>();
+        let mut votes_for_owner = HashMap::new();
+
+        for votes in state.player_to_beauty_votes.values() {
+            for card in votes {
+                let Some(owner) = card_to_owner.get(card) else {
+                    continue;
+                };
+                *votes_for_owner.entry(owner.clone()).or_insert(0) += 1;
+            }
+        }
+
+        votes_for_owner
+    }
+
     fn compute_beauty_winning_cards(&self, state: &RwLockWriteGuard<'_, RoomState>) -> Vec<String> {
         let votes_for_card = self.compute_beauty_vote_totals(state);
         let highest_vote_total = votes_for_card.values().copied().max().unwrap_or(0);
@@ -1747,6 +1809,37 @@ impl Room {
     }
 
     fn compute_beauty_point_change(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+    ) -> HashMap<String, u16> {
+        match state.beauty_scoring_mode {
+            BeautyScoringMode::VoteDivisor => self.compute_beauty_point_change_vote_divisor(state),
+            BeautyScoringMode::WinnerBonus => self.compute_beauty_point_change_winner_bonus(state),
+        }
+    }
+
+    fn compute_beauty_point_change_vote_divisor(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+    ) -> HashMap<String, u16> {
+        let divisor = state
+            .beauty_vote_points_divisor
+            .clamp(
+                MIN_BEAUTY_VOTE_POINTS_DIVISOR,
+                MAX_BEAUTY_VOTE_POINTS_DIVISOR,
+            )
+            .max(1);
+        let mut point_change = HashMap::new();
+        for (player, votes) in self.compute_beauty_owner_vote_totals(state) {
+            let points = votes / divisor;
+            if points > 0 {
+                point_change.insert(player, points);
+            }
+        }
+        point_change
+    }
+
+    fn compute_beauty_point_change_winner_bonus(
         &self,
         state: &RwLockWriteGuard<'_, RoomState>,
     ) -> HashMap<String, u16> {
@@ -2908,6 +3001,7 @@ impl Room {
         self.clamp_votes_per_guesser(state);
         self.clamp_beauty_votes_per_player(state);
         self.clamp_beauty_points_bonus(state);
+        self.clamp_beauty_vote_points_divisor(state);
         self.clamp_cards_per_hand(state);
         self.clamp_nominations_per_guesser(state);
         self.clamp_vote_submission_lengths(state);
@@ -2991,6 +3085,7 @@ impl Room {
         self.clamp_votes_per_guesser(state);
         self.clamp_beauty_votes_per_player(state);
         self.clamp_beauty_points_bonus(state);
+        self.clamp_beauty_vote_points_divisor(state);
         self.clamp_cards_per_hand(state);
         self.clamp_nominations_per_guesser(state);
         self.clamp_vote_submission_lengths(state);
@@ -3090,6 +3185,7 @@ impl Room {
         self.clamp_votes_per_guesser(state);
         self.clamp_beauty_votes_per_player(state);
         self.clamp_beauty_points_bonus(state);
+        self.clamp_beauty_vote_points_divisor(state);
         self.clamp_cards_per_hand(state);
         self.clamp_nominations_per_guesser(state);
         self.clamp_vote_submission_lengths(state);
@@ -3140,6 +3236,7 @@ impl Room {
         self.clamp_votes_per_guesser(state);
         self.clamp_beauty_votes_per_player(state);
         self.clamp_beauty_points_bonus(state);
+        self.clamp_beauty_vote_points_divisor(state);
         self.clamp_cards_per_hand(state);
         self.clamp_nominations_per_guesser(state);
         self.clamp_vote_submission_lengths(state);
@@ -3231,6 +3328,7 @@ impl Room {
         self.clamp_votes_per_guesser(state);
         self.clamp_beauty_votes_per_player(state);
         self.clamp_beauty_points_bonus(state);
+        self.clamp_beauty_vote_points_divisor(state);
         self.clamp_cards_per_hand(state);
         self.clamp_nominations_per_guesser(state);
         self.clamp_vote_submission_lengths(state);
@@ -4759,6 +4857,7 @@ impl Room {
         self.clamp_votes_per_guesser(state);
         self.clamp_beauty_votes_per_player(state);
         self.clamp_beauty_points_bonus(state);
+        self.clamp_beauty_vote_points_divisor(state);
         self.clamp_cards_per_hand(state);
         self.clamp_nominations_per_guesser(state);
 
@@ -5938,6 +6037,85 @@ impl Room {
 
                 state.beauty_points_bonus = points;
                 self.clamp_beauty_points_bonus(&mut state);
+                self.broadcast_msg(self.room_state(&state))?;
+            }
+            ClientMsg::SetBeautyScoringMode { mode } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change Most Beautiful settings".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if matches!(state.stage, RoomStage::End) {
+                    return Ok(());
+                }
+
+                if !matches!(state.game_mode, GameMode::DixitPlus) {
+                    return Ok(());
+                }
+
+                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Most Beautiful settings can only be changed during storyteller choosing stage"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                state.beauty_scoring_mode = mode;
+                self.broadcast_msg(self.room_state(&state))?;
+            }
+            ClientMsg::SetBeautyVotePointsDivisor { divisor } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change Most Beautiful settings".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if matches!(state.stage, RoomStage::End) {
+                    return Ok(());
+                }
+
+                if !matches!(state.game_mode, GameMode::DixitPlus) {
+                    return Ok(());
+                }
+
+                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Most Beautiful settings can only be changed during storyteller choosing stage"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                state.beauty_vote_points_divisor = divisor;
+                self.clamp_beauty_vote_points_divisor(&mut state);
                 self.broadcast_msg(self.room_state(&state))?;
             }
             ClientMsg::SetBeautyResultsDisplayMode { mode } => {
@@ -7439,6 +7617,7 @@ impl Room {
         self.clamp_votes_per_guesser(&mut state);
         self.clamp_beauty_votes_per_player(&mut state);
         self.clamp_beauty_points_bonus(&mut state);
+        self.clamp_beauty_vote_points_divisor(&mut state);
         self.clamp_cards_per_hand(&mut state);
         self.clamp_nominations_per_guesser(&mut state);
         self.clamp_stella_settings(&mut state);
@@ -7620,6 +7799,10 @@ impl Room {
         let beauty_points_bonus = state
             .beauty_points_bonus
             .clamp(beauty_points_min, beauty_points_max);
+        let (beauty_divisor_min, beauty_divisor_max) = self.beauty_vote_points_divisor_bounds();
+        let beauty_vote_points_divisor = state
+            .beauty_vote_points_divisor
+            .clamp(beauty_divisor_min, beauty_divisor_max);
         let (cards_min, cards_max) = self.cards_per_hand_bounds(state);
         let cards_per_hand = state.cards_per_hand.clamp(cards_min, cards_max);
         let (nominations_min, nominations_max) = self.nominations_per_guesser_bounds(state);
@@ -7686,6 +7869,8 @@ impl Room {
             beauty_allow_duplicate_votes: state.beauty_allow_duplicate_votes,
             beauty_split_points_on_tie: state.beauty_split_points_on_tie,
             beauty_points_bonus,
+            beauty_scoring_mode: state.beauty_scoring_mode,
+            beauty_vote_points_divisor,
             beauty_points_bonus_min: beauty_points_min,
             beauty_points_bonus_max: beauty_points_max,
             beauty_results_display_mode: state.beauty_results_display_mode,
@@ -8878,6 +9063,7 @@ mod tests {
         state.beauty_enabled = true;
         state.beauty_split_points_on_tie = false;
         state.beauty_points_bonus = 2;
+        state.beauty_scoring_mode = BeautyScoringMode::WinnerBonus;
         state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into()];
         state.active_player = 0;
         state.nominations_per_guesser = 2;
@@ -8938,6 +9124,7 @@ mod tests {
         state.beauty_enabled = true;
         state.beauty_split_points_on_tie = true;
         state.beauty_points_bonus = 2;
+        state.beauty_scoring_mode = BeautyScoringMode::WinnerBonus;
         state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into()];
         state.active_player = 0;
         state
@@ -8980,6 +9167,65 @@ mod tests {
             point_change.get("d").copied(),
             Some(1),
             "all tied owners should receive the split bonus"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn beauty_point_change_vote_divisor_uses_owner_total_votes() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        for player in ["a", "b", "c", "d"] {
+            add_player(&mut state, player, 0);
+        }
+        state.game_mode = GameMode::DixitPlus;
+        state.beauty_enabled = true;
+        state.beauty_scoring_mode = BeautyScoringMode::VoteDivisor;
+        state.beauty_vote_points_divisor = 2;
+        state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into()];
+        state.active_player = 0;
+        state.nominations_per_guesser = 2;
+        state
+            .player_to_current_cards
+            .insert("a".into(), vec!["ca".into()]);
+        state
+            .player_to_current_cards
+            .insert("b".into(), vec!["cb1".into(), "cb2".into()]);
+        state
+            .player_to_current_cards
+            .insert("c".into(), vec!["cc1".into(), "cc2".into()]);
+        state
+            .player_to_current_cards
+            .insert("d".into(), vec!["cd1".into(), "cd2".into()]);
+        state
+            .player_to_beauty_votes
+            .insert("a".into(), vec!["cb1".into(), "cb2".into()]);
+        state
+            .player_to_beauty_votes
+            .insert("b".into(), vec!["cc1".into()]);
+        state
+            .player_to_beauty_votes
+            .insert("c".into(), vec!["cb1".into(), "cb2".into()]);
+        state
+            .player_to_beauty_votes
+            .insert("d".into(), vec!["cb1".into(), "cc1".into()]);
+
+        let point_change = room.compute_beauty_point_change(&state);
+        assert_eq!(
+            point_change.get("b").copied(),
+            Some(2),
+            "vote-divisor scoring should sum all beauty votes across the owner's submitted cards"
+        );
+        assert_eq!(
+            point_change.get("c").copied(),
+            Some(1),
+            "vote-divisor scoring should floor owner vote totals by the configured divisor"
+        );
+        assert!(
+            point_change.get("a").is_none() && point_change.get("d").is_none(),
+            "players without enough accumulated beauty votes should not receive points"
         );
 
         Ok(())
@@ -10197,6 +10443,9 @@ mod tests {
 
         match room.room_state(&state) {
             ServerMsg::RoomState {
+                beauty_votes_per_player,
+                beauty_scoring_mode,
+                beauty_vote_points_divisor,
                 cards_per_hand,
                 cards_per_hand_max,
                 storyteller_loss_complement_auto,
@@ -10227,6 +10476,18 @@ mod tests {
                 stella_word_pack_words,
                 ..
             } => {
+                assert_eq!(
+                    beauty_votes_per_player, DEFAULT_BEAUTY_VOTES_PER_PLAYER,
+                    "beauty votes per player should default to 2"
+                );
+                assert!(
+                    matches!(beauty_scoring_mode, BeautyScoringMode::VoteDivisor),
+                    "Most Beautiful scoring should default to vote-divisor mode"
+                );
+                assert_eq!(
+                    beauty_vote_points_divisor, DEFAULT_BEAUTY_VOTE_POINTS_DIVISOR,
+                    "Most Beautiful vote divisor should default to 3"
+                );
                 assert_eq!(cards_per_hand, 12, "cards per hand should default to 12");
                 assert_eq!(
                     cards_per_hand_max, 100,
@@ -10463,6 +10724,45 @@ alpha
             state.current_stage_deadline_s,
             Some(2_060),
             "changing the beauty timer outside beauty voting should not alter the storyteller deadline"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn moderator_can_update_beauty_scoring_mode_and_divisor() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 10_203);
+            room.set_stage(&mut state, RoomStage::ActiveChooses);
+        }
+
+        room.handle_client_msg(
+            "host",
+            10_203,
+            to_ws(ClientMsg::SetBeautyScoringMode {
+                mode: BeautyScoringMode::WinnerBonus,
+            }),
+        )
+        .await?;
+        room.handle_client_msg(
+            "host",
+            10_203,
+            to_ws(ClientMsg::SetBeautyVotePointsDivisor { divisor: 7 }),
+        )
+        .await?;
+
+        let state = room.state.write().await;
+        assert!(
+            matches!(state.beauty_scoring_mode, BeautyScoringMode::WinnerBonus),
+            "moderators should be able to switch Most Beautiful scoring mode"
+        );
+        assert_eq!(
+            state.beauty_vote_points_divisor, 7,
+            "moderators should be able to update the Most Beautiful vote divisor"
         );
 
         Ok(())

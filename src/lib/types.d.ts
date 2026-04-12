@@ -17,6 +17,8 @@ export type StellaQueuedRevealMode = 'animated' | 'fast';
 
 export type BeautyResultsDisplayMode = 'summary' | 'separate' | 'combined';
 
+export type BeautyScoringMode = 'vote_divisor' | 'winner_bonus';
+
 export type LeaderboardViewMode = 'total' | 'story_only' | 'beauty_only' | 'combined';
 
 export interface DixitEndRoundHistoryEntry {

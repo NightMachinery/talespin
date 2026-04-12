@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { beautyScoringMode, beautyVotePointsDivisor } from '$lib/mostBeautiful';
 	import type { BeautyResultsDisplayMode, GameMode } from '$lib/types';
 
 	export let gameMode: GameMode = 'dixit_plus';
@@ -10,7 +11,7 @@
 	export let bonusDoubleVoteOnThresholdCorrectLoss = true;
 	export let bonusThresholdLossTogglesApplyToAllStorytellerLossRounds = true;
 	export let beautyEnabled = false;
-	export let beautyVotesPerPlayer = 1;
+	export let beautyVotesPerPlayer = 2;
 	export let beautyVotesPerPlayerMax = 1;
 	export let beautyAllowDuplicateVotes = false;
 	export let beautySplitPointsOnTie = true;
@@ -94,13 +95,20 @@
 					Most Beautiful: every active player casts {effectiveBeautyVotesPerPlayer} beauty vote
 					{effectiveBeautyVotesPerPlayer === 1 ? '' : 's'} on other players’ cards.
 				</li>
-				<li>
-					Beauty winners: each top-voted owner gets +{beautyPointsBonus}
-					{beautyPointsBonus === 1 ? ' point' : ' points'}
-					{beautySplitPointsOnTie
-						? ' split among tied owners with rounding up when needed.'
-						: ' once per tied owner.'}
-				</li>
+				{#if $beautyScoringMode === 'vote_divisor'}
+					<li>
+						Beauty scoring: each owner gets floor(total beauty votes on their submitted cards /
+						{$beautyVotePointsDivisor}).
+					</li>
+				{:else}
+					<li>
+						Beauty winners: each top-voted owner gets +{beautyPointsBonus}
+						{beautyPointsBonus === 1 ? ' point' : ' points'}
+						{beautySplitPointsOnTie
+							? ' split among tied owners with rounding up when needed.'
+							: ' once per tied owner.'}
+					</li>
+				{/if}
 				<li>
 					Beauty duplicates: {beautyAllowDuplicateVotes ? 'allowed' : 'not allowed'}. Reveal mode: {beautyResultsDisplayMode}.
 				</li>

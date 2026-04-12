@@ -60,7 +60,10 @@
 		<p>
 			• Players (not including the storyteller) score 1 point for each vote their own cards receive.
 		</p>
-		<p>• Optional Most Beautiful: each top-voted owner gets the configured beauty bonus.</p>
+		<p>
+			• Optional Most Beautiful: rooms may award beauty points either by top-voted winner bonus or
+			by floor(total beauty votes / K), depending on room settings.
+		</p>
 		<br />
 		<strong class="text-xl underline">Strategies</strong>
 

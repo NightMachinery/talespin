@@ -5,10 +5,14 @@ Most Beautiful is the optional Dixit/Talespin post-voting beauty round.
 ## Settings
 
 - **Enable Most Beautiful**: adds a second vote after storyteller voting.
-- **Beauty votes per player**: how many beauty votes each active player can cast.
+- **Beauty votes per player**: how many beauty votes each active player can cast. Default: `2`.
 - **Allow duplicate beauty votes**: allows spending multiple beauty votes on the same card.
 - **Split beauty bonus among ties**: when enabled, tied winning owners split the beauty bonus and each gets `ceil(bonus / tied_owner_count)`.
 - **Beauty winner bonus**: the per-round beauty bonus before any tie split.
+- **Beauty scoring**:
+  - `vote_divisor` (default): each owner gets `floor(total beauty votes on their submitted cards / K)`
+  - `winner_bonus`: legacy top-card winner bonus flow
+- **Beauty vote divisor `K`**: configurable divisor used by `vote_divisor`. Default: `3`.
 - **Beauty results display**:
   - `summary`: storyteller results include beauty totals only
   - `separate`: storyteller results and beauty results are separate stages
@@ -31,6 +35,18 @@ Moderators can force-push the current leaderboard view to everyone in the room. 
 ## End-game history
 
 The end-game Dixit leaderboard can be filtered to start from the first round where the current viewer became an active player.
+
+## Ranking panel
+
+The **Most Beautiful ranking** panel is shown only during **mid-game** and on the **End** screen. It is hidden in the lobby / joining view.
+
+- The mid-game sidebar shows it **after** the score cheatsheet.
+- The panel supports **Last N games** filtering:
+  - `0` = all history
+  - default `1`
+  - if the current room has an in-progress Dixit game, that game counts inside `N`
+  - remaining slots come from the latest **completed** games globally
+- Rankings are capped to the **top 30 players** server-side.
 
 The server also persists per-game Most Beautiful audit data in SQLite, including:
 

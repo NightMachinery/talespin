@@ -4,6 +4,7 @@
 	import { CARD_IMAGE_ALT_TEXT } from '$lib/cardImageText';
 	import CardImage from '$lib/CardImage.svelte';
 	import { http_host } from '$lib/gameServer';
+	import { beautyScoringMode, beautyVotePointsDivisor } from '$lib/mostBeautiful';
 	import { cardsFitToHeight } from '$lib/viewOptions';
 	import type GameServer from '$lib/gameServer';
 	import type { ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
@@ -29,7 +30,7 @@
 	export let votesPerGuesserMin = 1;
 	export let votesPerGuesserMax = 1;
 	export let beautyEnabled = false;
-	export let beautyVotesPerPlayer = 1;
+	export let beautyVotesPerPlayer = 2;
 	export let beautyVotesPerPlayerMin = 1;
 	export let beautyVotesPerPlayerMax = 1;
 	export let beautyAllowDuplicateVotes = false;
@@ -231,8 +232,13 @@
 		<div class="card light space-y-2 p-4">
 			<h1 class="text-xl font-semibold">Beauty results</h1>
 			<p>
-				Review beauty winners. Each top-voted owner gets +{beautyPointsBonus} once, then continue to
-				the next round.
+				{#if $beautyScoringMode === 'vote_divisor'}
+					Review beauty scoring. Owners gain floor(total beauty votes on their submitted cards /
+					{$beautyVotePointsDivisor}), then continue to the next round.
+				{:else}
+					Review beauty winners. Each top-voted owner gets +{beautyPointsBonus} once, then continue to
+					the next round.
+				{/if}
 			</p>
 		</div>
 		<div class="card light p-4">
@@ -262,8 +268,13 @@
 		<div class="card light space-y-2 p-4">
 			<h1 class="text-xl font-semibold">Beauty results</h1>
 			<p>
-				Review beauty winners. Each top-voted owner gets +{beautyPointsBonus} once, then continue to
-				the next round.
+				{#if $beautyScoringMode === 'vote_divisor'}
+					Review beauty scoring. Owners gain floor(total beauty votes on their submitted cards /
+					{$beautyVotePointsDivisor}), then continue to the next round.
+				{:else}
+					Review beauty winners. Each top-voted owner gets +{beautyPointsBonus} once, then continue to
+					the next round.
+				{/if}
 			</p>
 		</div>
 	</svelte:fragment>

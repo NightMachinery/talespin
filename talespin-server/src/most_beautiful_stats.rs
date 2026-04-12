@@ -718,6 +718,294 @@ impl MostBeautifulStatsStore {
         })
     }
 
+    pub fn filtered_stats(
+        &self,
+        room_id: Option<&str>,
+        game_limit: usize,
+    ) -> Result<MostBeautifulStatsResponse> {
+        let conn = self.connect()?;
+        let game_ids = Self::game_ids_for_stats(&conn, room_id, game_limit)?;
+        if game_ids.is_empty() {
+            return Ok(MostBeautifulStatsResponse {
+                players: Vec::new(),
+            });
+        }
+
+        let mut players = HashMap::new();
+        Self::load_filtered_vote_totals(&conn, &game_ids, &mut players)?;
+        Self::load_filtered_round_wins(&conn, &game_ids, &mut players)?;
+
+        let mut player_entries = players
+            .into_values()
+            .filter(|player| player.votes_received > 0 || player.rounds_won > 0)
+            .collect::<Vec<_>>();
+        player_entries.sort_by(|a, b| {
+            b.rounds_won
+                .cmp(&a.rounds_won)
+                .then_with(|| b.votes_received.cmp(&a.votes_received))
+                .then_with(|| {
+                    a.display_name
+                        .to_lowercase()
+                        .cmp(&b.display_name.to_lowercase())
+                })
+                .then_with(|| a.player_hash.cmp(&b.player_hash))
+        });
+        player_entries.truncate(30);
+        for player in &mut player_entries {
+            player.voters.sort_by(|a, b| {
+                b.votes
+                    .cmp(&a.votes)
+                    .then_with(|| {
+                        a.display_name
+                            .to_lowercase()
+                            .cmp(&b.display_name.to_lowercase())
+                    })
+                    .then_with(|| a.player_hash.cmp(&b.player_hash))
+            });
+        }
+
+        Ok(MostBeautifulStatsResponse {
+            players: player_entries,
+        })
+    }
+
+    fn game_ids_for_stats(
+        conn: &Connection,
+        room_id: Option<&str>,
+        game_limit: usize,
+    ) -> Result<Vec<String>> {
+        let mut game_ids = Vec::new();
+
+        if let Some(room_id) = room_id {
+            let current_room_game = conn
+                .query_row(
+                    r#"
+                    SELECT game_id
+                    FROM mb_games
+                    WHERE room_id = ?1 AND completed = 0
+                    ORDER BY started_at DESC, game_id DESC
+                    LIMIT 1
+                    "#,
+                    params![room_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+                .context("Failed to load current-room Most Beautiful game")?;
+            if let Some(game_id) = current_room_game {
+                game_ids.push(game_id);
+            }
+        }
+
+        let completed_limit = if game_limit == 0 {
+            None
+        } else {
+            Some(game_limit.saturating_sub(game_ids.len()))
+        };
+
+        if completed_limit != Some(0) {
+            let mut completed_query = r#"
+                SELECT game_id
+                FROM mb_games
+                WHERE completed = 1
+                ORDER BY COALESCE(ended_at, started_at) DESC, started_at DESC, game_id DESC
+            "#
+            .to_string();
+            let completed_ids = if let Some(limit) = completed_limit {
+                completed_query.push_str(" LIMIT ?1");
+                let mut stmt = conn
+                    .prepare(&completed_query)
+                    .context("Failed to prepare filtered Most Beautiful completed-games query")?;
+                let rows = stmt
+                    .query_map(params![u64::try_from(limit).unwrap_or(u64::MAX)], |row| {
+                        row.get::<_, String>(0)
+                    })
+                    .context("Failed to query filtered Most Beautiful completed games")?;
+                rows.collect::<rusqlite::Result<Vec<_>>>()
+                    .context("Failed to decode filtered Most Beautiful completed game row")?
+            } else {
+                let mut stmt = conn.prepare(&completed_query).context(
+                    "Failed to prepare all-history Most Beautiful completed-games query",
+                )?;
+                let rows = stmt
+                    .query_map([], |row| row.get::<_, String>(0))
+                    .context("Failed to query all-history Most Beautiful completed games")?;
+                rows.collect::<rusqlite::Result<Vec<_>>>()
+                    .context("Failed to decode all-history Most Beautiful completed game row")?
+            };
+            game_ids.extend(completed_ids);
+        }
+
+        Ok(game_ids)
+    }
+
+    fn load_filtered_vote_totals(
+        conn: &Connection,
+        game_ids: &[String],
+        players: &mut HashMap<String, MostBeautifulPlayerStats>,
+    ) -> Result<()> {
+        if game_ids.is_empty() {
+            return Ok(());
+        }
+
+        let placeholders = std::iter::repeat("?")
+            .take(game_ids.len())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let query = format!(
+            r#"
+            SELECT
+                cards.owner_hash,
+                MAX(cards.owner_display_name),
+                votes.voter_hash,
+                MAX(votes.voter_display_name),
+                SUM(votes.vote_count)
+            FROM mb_game_round_beauty_votes AS votes
+            INNER JOIN mb_game_round_cards AS cards
+                ON cards.game_id = votes.game_id
+                AND cards.round_num = votes.round_num
+                AND cards.card_hash = votes.card_hash
+            WHERE votes.game_id IN ({placeholders})
+            GROUP BY cards.owner_hash, votes.voter_hash
+            "#
+        );
+        let mut stmt = conn
+            .prepare(&query)
+            .context("Failed to prepare filtered Most Beautiful vote totals query")?;
+        let rows = stmt
+            .query_map(rusqlite::params_from_iter(game_ids.iter()), |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, u64>(4)?,
+                ))
+            })
+            .context("Failed to query filtered Most Beautiful vote totals")?;
+        for row in rows {
+            let (owner_hash, owner_display_name, voter_hash, voter_display_name, votes_received) =
+                row.context("Failed to decode filtered Most Beautiful vote row")?;
+            let owner = players
+                .entry(owner_hash.clone())
+                .or_insert(MostBeautifulPlayerStats {
+                    player_hash: owner_hash.clone(),
+                    display_name: Self::player_name(conn, &owner_hash, &owner_display_name)?,
+                    votes_received: 0,
+                    rounds_won: 0,
+                    tie_round_wins: 0,
+                    decisive_round_wins: 0,
+                    voters: Vec::new(),
+                });
+            owner.votes_received += votes_received;
+            owner.voters.push(MostBeautifulVoterStats {
+                player_hash: voter_hash.clone(),
+                display_name: Self::player_name(conn, &voter_hash, &voter_display_name)?,
+                votes: votes_received,
+            });
+        }
+
+        Ok(())
+    }
+
+    fn load_filtered_round_wins(
+        conn: &Connection,
+        game_ids: &[String],
+        players: &mut HashMap<String, MostBeautifulPlayerStats>,
+    ) -> Result<()> {
+        if game_ids.is_empty() {
+            return Ok(());
+        }
+
+        let placeholders = std::iter::repeat("?")
+            .take(game_ids.len())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let query = format!(
+            r#"
+            SELECT
+                votes.game_id,
+                votes.round_num,
+                cards.owner_hash,
+                MAX(cards.owner_display_name),
+                SUM(votes.vote_count)
+            FROM mb_game_round_beauty_votes AS votes
+            INNER JOIN mb_game_round_cards AS cards
+                ON cards.game_id = votes.game_id
+                AND cards.round_num = votes.round_num
+                AND cards.card_hash = votes.card_hash
+            WHERE votes.game_id IN ({placeholders})
+            GROUP BY votes.game_id, votes.round_num, cards.owner_hash
+            ORDER BY votes.game_id, votes.round_num
+            "#
+        );
+        let mut stmt = conn
+            .prepare(&query)
+            .context("Failed to prepare filtered Most Beautiful round-wins query")?;
+        let rows = stmt
+            .query_map(rusqlite::params_from_iter(game_ids.iter()), |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, u16>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, u64>(4)?,
+                ))
+            })
+            .context("Failed to query filtered Most Beautiful round wins")?;
+        let mut rounds = HashMap::<(String, u16), Vec<(String, String, u64)>>::new();
+        for row in rows {
+            let (game_id, round_num, owner_hash, owner_display_name, vote_total) =
+                row.context("Failed to decode filtered Most Beautiful round-win row")?;
+            rounds.entry((game_id, round_num)).or_default().push((
+                owner_hash,
+                owner_display_name,
+                vote_total,
+            ));
+        }
+
+        for winner_entries in rounds.into_values() {
+            let highest_vote_total = winner_entries
+                .iter()
+                .map(|(_, _, vote_total)| *vote_total)
+                .max()
+                .unwrap_or(0);
+            if highest_vote_total == 0 {
+                continue;
+            }
+            let winners = winner_entries
+                .into_iter()
+                .filter(|(_, _, vote_total)| *vote_total == highest_vote_total)
+                .collect::<Vec<_>>();
+            let is_tie = winners.len() > 1;
+            for (winner_hash, winner_display_name, _) in winners {
+                let player =
+                    players
+                        .entry(winner_hash.clone())
+                        .or_insert(MostBeautifulPlayerStats {
+                            player_hash: winner_hash.clone(),
+                            display_name: Self::player_name(
+                                conn,
+                                &winner_hash,
+                                &winner_display_name,
+                            )?,
+                            votes_received: 0,
+                            rounds_won: 0,
+                            tie_round_wins: 0,
+                            decisive_round_wins: 0,
+                            voters: Vec::new(),
+                        });
+                player.rounds_won += 1;
+                if is_tie {
+                    player.tie_round_wins += 1;
+                } else {
+                    player.decisive_round_wins += 1;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     fn load_players(conn: &Connection) -> Result<HashMap<String, MostBeautifulPlayerStats>> {
         let mut stmt = conn
             .prepare(
@@ -897,6 +1185,56 @@ mod tests {
                 .unwrap_or_default()
                 .as_nanos()
         ))
+    }
+
+    fn audit_card(
+        card_hash: &str,
+        owner_hash: &str,
+        owner_display_name: &str,
+        is_storyteller_card: bool,
+        center_order: u16,
+    ) -> MostBeautifulGameAuditCardRecord {
+        MostBeautifulGameAuditCardRecord {
+            card_hash: card_hash.to_string(),
+            owner_hash: owner_hash.to_string(),
+            owner_display_name: owner_display_name.to_string(),
+            submitted_by_hash: owner_hash.to_string(),
+            submitted_by_display_name: owner_display_name.to_string(),
+            is_storyteller_card,
+            center_order,
+        }
+    }
+
+    fn audit_vote(
+        voter_hash: &str,
+        voter_display_name: &str,
+        card_hash: &str,
+        vote_count: u16,
+    ) -> MostBeautifulGameAuditVoteRecord {
+        MostBeautifulGameAuditVoteRecord {
+            voter_hash: voter_hash.to_string(),
+            voter_display_name: voter_display_name.to_string(),
+            card_hash: card_hash.to_string(),
+            vote_count,
+        }
+    }
+
+    fn audit_score(
+        player_hash: &str,
+        player_display_name: &str,
+        story_delta: u16,
+        beauty_delta: u16,
+        total_after_round: u16,
+        beauty_total_after_round: u16,
+    ) -> MostBeautifulGameAuditScoreRecord {
+        MostBeautifulGameAuditScoreRecord {
+            player_hash: player_hash.to_string(),
+            player_display_name: player_display_name.to_string(),
+            story_delta,
+            beauty_delta,
+            total_after_round,
+            beauty_total_after_round,
+        }
     }
 
     #[test]
@@ -1128,6 +1466,201 @@ mod tests {
             |row| Ok((row.get(0)?, row.get(1)?)),
         )?;
         assert_eq!(p2_score, (5, 2));
+
+        std::fs::remove_file(&path).ok();
+        Ok(())
+    }
+
+    #[test]
+    fn filtered_stats_prioritize_current_room_in_progress_then_latest_completed_games() -> Result<()>
+    {
+        let path = temp_db_path();
+        let store = MostBeautifulStatsStore::new(&path)?;
+
+        store.record_game_audit_round(&MostBeautifulGameAuditRoundRecord {
+            game_id: "game-current".to_string(),
+            room_id: "room-a".to_string(),
+            game_started_at_s: 300,
+            recorded_at_s: 301,
+            round_num: 1,
+            storyteller_hash: "story-current".to_string(),
+            storyteller_display_name: "Story Current".to_string(),
+            clue: "current".to_string(),
+            results_display_mode: "combined".to_string(),
+            card_entries: vec![
+                audit_card("current-story", "story-current", "Story Current", true, 0),
+                audit_card("current-win-1", "owner-current", "Owner Current", false, 1),
+                audit_card("current-win-2", "owner-current", "Owner Current", false, 2),
+                audit_card(
+                    "current-other",
+                    "owner-current-2",
+                    "Owner Current 2",
+                    false,
+                    3,
+                ),
+            ],
+            story_votes: vec![],
+            beauty_votes: vec![
+                audit_vote("voter-current-a", "Voter Current A", "current-win-1", 1),
+                audit_vote("voter-current-b", "Voter Current B", "current-win-2", 1),
+                audit_vote("voter-current-c", "Voter Current C", "current-other", 1),
+            ],
+            score_log: vec![
+                audit_score("owner-current", "Owner Current", 0, 2, 2, 2),
+                audit_score("owner-current-2", "Owner Current 2", 0, 1, 1, 1),
+            ],
+        })?;
+
+        store.record_game_audit_round(&MostBeautifulGameAuditRoundRecord {
+            game_id: "game-completed-new".to_string(),
+            room_id: "room-b".to_string(),
+            game_started_at_s: 200,
+            recorded_at_s: 201,
+            round_num: 1,
+            storyteller_hash: "story-new".to_string(),
+            storyteller_display_name: "Story New".to_string(),
+            clue: "new".to_string(),
+            results_display_mode: "combined".to_string(),
+            card_entries: vec![
+                audit_card("new-story", "story-new", "Story New", true, 0),
+                audit_card("new-win", "owner-new", "Owner New", false, 1),
+                audit_card("new-other", "owner-new-2", "Owner New 2", false, 2),
+            ],
+            story_votes: vec![],
+            beauty_votes: vec![
+                audit_vote("voter-new-a", "Voter New A", "new-win", 2),
+                audit_vote("voter-new-b", "Voter New B", "new-win", 1),
+                audit_vote("voter-new-c", "Voter New C", "new-other", 1),
+            ],
+            score_log: vec![
+                audit_score("owner-new", "Owner New", 0, 3, 3, 3),
+                audit_score("owner-new-2", "Owner New 2", 0, 1, 1, 1),
+            ],
+        })?;
+        store.mark_game_complete("game-completed-new", 250, 1)?;
+
+        store.record_game_audit_round(&MostBeautifulGameAuditRoundRecord {
+            game_id: "game-completed-old".to_string(),
+            room_id: "room-c".to_string(),
+            game_started_at_s: 100,
+            recorded_at_s: 101,
+            round_num: 1,
+            storyteller_hash: "story-old".to_string(),
+            storyteller_display_name: "Story Old".to_string(),
+            clue: "old".to_string(),
+            results_display_mode: "combined".to_string(),
+            card_entries: vec![
+                audit_card("old-story", "story-old", "Story Old", true, 0),
+                audit_card("old-win", "owner-old", "Owner Old", false, 1),
+                audit_card("old-other", "owner-old-2", "Owner Old 2", false, 2),
+            ],
+            story_votes: vec![],
+            beauty_votes: vec![
+                audit_vote("voter-old-a", "Voter Old A", "old-win", 3),
+                audit_vote("voter-old-b", "Voter Old B", "old-win", 1),
+            ],
+            score_log: vec![audit_score("owner-old", "Owner Old", 0, 4, 4, 4)],
+        })?;
+        store.mark_game_complete("game-completed-old", 150, 1)?;
+
+        let current_only = store.filtered_stats(Some("room-a"), 1)?;
+        assert_eq!(
+            current_only
+                .players
+                .iter()
+                .map(|player| player.player_hash.as_str())
+                .collect::<Vec<_>>(),
+            vec!["owner-current", "owner-current-2"],
+            "N=1 should prefer the current room's in-progress game"
+        );
+        assert_eq!(current_only.players[0].votes_received, 2);
+        assert_eq!(current_only.players[0].rounds_won, 1);
+
+        let current_plus_latest_completed = store.filtered_stats(Some("room-a"), 2)?;
+        assert_eq!(
+            current_plus_latest_completed
+                .players
+                .iter()
+                .map(|player| player.player_hash.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "owner-new",
+                "owner-current",
+                "owner-current-2",
+                "owner-new-2"
+            ],
+            "N=2 should include the current room plus the latest completed global game"
+        );
+
+        let latest_completed_only = store.filtered_stats(Some("room-z"), 1)?;
+        assert_eq!(
+            latest_completed_only
+                .players
+                .iter()
+                .map(|player| player.player_hash.as_str())
+                .collect::<Vec<_>>(),
+            vec!["owner-new", "owner-new-2"],
+            "without a current-room exception, N=1 should use the latest completed global game"
+        );
+
+        std::fs::remove_file(&path).ok();
+        Ok(())
+    }
+
+    #[test]
+    fn filtered_stats_limit_results_to_top_30_players() -> Result<()> {
+        let path = temp_db_path();
+        let store = MostBeautifulStatsStore::new(&path)?;
+
+        for index in 0..35 {
+            let game_id = format!("game-{index}");
+            let winner_hash = format!("owner-{index:02}");
+            let winner_name = format!("Owner {index:02}");
+            let other_hash = format!("other-{index:02}");
+            let other_name = format!("Other {index:02}");
+            let winner_card = format!("winner-card-{index:02}");
+            let other_card = format!("other-card-{index:02}");
+            let story_hash = format!("story-{index:02}");
+            let story_name = format!("Story {index:02}");
+            store.record_game_audit_round(&MostBeautifulGameAuditRoundRecord {
+                game_id: game_id.clone(),
+                room_id: format!("room-{index:02}"),
+                game_started_at_s: index as u64,
+                recorded_at_s: index as u64 + 1,
+                round_num: 1,
+                storyteller_hash: story_hash.clone(),
+                storyteller_display_name: story_name.clone(),
+                clue: format!("clue-{index:02}"),
+                results_display_mode: "combined".to_string(),
+                card_entries: vec![
+                    audit_card(
+                        &format!("story-card-{index:02}"),
+                        &story_hash,
+                        &story_name,
+                        true,
+                        0,
+                    ),
+                    audit_card(&winner_card, &winner_hash, &winner_name, false, 1),
+                    audit_card(&other_card, &other_hash, &other_name, false, 2),
+                ],
+                story_votes: vec![],
+                beauty_votes: vec![audit_vote(
+                    &format!("voter-{index:02}"),
+                    &format!("Voter {index:02}"),
+                    &winner_card,
+                    1,
+                )],
+                score_log: vec![audit_score(&winner_hash, &winner_name, 0, 1, 1, 1)],
+            })?;
+            store.mark_game_complete(&game_id, index as u64 + 2, 1)?;
+        }
+
+        let stats = store.filtered_stats(Some("room-none"), 0)?;
+        assert_eq!(
+            stats.players.len(),
+            30,
+            "filtered stats should cap the ranking panel to the top 30 players"
+        );
 
         std::fs::remove_file(&path).ok();
         Ok(())

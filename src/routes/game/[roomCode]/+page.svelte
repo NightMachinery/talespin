@@ -8,6 +8,7 @@
 
 	import {
 		applyRoomLeaderboardViewModeDefault,
+		setBeautyScoringConfig,
 		beautyLeaderboardPointChange,
 		memberBeautyPoints,
 		refreshMostBeautifulStats,
@@ -30,6 +31,7 @@
 	} from '$lib/stageChangeAudio';
 	import type {
 		BeautyResultsDisplayMode,
+		BeautyScoringMode,
 		DixitEndRoundHistoryEntry,
 		GameMode,
 		LeaderboardViewMode,
@@ -83,12 +85,14 @@
 	let votesPerGuesserMin = 1;
 	let votesPerGuesserMax = 1;
 	let beautyEnabled = false;
-	let beautyVotesPerPlayer = 1;
+	let beautyVotesPerPlayer = 2;
 	let beautyVotesPerPlayerMin = 1;
 	let beautyVotesPerPlayerMax = 1;
 	let beautyAllowDuplicateVotes = false;
 	let beautySplitPointsOnTie = true;
 	let beautyPointsBonus = 2;
+	let beautyScoringMode: BeautyScoringMode = 'vote_divisor';
+	let beautyVotePointsDivisor = 3;
 	let beautyPointsBonusMin = 0;
 	let beautyPointsBonusMax = 10;
 	let beautyResultsDisplayMode: BeautyResultsDisplayMode = 'combined';
@@ -317,12 +321,15 @@
 				votesPerGuesserMin = data.RoomState.votes_per_guesser_min ?? 1;
 				votesPerGuesserMax = data.RoomState.votes_per_guesser_max ?? 1;
 				beautyEnabled = data.RoomState.beauty_enabled ?? false;
-				beautyVotesPerPlayer = data.RoomState.beauty_votes_per_player ?? 1;
+				beautyVotesPerPlayer = data.RoomState.beauty_votes_per_player ?? 2;
 				beautyVotesPerPlayerMin = data.RoomState.beauty_votes_per_player_min ?? 1;
 				beautyVotesPerPlayerMax = data.RoomState.beauty_votes_per_player_max ?? 1;
 				beautyAllowDuplicateVotes = data.RoomState.beauty_allow_duplicate_votes ?? false;
 				beautySplitPointsOnTie = data.RoomState.beauty_split_points_on_tie ?? true;
 				beautyPointsBonus = data.RoomState.beauty_points_bonus ?? 2;
+				beautyScoringMode = data.RoomState.beauty_scoring_mode ?? 'vote_divisor';
+				beautyVotePointsDivisor = data.RoomState.beauty_vote_points_divisor ?? 3;
+				setBeautyScoringConfig(beautyScoringMode, beautyVotePointsDivisor);
 				beautyPointsBonusMin = data.RoomState.beauty_points_bonus_min ?? 0;
 				beautyPointsBonusMax = data.RoomState.beauty_points_bonus_max ?? 10;
 				beautyResultsDisplayMode = data.RoomState.beauty_results_display_mode ?? 'combined';

@@ -156,6 +156,49 @@
 		}
 	}
 
+	function combinedPointChangeForPlayer(playerName: string) {
+		if (!supportsBeautyModes || !shouldShowPointChange()) {
+			return null;
+		}
+		return {
+			total: pointChange[playerName] ?? 0,
+			story: stage === 'BeautyResults' ? 0 : $storytellerLeaderboardPointChange[playerName] ?? 0,
+			beauty: $beautyLeaderboardPointChange[playerName] ?? 0
+		};
+	}
+
+	function combinedColumns(
+		playerName: string,
+		breakdown: ReturnType<typeof scoreBreakdown>
+	): Array<{ key: 'total' | 'story' | 'beauty'; value: number; delta: number | null }> {
+		const deltas = combinedPointChangeForPlayer(playerName);
+		return [
+			{
+				key: 'total',
+				value: breakdown.total,
+				delta: deltas?.total ?? null
+			},
+			{
+				key: 'story',
+				value: breakdown.story,
+				delta: deltas?.story ?? null
+			},
+			{
+				key: 'beauty',
+				value: breakdown.beauty,
+				delta: deltas?.beauty ?? null
+			}
+		];
+	}
+
+	function digitWidthForKey(key: 'total' | 'story' | 'beauty') {
+		return widthStyle(digitWidths[key]);
+	}
+
+	function formatSignedDelta(delta: number) {
+		return `${delta >= 0 ? '+' : ''}${delta}`;
+	}
+
 	function handleViewModeChange(event: Event) {
 		const select = event.currentTarget as HTMLSelectElement;
 		setLeaderboardViewModePreference(select.value as LeaderboardViewMode);
@@ -241,16 +284,19 @@
 								<span class="mr-2 opacity-50">(+{displayedPointChangeForPlayer(entry.name)})</span>
 							{/if}
 							{#if activeLeaderboardViewMode === 'combined'}
-								<div class="flex items-center justify-end gap-2">
-									<span class="score-column" style={widthStyle(digitWidths.total)}
-										>{entry.breakdown.total}</span
-									>
-									<span class="score-column opacity-85" style={widthStyle(digitWidths.story)}
-										>{entry.breakdown.story}</span
-									>
-									<span class="score-column opacity-85" style={widthStyle(digitWidths.beauty)}
-										>{entry.breakdown.beauty}</span
-									>
+								<div class="combined-score">
+									{#each combinedColumns(entry.name, entry.breakdown) as column}
+										<div class="combined-score-group">
+											<span class="score-column" style={digitWidthForKey(column.key)}
+												>{column.value}</span
+											>
+											{#if column.delta !== null}
+												<span class={`combined-delta ${column.delta === 0 ? 'opacity-45' : ''}`}
+													>{formatSignedDelta(column.delta)}</span
+												>
+											{/if}
+										</div>
+									{/each}
 								</div>
 							{:else if activeLeaderboardViewMode === 'beauty_only'}
 								{entry.breakdown.beauty}
@@ -304,16 +350,19 @@
 								{#if observerEntry.breakdown === null}
 									NA
 								{:else if activeLeaderboardViewMode === 'combined'}
-									<div class="flex items-center justify-end gap-2">
-										<span class="score-column" style={widthStyle(digitWidths.total)}
-											>{observerEntry.breakdown.total}</span
-										>
-										<span class="score-column opacity-85" style={widthStyle(digitWidths.story)}
-											>{observerEntry.breakdown.story}</span
-										>
-										<span class="score-column opacity-85" style={widthStyle(digitWidths.beauty)}
-											>{observerEntry.breakdown.beauty}</span
-										>
+									<div class="combined-score">
+										{#each combinedColumns(observerEntry.name, observerEntry.breakdown) as column}
+											<div class="combined-score-group">
+												<span class="score-column" style={digitWidthForKey(column.key)}
+													>{column.value}</span
+												>
+												{#if column.delta !== null}
+													<span class={`combined-delta ${column.delta === 0 ? 'opacity-45' : ''}`}
+														>{formatSignedDelta(column.delta)}</span
+													>
+												{/if}
+											</div>
+										{/each}
 									</div>
 								{:else if activeLeaderboardViewMode === 'beauty_only'}
 									{observerEntry.breakdown.beauty}
@@ -340,6 +389,30 @@
 	.score-column {
 		display: inline-block;
 		text-align: right;
+	}
+
+	.combined-score {
+		display: flex;
+		align-items: center;
+		justify-content: flex-end;
+		gap: 0.4rem;
+	}
+
+	.combined-score-group {
+		display: flex;
+		align-items: baseline;
+		gap: 0.15rem;
+	}
+
+	.combined-score-group + .combined-score-group::before {
+		content: '|';
+		margin-right: 0.25rem;
+		opacity: 0.35;
+	}
+
+	.combined-delta {
+		font-size: 0.72rem;
+		opacity: 0.75;
 	}
 
 	@keyframes cards-refilled-pulse {

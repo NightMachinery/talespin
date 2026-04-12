@@ -31,7 +31,7 @@
 	export let votesPerGuesserMin = 1;
 	export let votesPerGuesserMax = 1;
 	export let beautyEnabled = false;
-	export let beautyVotesPerPlayer = 1;
+	export let beautyVotesPerPlayer = 2;
 	export let beautyVotesPerPlayerMin = 1;
 	export let beautyVotesPerPlayerMax = 1;
 	export let beautyAllowDuplicateVotes = false;
@@ -385,10 +385,6 @@
 						/>
 					</div>
 
-					{#if gameMode === 'dixit_plus'}
-						<MostBeautifulStatsPanel title="Most Beautiful ranking" compact />
-					{/if}
-
 					{#if hasSidebarBottom}
 						<div>
 							<slot name="sidebarBottom" />
@@ -414,6 +410,10 @@
 							{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 						/>
 					</div>
+
+					{#if gameMode === 'dixit_plus'}
+						<MostBeautifulStatsPanel title="Most Beautiful ranking" compact />
+					{/if}
 				</div>
 			</aside>
 		</div>

@@ -233,6 +233,22 @@ class GameServer {
 		});
 	}
 
+	setBeautyScoringMode(mode: 'vote_divisor' | 'winner_bonus') {
+		this.send({
+			SetBeautyScoringMode: {
+				mode
+			}
+		});
+	}
+
+	setBeautyVotePointsDivisor(divisor: number) {
+		this.send({
+			SetBeautyVotePointsDivisor: {
+				divisor
+			}
+		});
+	}
+
 	setBeautySplitPointsOnTie(enabled: boolean) {
 		this.send({
 			SetBeautySplitPointsOnTie: {

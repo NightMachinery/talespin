@@ -1,6 +1,6 @@
 import { browser } from '$app/environment';
 import { writable } from 'svelte/store';
-import type { LeaderboardViewMode } from '$lib/types';
+import type { BeautyScoringMode, LeaderboardViewMode } from '$lib/types';
 
 export interface MostBeautifulVoterStats {
 	player_hash: string;
@@ -114,19 +114,36 @@ export const leaderboardViewMode = writable<LeaderboardViewMode>(DEFAULT_LEADERB
 export const roomLeaderboardViewModeDefault = writable<LeaderboardViewMode>(
 	DEFAULT_LEADERBOARD_VIEW_MODE
 );
+export const beautyScoringMode = writable<BeautyScoringMode>('vote_divisor');
+export const beautyVotePointsDivisor = writable(3);
+export const mostBeautifulStatsGamesLimit = writable(1);
 export const memberBeautyPoints = writable<Record<string, number>>({});
 export const storytellerLeaderboardPointChange = writable<Record<string, number>>({});
 export const beautyLeaderboardPointChange = writable<Record<string, number>>({});
 
 let currentRoomCodeValue = '';
+let currentMostBeautifulStatsGamesLimit = 1;
 currentRoomCode.subscribe((roomCode) => {
 	currentRoomCodeValue = roomCode;
+});
+mostBeautifulStatsGamesLimit.subscribe((limit) => {
+	currentMostBeautifulStatsGamesLimit = Math.max(0, Math.floor(limit));
 });
 
 export function setMostBeautifulRoom(roomCode: string) {
 	currentRoomCode.set(roomCode);
+	mostBeautifulStatsGamesLimit.set(1);
 	const preference = readPersistedPreference(roomCode);
 	leaderboardViewMode.set(preference.mode);
+}
+
+export function setBeautyScoringConfig(mode: BeautyScoringMode, divisor: number) {
+	beautyScoringMode.set(mode);
+	beautyVotePointsDivisor.set(Math.max(1, Math.floor(divisor)));
+}
+
+export function setMostBeautifulStatsGamesLimit(limit: number) {
+	mostBeautifulStatsGamesLimit.set(Math.max(0, Math.floor(limit)));
 }
 
 export function setLeaderboardViewModePreference(mode: LeaderboardViewMode) {
@@ -164,16 +181,26 @@ export async function refreshMostBeautifulStats() {
 	mostBeautifulStatsLoading.set(true);
 	mostBeautifulStatsError.set('');
 	try {
-		const response = await fetch('/most-beautiful-stats', {
-			method: 'GET',
-			headers: {
-				'Cache-Control': 'no-cache'
-			}
-		});
-		if (!response.ok) {
-			throw new Error(`Failed with ${response.status}`);
+		const params = new URLSearchParams();
+		if (currentRoomCodeValue !== '') {
+			params.set('room_id', currentRoomCodeValue);
 		}
-		const payload = (await response.json()) as MostBeautifulStatsResponse;
+		params.set('games', `${currentMostBeautifulStatsGamesLimit}`);
+		const query = params.toString();
+		const scopedResponse = await fetch(
+			query === '' ? '/most-beautiful-stats' : `/most-beautiful-stats?${query}`,
+			{
+				method: 'GET',
+				headers: {
+					'Cache-Control': 'no-cache'
+				},
+				cache: 'no-store'
+			}
+		);
+		if (!scopedResponse.ok) {
+			throw new Error(`Failed with ${scopedResponse.status}`);
+		}
+		const payload = (await scopedResponse.json()) as MostBeautifulStatsResponse;
 		mostBeautifulStats.set(Array.isArray(payload.players) ? payload.players : []);
 	} catch (error) {
 		console.error('Failed to refresh Most Beautiful stats', error);
@@ -187,6 +214,9 @@ export function resetMostBeautifulClientState() {
 	currentRoomCode.set('');
 	leaderboardViewMode.set(DEFAULT_LEADERBOARD_VIEW_MODE);
 	roomLeaderboardViewModeDefault.set(DEFAULT_LEADERBOARD_VIEW_MODE);
+	beautyScoringMode.set('vote_divisor');
+	beautyVotePointsDivisor.set(3);
+	mostBeautifulStatsGamesLimit.set(1);
 	memberBeautyPoints.set({});
 	storytellerLeaderboardPointChange.set({});
 	beautyLeaderboardPointChange.set({});

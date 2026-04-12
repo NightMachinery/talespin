@@ -1,7 +1,12 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import type GameServer from '$lib/gameServer';
+	import {
+		beautyScoringMode as beautyScoringModeStore,
+		beautyVotePointsDivisor as beautyVotePointsDivisorStore
+	} from '$lib/mostBeautiful';
 	import type {
+		BeautyScoringMode,
 		BeautyResultsDisplayMode,
 		GameMode,
 		ObserverInfo,
@@ -34,6 +39,8 @@
 	const STAGE_TIMER_DURATION_MAX_S = 60 * 60;
 	const STELLA_SCOUT_TIMER_DURATION_MIN_S = 0;
 	const STELLA_WORD_PACK_UNSAVED_LABEL = 'Unsaved Wordpack';
+	const BEAUTY_VOTE_POINTS_DIVISOR_MIN = 1;
+	const BEAUTY_VOTE_POINTS_DIVISOR_MAX = 100;
 
 	export let players: { [key: string]: PlayerInfo } = {};
 	export let observers: { [key: string]: ObserverInfo } = {};
@@ -52,7 +59,7 @@
 	export let votesPerGuesserMin = 1;
 	export let votesPerGuesserMax = 1;
 	export let beautyEnabled = false;
-	export let beautyVotesPerPlayer = 1;
+	export let beautyVotesPerPlayer = 2;
 	export let beautyVotesPerPlayerMin = 1;
 	export let beautyVotesPerPlayerMax = 1;
 	export let beautyAllowDuplicateVotes = false;
@@ -347,6 +354,31 @@
 		}
 		if (parsed !== beautyPointsBonus) {
 			gameServer.setBeautyPointsBonus(parsed);
+		}
+	}
+
+	function updateBeautyScoringMode(event: Event) {
+		const select = event.currentTarget as HTMLSelectElement;
+		if (!isModerator || !canChangePreVotingSettings) {
+			select.value = $beautyScoringModeStore;
+			return;
+		}
+		gameServer.setBeautyScoringMode(select.value as BeautyScoringMode);
+	}
+
+	function updateBeautyVotePointsDivisor(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const parsed = Number(input.value);
+		if (
+			!Number.isInteger(parsed) ||
+			parsed < BEAUTY_VOTE_POINTS_DIVISOR_MIN ||
+			parsed > BEAUTY_VOTE_POINTS_DIVISOR_MAX
+		) {
+			input.value = `${$beautyVotePointsDivisorStore}`;
+			return;
+		}
+		if (parsed !== $beautyVotePointsDivisorStore) {
+			gameServer.setBeautyVotePointsDivisor(parsed);
 		}
 	}
 
@@ -1471,25 +1503,68 @@
 								</p>
 							</div>
 							<div>
-								<label class="text-sm font-medium" for="beauty-points-bonus">
-									Beauty winner bonus
+								<label class="text-sm font-medium" for="beauty-scoring-mode">
+									Beauty scoring
 								</label>
-								<input
-									id="beauty-points-bonus"
-									type="number"
-									class="mt-1 w-full rounded border px-2 py-1 text-gray-700 shadow"
-									min={beautyPointsBonusMin}
-									max={beautyPointsBonusMax}
-									step="1"
-									value={beautyPointsBonus}
-									on:change={updateBeautyPointsBonus}
+								<select
+									id="beauty-scoring-mode"
+									class="mt-1 w-full rounded border px-3 py-2 text-gray-700 shadow"
+									value={$beautyScoringModeStore}
+									on:change={updateBeautyScoringMode}
 									disabled={!isModerator || !canChangePreVotingSettings}
-								/>
+								>
+									<option value="vote_divisor">Vote divisor</option>
+									<option value="winner_bonus">Winner bonus</option>
+								</select>
 								<p class="mt-1 text-xs opacity-75">
-									Range: {beautyPointsBonusMin}–{beautyPointsBonusMax}
+									Vote divisor awards floor(owner total beauty votes / K). Winner bonus keeps the
+									legacy top-card bonus flow.
 								</p>
 							</div>
 						</div>
+						{#if $beautyScoringModeStore === 'vote_divisor'}
+							<div class="mt-3">
+								<label class="text-sm font-medium" for="beauty-vote-points-divisor">
+									Beauty vote divisor K
+								</label>
+								<input
+									id="beauty-vote-points-divisor"
+									type="number"
+									class="mt-1 w-full rounded border px-2 py-1 text-gray-700 shadow"
+									min={BEAUTY_VOTE_POINTS_DIVISOR_MIN}
+									max={BEAUTY_VOTE_POINTS_DIVISOR_MAX}
+									step="1"
+									value={$beautyVotePointsDivisorStore}
+									on:change={updateBeautyVotePointsDivisor}
+									disabled={!isModerator || !canChangePreVotingSettings}
+								/>
+								<p class="mt-1 text-xs opacity-75">
+									Range: {BEAUTY_VOTE_POINTS_DIVISOR_MIN}–{BEAUTY_VOTE_POINTS_DIVISOR_MAX}
+								</p>
+							</div>
+						{:else}
+							<div class="mt-3 grid gap-3 md:grid-cols-2">
+								<div>
+									<label class="text-sm font-medium" for="beauty-points-bonus">
+										Beauty winner bonus
+									</label>
+									<input
+										id="beauty-points-bonus"
+										type="number"
+										class="mt-1 w-full rounded border px-2 py-1 text-gray-700 shadow"
+										min={beautyPointsBonusMin}
+										max={beautyPointsBonusMax}
+										step="1"
+										value={beautyPointsBonus}
+										on:change={updateBeautyPointsBonus}
+										disabled={!isModerator || !canChangePreVotingSettings}
+									/>
+									<p class="mt-1 text-xs opacity-75">
+										Range: {beautyPointsBonusMin}–{beautyPointsBonusMax}
+									</p>
+								</div>
+							</div>
+						{/if}
 						<label class="mt-3 flex items-start gap-3 text-sm">
 							<input
 								type="checkbox"
@@ -1500,16 +1575,18 @@
 							/>
 							<span>Allow duplicate beauty votes on the same card</span>
 						</label>
-						<label class="mt-3 flex items-start gap-3 text-sm">
-							<input
-								type="checkbox"
-								class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
-								checked={beautySplitPointsOnTie}
-								on:change={updateBeautySplitPointsOnTie}
-								disabled={!isModerator || !canChangePreVotingSettings}
-							/>
-							<span>Split beauty bonus among tied owners, rounding up</span>
-						</label>
+						{#if $beautyScoringModeStore === 'winner_bonus'}
+							<label class="mt-3 flex items-start gap-3 text-sm">
+								<input
+									type="checkbox"
+									class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
+									checked={beautySplitPointsOnTie}
+									on:change={updateBeautySplitPointsOnTie}
+									disabled={!isModerator || !canChangePreVotingSettings}
+								/>
+								<span>Split beauty bonus among tied owners, rounding up</span>
+							</label>
+						{/if}
 						<div class="mt-3">
 							<label class="text-sm font-medium" for="beauty-results-display-mode">
 								Beauty results display

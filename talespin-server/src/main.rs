@@ -3,7 +3,7 @@ use axum::{
     body::Bytes,
     extract::{
         ws::{Message as WsMessage, WebSocket},
-        Json, Path as AxumPath, State, WebSocketUpgrade,
+        Json, Path as AxumPath, Query, State, WebSocketUpgrade,
     },
     http::{header, Method, StatusCode},
     response::{IntoResponse, Response},
@@ -1365,11 +1365,12 @@ async fn stats_handler(State(state): State<Arc<ServerState>>) -> String {
 }
 
 async fn most_beautiful_stats_handler(
+    Query(query): Query<MostBeautifulStatsQuery>,
     State(state): State<Arc<ServerState>>,
 ) -> Result<Json<MostBeautifulStatsResponse>, StatusCode> {
     state
         .most_beautiful_stats
-        .aggregated_stats()
+        .filtered_stats(query.room_id.as_deref(), query.games.unwrap_or(0))
         .map(Json)
         .map_err(|err| {
             println!(
@@ -1379,6 +1380,12 @@ async fn most_beautiful_stats_handler(
             );
             StatusCode::INTERNAL_SERVER_ERROR
         })
+}
+
+#[derive(Debug, Deserialize)]
+struct MostBeautifulStatsQuery {
+    room_id: Option<String>,
+    games: Option<usize>,
 }
 
 async fn root() -> &'static str {
