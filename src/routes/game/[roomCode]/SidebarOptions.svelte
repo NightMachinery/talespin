@@ -68,6 +68,7 @@
 	export let beautyPointsBonusMin = 0;
 	export let beautyPointsBonusMax = 10;
 	export let beautyResultsDisplayMode: BeautyResultsDisplayMode = 'combined';
+	export let showPreviousResultsDuringStorytellerChoosing = true;
 	export let cardsPerHand = 12;
 	export let cardsPerHandMin = 1;
 	export let cardsPerHandMax = 18;
@@ -389,6 +390,15 @@
 			return;
 		}
 		gameServer.setBeautyResultsDisplayMode(select.value as BeautyResultsDisplayMode);
+	}
+
+	function updateShowPreviousResultsDuringStorytellerChoosing(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		if (!isModerator || !canChangePreVotingSettings) {
+			input.checked = showPreviousResultsDuringStorytellerChoosing;
+			return;
+		}
+		gameServer.setShowPreviousResultsDuringStorytellerChoosing(input.checked);
 	}
 
 	function updateCardsPerHand(event: Event) {
@@ -1603,6 +1613,19 @@
 								<option value="combined">Combined storyteller + beauty results</option>
 							</select>
 						</div>
+						<label class="mt-3 flex items-start gap-3 text-sm">
+							<input
+								type="checkbox"
+								class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
+								checked={showPreviousResultsDuringStorytellerChoosing}
+								on:change={updateShowPreviousResultsDuringStorytellerChoosing}
+								disabled={!isModerator || !canChangePreVotingSettings}
+							/>
+							<span>
+								Show previous results while the next storyteller is choosing, with a local Previous
+								Results / My Cards switch for waiting players
+							</span>
+						</label>
 						{#if !canChangePreVotingSettings}
 							<p class="mt-1 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
 						{/if}

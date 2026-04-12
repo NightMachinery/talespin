@@ -21,6 +21,31 @@ export type BeautyScoringMode = 'vote_divisor' | 'winner_bonus';
 
 export type LeaderboardViewMode = 'total' | 'story_only' | 'beauty_only' | 'combined';
 
+export type PreviousDixitResultsView =
+	| {
+			kind: 'results';
+			center_cards: string[];
+			player_to_votes: Record<string, string[]>;
+			player_to_beauty_votes: Record<string, string[]>;
+			player_to_current_cards: Record<string, string[]>;
+			active_card: string;
+			beauty_results_display_mode: BeautyResultsDisplayMode;
+			point_change: Record<string, number>;
+			storyteller_point_change: Record<string, number>;
+			beauty_point_change: Record<string, number>;
+			beauty_vote_totals: Record<string, number>;
+			beauty_winning_cards: string[];
+	  }
+	| {
+			kind: 'beauty_results';
+			center_cards: string[];
+			player_to_beauty_votes: Record<string, string[]>;
+			player_to_current_cards: Record<string, string[]>;
+			point_change: Record<string, number>;
+			beauty_vote_totals: Record<string, number>;
+			beauty_winning_cards: string[];
+	  };
+
 export interface DixitEndRoundHistoryEntry {
 	round_num: number;
 	storyteller: string;

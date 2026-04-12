@@ -36,6 +36,7 @@
 		GameMode,
 		LeaderboardViewMode,
 		ObserverInfo,
+		PreviousDixitResultsView,
 		PlayerInfo,
 		StellaQueuedRevealMode,
 		WinCondition
@@ -96,6 +97,7 @@
 	let beautyPointsBonusMin = 0;
 	let beautyPointsBonusMax = 10;
 	let beautyResultsDisplayMode: BeautyResultsDisplayMode = 'combined';
+	let showPreviousResultsDuringStorytellerChoosing = true;
 	let cardsPerHand = 12;
 	let cardsPerHandMin = 1;
 	let cardsPerHandMax = 18;
@@ -160,6 +162,7 @@
 	let votingDisabledCards: string[] = [];
 	let beautyDisabledCards: string[] = [];
 	let storytellerChosenCard = '';
+	let previousDixitResults: PreviousDixitResultsView | null = null;
 
 	// results
 	let playerToCurrentCards: { [key: string]: string[] } = {};
@@ -333,6 +336,9 @@
 				beautyPointsBonusMin = data.RoomState.beauty_points_bonus_min ?? 0;
 				beautyPointsBonusMax = data.RoomState.beauty_points_bonus_max ?? 10;
 				beautyResultsDisplayMode = data.RoomState.beauty_results_display_mode ?? 'combined';
+				showPreviousResultsDuringStorytellerChoosing =
+					data.RoomState.show_previous_results_during_storyteller_choosing ?? true;
+				previousDixitResults = data.RoomState.previous_dixit_results ?? null;
 				cardsPerHand = data.RoomState.cards_per_hand ?? 12;
 				cardsPerHandMin = data.RoomState.cards_per_hand_min ?? 1;
 				cardsPerHandMax = data.RoomState.cards_per_hand_max ?? 18;
@@ -667,6 +673,7 @@
 			{beautyPointsBonusMin}
 			{beautyPointsBonusMax}
 			{beautyResultsDisplayMode}
+			{showPreviousResultsDuringStorytellerChoosing}
 			{cardsPerHand}
 			{cardsPerHandMin}
 			{cardsPerHandMax}
@@ -746,6 +753,7 @@
 			{beautyPointsBonusMin}
 			{beautyPointsBonusMax}
 			{beautyResultsDisplayMode}
+			{showPreviousResultsDuringStorytellerChoosing}
 			{cardsPerHand}
 			{cardsPerHandMin}
 			{cardsPerHandMax}
@@ -830,6 +838,8 @@
 			{beautyPointsBonusMin}
 			{beautyPointsBonusMax}
 			{beautyResultsDisplayMode}
+			{showPreviousResultsDuringStorytellerChoosing}
+			{previousDixitResults}
 			{cardsPerHand}
 			{cardsPerHandMin}
 			{cardsPerHandMax}
@@ -907,6 +917,7 @@
 			{beautyPointsBonusMin}
 			{beautyPointsBonusMax}
 			{beautyResultsDisplayMode}
+			{showPreviousResultsDuringStorytellerChoosing}
 			{cardsPerHand}
 			{cardsPerHandMin}
 			{cardsPerHandMax}
@@ -985,6 +996,7 @@
 			{beautyPointsBonusMin}
 			{beautyPointsBonusMax}
 			{beautyResultsDisplayMode}
+			{showPreviousResultsDuringStorytellerChoosing}
 			{cardsPerHand}
 			{cardsPerHandMin}
 			{cardsPerHandMax}
@@ -1063,6 +1075,7 @@
 			{beautyPointsBonusMin}
 			{beautyPointsBonusMax}
 			{beautyResultsDisplayMode}
+			{showPreviousResultsDuringStorytellerChoosing}
 			{cardsPerHand}
 			{cardsPerHandMin}
 			{cardsPerHandMax}
@@ -1144,6 +1157,7 @@
 			{beautyPointsBonusMin}
 			{beautyPointsBonusMax}
 			{beautyResultsDisplayMode}
+			{showPreviousResultsDuringStorytellerChoosing}
 			{cardsPerHand}
 			{cardsPerHandMin}
 			{cardsPerHandMax}
@@ -1224,6 +1238,7 @@
 			{beautyPointsBonusMin}
 			{beautyPointsBonusMax}
 			{beautyResultsDisplayMode}
+			{showPreviousResultsDuringStorytellerChoosing}
 			{cardsPerHand}
 			{cardsPerHandMin}
 			{cardsPerHandMax}
@@ -1302,6 +1317,7 @@
 			{beautyPointsBonusMin}
 			{beautyPointsBonusMax}
 			{beautyResultsDisplayMode}
+			{showPreviousResultsDuringStorytellerChoosing}
 			{cardsPerHand}
 			{cardsPerHandMin}
 			{cardsPerHandMax}
@@ -1381,6 +1397,7 @@
 			{beautyPointsBonusMin}
 			{beautyPointsBonusMax}
 			{beautyResultsDisplayMode}
+			{showPreviousResultsDuringStorytellerChoosing}
 			{cardsPerHand}
 			{cardsPerHandMin}
 			{cardsPerHandMax}

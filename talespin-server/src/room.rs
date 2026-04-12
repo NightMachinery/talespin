@@ -78,6 +78,32 @@ pub enum BeautyResultsDisplayMode {
     Combined,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PreviousDixitResultsView {
+    Results {
+        center_cards: Vec<String>,
+        player_to_votes: HashMap<String, Vec<String>>,
+        player_to_beauty_votes: HashMap<String, Vec<String>>,
+        player_to_current_cards: HashMap<String, Vec<String>>,
+        active_card: String,
+        beauty_results_display_mode: BeautyResultsDisplayMode,
+        point_change: HashMap<String, u16>,
+        storyteller_point_change: HashMap<String, u16>,
+        beauty_point_change: HashMap<String, u16>,
+        beauty_vote_totals: HashMap<String, u16>,
+        beauty_winning_cards: Vec<String>,
+    },
+    BeautyResults {
+        center_cards: Vec<String>,
+        player_to_beauty_votes: HashMap<String, Vec<String>>,
+        player_to_current_cards: HashMap<String, Vec<String>>,
+        point_change: HashMap<String, u16>,
+        beauty_vote_totals: HashMap<String, u16>,
+        beauty_winning_cards: Vec<String>,
+    },
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum BeautyScoringMode {
@@ -184,6 +210,8 @@ pub enum ServerMsg {
         beauty_points_bonus_min: u16,
         beauty_points_bonus_max: u16,
         beauty_results_display_mode: BeautyResultsDisplayMode,
+        show_previous_results_during_storyteller_choosing: bool,
+        previous_dixit_results: Option<PreviousDixitResultsView>,
         cards_per_hand: u16,
         cards_per_hand_min: u16,
         cards_per_hand_max: u16,
@@ -381,6 +409,9 @@ pub enum ClientMsg {
     },
     SetBeautyResultsDisplayMode {
         mode: BeautyResultsDisplayMode,
+    },
+    SetShowPreviousResultsDuringStorytellerChoosing {
+        enabled: bool,
     },
     SetCardsPerHand {
         cards: u16,
@@ -617,6 +648,8 @@ struct RoomState {
     beauty_vote_points_divisor: u16,
     // how beauty results are revealed
     beauty_results_display_mode: BeautyResultsDisplayMode,
+    // whether waiting players should see the previous results while the next storyteller chooses
+    show_previous_results_during_storyteller_choosing: bool,
     // hand size target for each active player
     cards_per_hand: u16,
     // number of cards each non-storyteller can submit in PlayersChoose
@@ -707,6 +740,8 @@ struct RoomState {
     current_dixit_game_started_at_s: Option<u64>,
     // condensed per-round history used by the end-game Dixit leaderboard
     dixit_end_round_history: Vec<DixitEndRoundHistoryEntry>,
+    // previous Dixit results snapshot shown during the following storyteller-choosing stage
+    previous_dixit_results: Option<PreviousDixitResultsView>,
     // stella shared board cards for the current round
     stella_board_cards: Vec<String>,
     // current stella clue word
@@ -860,6 +895,7 @@ impl Room {
             beauty_scoring_mode: BeautyScoringMode::VoteDivisor,
             beauty_vote_points_divisor: DEFAULT_BEAUTY_VOTE_POINTS_DIVISOR,
             beauty_results_display_mode: BeautyResultsDisplayMode::Combined,
+            show_previous_results_during_storyteller_choosing: true,
             cards_per_hand: DEFAULT_CARDS_PER_HAND,
             nominations_per_guesser: DEFAULT_NOMINATIONS_PER_GUESSER,
             bonus_correct_guess_on_threshold_correct_loss: true,
@@ -904,6 +940,7 @@ impl Room {
             current_dixit_game_id: None,
             current_dixit_game_started_at_s: None,
             dixit_end_round_history: Vec::new(),
+            previous_dixit_results: None,
             stella_board_cards: Vec::new(),
             stella_clue_word: String::new(),
             stella_word_pack: (*default_stella_word_pack).clone(),
@@ -2198,6 +2235,7 @@ impl Room {
         state.current_dixit_game_id = Some(format!("{:x}", hasher.finalize()));
         state.current_dixit_game_started_at_s = Some(get_time_s());
         state.dixit_end_round_history.clear();
+        state.previous_dixit_results = None;
     }
 
     fn finalize_current_dixit_game(
@@ -2231,6 +2269,53 @@ impl Room {
             *entry = entry.saturating_add(*points);
         }
         merged
+    }
+
+    fn previous_dixit_results_from_results(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+    ) -> Result<PreviousDixitResultsView> {
+        let active_card = state
+            .player_to_current_cards
+            .get(&self.get_active_player(state)?)
+            .and_then(|cards| cards.first())
+            .cloned()
+            .ok_or_else(|| anyhow!("Missing active card"))?;
+
+        Ok(PreviousDixitResultsView::Results {
+            center_cards: self.get_center_cards(state),
+            player_to_votes: state.player_to_votes.clone(),
+            player_to_beauty_votes: state.player_to_beauty_votes.clone(),
+            player_to_current_cards: state.player_to_current_cards.clone(),
+            active_card,
+            beauty_results_display_mode: state.beauty_results_display_mode,
+            point_change: if self.uses_separate_beauty_results_stage(state) {
+                state.storyteller_point_change.clone()
+            } else {
+                self.merge_point_changes(
+                    &state.storyteller_point_change,
+                    &state.beauty_point_change,
+                )
+            },
+            storyteller_point_change: state.storyteller_point_change.clone(),
+            beauty_point_change: state.beauty_point_change.clone(),
+            beauty_vote_totals: self.compute_beauty_vote_totals(state),
+            beauty_winning_cards: self.compute_beauty_winning_cards(state),
+        })
+    }
+
+    fn previous_dixit_results_from_beauty_results(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+    ) -> PreviousDixitResultsView {
+        PreviousDixitResultsView::BeautyResults {
+            center_cards: self.get_center_cards(state),
+            player_to_beauty_votes: state.player_to_beauty_votes.clone(),
+            player_to_current_cards: state.player_to_current_cards.clone(),
+            point_change: state.beauty_point_change.clone(),
+            beauty_vote_totals: self.compute_beauty_vote_totals(state),
+            beauty_winning_cards: self.compute_beauty_winning_cards(state),
+        }
     }
 
     fn apply_point_change(
@@ -2867,6 +2952,14 @@ impl Room {
         &self,
         state: &RwLockWriteGuard<'_, RoomState>,
     ) -> Option<usize> {
+        self.choose_lowest_storyteller_index_preferring(state, None)
+    }
+
+    fn choose_lowest_storyteller_index_preferring(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+        preferred_name: Option<&str>,
+    ) -> Option<usize> {
         let min_storyteller_count = state
             .player_order
             .iter()
@@ -2882,6 +2975,14 @@ impl Room {
                     .then_some(idx)
             })
             .collect::<Vec<_>>();
+
+        if let Some(preferred_name) = preferred_name {
+            if let Some(preferred_idx) = candidate_indices.iter().copied().find(|idx| {
+                state.player_order.get(*idx).map(String::as_str) == Some(preferred_name)
+            }) {
+                return Some(preferred_idx);
+            }
+        }
 
         candidate_indices.choose(&mut rand::thread_rng()).copied()
     }
@@ -2911,6 +3012,17 @@ impl Room {
             .collect::<Vec<_>>()
             .choose(&mut rand::thread_rng())
             .copied()
+    }
+
+    fn is_lowest_storyteller_candidate(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+        player_name: &str,
+    ) -> bool {
+        self.choose_lowest_storyteller_index_preferring(state, Some(player_name))
+            .and_then(|idx| state.player_order.get(idx))
+            .map(String::as_str)
+            == Some(player_name)
     }
 
     fn should_promote_observer(&self, observer: &ObserverInfo) -> bool {
@@ -4153,6 +4265,7 @@ impl Room {
         let beauty_point_change = state.beauty_point_change.clone();
         self.apply_point_change(state, &beauty_point_change);
         self.apply_member_beauty_point_change(state, &beauty_point_change);
+        state.previous_dixit_results = Some(self.previous_dixit_results_from_beauty_results(state));
         self.clear_ready(state);
 
         self.broadcast_msg(self.get_msg(None, state)?)?;
@@ -4174,6 +4287,7 @@ impl Room {
             self.record_most_beautiful_round_stats(state)?;
         }
         self.record_current_dixit_round_audit_and_history(state)?;
+        state.previous_dixit_results = Some(self.previous_dixit_results_from_results(state)?);
 
         if self.uses_separate_beauty_results_stage(state) {
             let storyteller_point_change = state.storyteller_point_change.clone();
@@ -4820,7 +4934,11 @@ impl Room {
         Ok(())
     }
 
-    async fn init_round(&self, state: &mut RwLockWriteGuard<'_, RoomState>) -> Result<()> {
+    async fn init_round_with_storyteller_preference(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+        preferred_storyteller: Option<&str>,
+    ) -> Result<()> {
         if matches!(state.game_mode, GameMode::Stella) {
             return self.init_stella_round(state).await;
         }
@@ -4862,7 +4980,7 @@ impl Room {
         self.clamp_nominations_per_guesser(state);
 
         let next_active_player = self
-            .choose_random_lowest_storyteller_index(state)
+            .choose_lowest_storyteller_index_preferring(state, preferred_storyteller)
             .ok_or_else(|| anyhow!("No players available to choose storyteller"))?;
 
         state.deck.shuffle(&mut rand::thread_rng());
@@ -4937,6 +5055,11 @@ impl Room {
         self.broadcast_msg(self.room_state(&state))?;
 
         Ok(())
+    }
+
+    async fn init_round(&self, state: &mut RwLockWriteGuard<'_, RoomState>) -> Result<()> {
+        self.init_round_with_storyteller_preference(state, None)
+            .await
     }
 
     pub async fn handle_client_msg(
@@ -5022,6 +5145,26 @@ impl Room {
                         .get_mut(name)
                         .ok_or_else(|| anyhow!("Unreachable: cannot ready player {}", name))?
                         .ready = true;
+
+                    let should_auto_advance_with_clicking_storyteller =
+                        matches!(state.game_mode, GameMode::DixitPlus)
+                            && ((matches!(state.stage, RoomStage::Results)
+                                && !self.uses_separate_beauty_results_stage(&state))
+                                || matches!(state.stage, RoomStage::BeautyResults))
+                            && self.is_lowest_storyteller_candidate(&state, name)
+                            && !self.should_end_game(&state);
+
+                    if should_auto_advance_with_clicking_storyteller {
+                        if state.players.len() >= 3 {
+                            self.init_round_with_storyteller_preference(&mut state, Some(name))
+                                .await?;
+                        } else {
+                            self.broadcast_msg(
+                                ServerMsg::ErrorMsg("Need at least 3 players".to_string()).into(),
+                            )?;
+                        }
+                        return Ok(());
+                    }
 
                     self.broadcast_msg(self.room_state(&state))?;
 
@@ -6155,6 +6298,45 @@ impl Room {
                 }
 
                 state.beauty_results_display_mode = mode;
+                self.broadcast_msg(self.room_state(&state))?;
+            }
+            ClientMsg::SetShowPreviousResultsDuringStorytellerChoosing { enabled } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change previous-results preview".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if matches!(state.stage, RoomStage::End) {
+                    return Ok(());
+                }
+
+                if !matches!(state.game_mode, GameMode::DixitPlus) {
+                    return Ok(());
+                }
+
+                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Previous-results preview can only be changed during storyteller choosing stage"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                state.show_previous_results_during_storyteller_choosing = enabled;
                 self.broadcast_msg(self.room_state(&state))?;
             }
             ClientMsg::SetCardsPerHand { cards } => {
@@ -7874,6 +8056,15 @@ impl Room {
             beauty_points_bonus_min: beauty_points_min,
             beauty_points_bonus_max: beauty_points_max,
             beauty_results_display_mode: state.beauty_results_display_mode,
+            show_previous_results_during_storyteller_choosing: state
+                .show_previous_results_during_storyteller_choosing,
+            previous_dixit_results: if matches!(state.stage, RoomStage::ActiveChooses)
+                && matches!(state.game_mode, GameMode::DixitPlus)
+            {
+                state.previous_dixit_results.clone()
+            } else {
+                None
+            },
             cards_per_hand,
             cards_per_hand_min: cards_min,
             cards_per_hand_max: cards_max,
@@ -8399,7 +8590,7 @@ mod tests {
         )
         .await?;
 
-        let state = room.state.read().await;
+        let state = room.state.write().await;
         assert!(
             !state.players.contains_key("Elham"),
             "canonical member should be removed from active players"
@@ -8440,7 +8631,7 @@ mod tests {
         room.handle_client_msg("c", 401, to_ws(ClientMsg::RequestJoinFromObserver {}))
             .await?;
 
-        let state = room.state.read().await;
+        let state = room.state.write().await;
         assert_eq!(
             state.players.get("c").map(|p| p.points),
             Some(2),
@@ -12108,6 +12299,83 @@ alpha
     }
 
     #[tokio::test]
+    async fn previous_results_preview_toggle_defaults_to_on() -> Result<()> {
+        let room = test_room();
+        let state = room.state.write().await;
+
+        match room.room_state(&state) {
+            ServerMsg::RoomState {
+                show_previous_results_during_storyteller_choosing,
+                previous_dixit_results,
+                ..
+            } => {
+                assert!(
+                    show_previous_results_during_storyteller_choosing,
+                    "previous-results preview should default to on"
+                );
+                assert!(
+                    previous_dixit_results.is_none(),
+                    "no preview payload should be sent before any round has completed"
+                );
+            }
+            other => return Err(anyhow!("Expected RoomState, got {:?}", other)),
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn previous_results_preview_toggle_changes_only_in_storyteller_stage() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            add_player(&mut state, "p2", 0);
+            add_player(&mut state, "p3", 0);
+            add_player(&mut state, "p4", 0);
+            state.stage = RoomStage::PlayersChoose;
+            state.show_previous_results_during_storyteller_choosing = true;
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 116);
+        }
+
+        room.handle_client_msg(
+            "host",
+            116,
+            to_ws(ClientMsg::SetShowPreviousResultsDuringStorytellerChoosing { enabled: false }),
+        )
+        .await?;
+
+        {
+            let state = room.state.read().await;
+            assert!(
+                state.show_previous_results_during_storyteller_choosing,
+                "previous-results preview should remain unchanged outside ActiveChooses"
+            );
+        }
+
+        {
+            let mut state = room.state.write().await;
+            state.stage = RoomStage::ActiveChooses;
+        }
+
+        room.handle_client_msg(
+            "host",
+            116,
+            to_ws(ClientMsg::SetShowPreviousResultsDuringStorytellerChoosing { enabled: false }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert!(
+            !state.show_previous_results_during_storyteller_choosing,
+            "previous-results preview should update during ActiveChooses"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn moderator_force_start_next_round_skips_results_ready_wait() -> Result<()> {
         let room = test_room();
         {
@@ -12143,6 +12411,163 @@ alpha
         assert_eq!(
             state.active_player, 2,
             "force-start should choose the lowest-count storyteller for the next round"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn init_round_room_state_exposes_previous_results_preview() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "a", 0);
+            add_player(&mut state, "b", 0);
+            add_player(&mut state, "c", 0);
+            add_player(&mut state, "d", 0);
+            state.stage = RoomStage::Voting;
+            state.round = 2;
+            state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into()];
+            state.active_player = 0;
+            set_storyteller_count(&mut state, "a", 2);
+            set_storyteller_count(&mut state, "b", 1);
+            set_storyteller_count(&mut state, "c", 1);
+            set_storyteller_count(&mut state, "d", 3);
+            state.current_description = "clue".to_string();
+            state
+                .player_to_current_cards
+                .insert("a".into(), vec!["a-card".into()]);
+            state
+                .player_to_current_cards
+                .insert("b".into(), vec!["b-card".into()]);
+            state
+                .player_to_current_cards
+                .insert("c".into(), vec!["c-card".into()]);
+            state
+                .player_to_current_cards
+                .insert("d".into(), vec!["d-card".into()]);
+            state
+                .player_to_votes
+                .insert("b".into(), vec!["a-card".into()]);
+            state
+                .player_to_votes
+                .insert("c".into(), vec!["b-card".into()]);
+            state
+                .player_to_votes
+                .insert("d".into(), vec!["a-card".into()]);
+            state.deck = (0..200).map(|i| format!("draw-{}", i)).collect();
+            room.init_results(&mut state)?;
+            room.init_round(&mut state).await?;
+        }
+
+        let state = room.state.write().await;
+        match room.room_state(&state) {
+            ServerMsg::RoomState {
+                stage,
+                previous_dixit_results,
+                ..
+            } => {
+                assert!(
+                    matches!(stage, RoomStage::ActiveChooses),
+                    "round init should return to storyteller choosing"
+                );
+                match previous_dixit_results {
+                    Some(PreviousDixitResultsView::Results {
+                        active_card,
+                        center_cards,
+                        ..
+                    }) => {
+                        assert_eq!(active_card, "a-card");
+                        assert_eq!(center_cards.len(), 4);
+                    }
+                    other => return Err(anyhow!(
+                        "expected previous Dixit results payload during ActiveChooses, got {:?}",
+                        other
+                    )),
+                }
+            }
+            other => return Err(anyhow!("Expected RoomState, got {:?}", other)),
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn eligible_final_results_ready_auto_starts_with_clicking_storyteller() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            add_player(&mut state, "p2", 0);
+            add_player(&mut state, "p3", 0);
+            add_player(&mut state, "p4", 0);
+            set_storyteller_count(&mut state, "host", 1);
+            set_storyteller_count(&mut state, "p2", 1);
+            set_storyteller_count(&mut state, "p3", 2);
+            set_storyteller_count(&mut state, "p4", 3);
+            state.stage = RoomStage::Results;
+            state.round = 2;
+            state.player_order = vec!["host".into(), "p2".into(), "p3".into(), "p4".into()];
+            state.active_player = 3;
+            setup_connected_member(&mut state, "p2", "t-p2", 117);
+        }
+
+        room.handle_client_msg("p2", 117, to_ws(ClientMsg::Ready {}))
+            .await?;
+
+        let state = room.state.read().await;
+        assert!(
+            matches!(state.stage, RoomStage::ActiveChooses),
+            "eligible final-results ready should start the next round immediately"
+        );
+        assert_eq!(state.round, 3, "eligible click should advance the round");
+        assert_eq!(
+            state.player_order[state.active_player], "p2",
+            "first eligible click should win the storyteller tie-break"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn non_eligible_final_results_ready_does_not_auto_start_round() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            add_player(&mut state, "p2", 0);
+            add_player(&mut state, "p3", 0);
+            add_player(&mut state, "p4", 0);
+            set_storyteller_count(&mut state, "host", 1);
+            set_storyteller_count(&mut state, "p2", 1);
+            set_storyteller_count(&mut state, "p3", 2);
+            set_storyteller_count(&mut state, "p4", 3);
+            state.stage = RoomStage::Results;
+            state.round = 2;
+            state.player_order = vec!["host".into(), "p2".into(), "p3".into(), "p4".into()];
+            state.active_player = 0;
+            setup_connected_member(&mut state, "p4", "t-p4", 118);
+        }
+
+        room.handle_client_msg("p4", 118, to_ws(ClientMsg::Ready {}))
+            .await?;
+
+        let state = room.state.read().await;
+        assert!(
+            matches!(state.stage, RoomStage::Results),
+            "non-eligible ready should leave the room on results"
+        );
+        assert_eq!(
+            state.round, 2,
+            "non-eligible ready should not advance the round"
+        );
+        assert!(
+            state
+                .players
+                .get("p4")
+                .map(|player| player.ready)
+                .unwrap_or(false),
+            "non-eligible ready should still mark the player ready"
         );
 
         Ok(())

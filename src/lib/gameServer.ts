@@ -265,6 +265,14 @@ class GameServer {
 		});
 	}
 
+	setShowPreviousResultsDuringStorytellerChoosing(enabled: boolean) {
+		this.send({
+			SetShowPreviousResultsDuringStorytellerChoosing: {
+				enabled
+			}
+		});
+	}
+
 	setCardsPerHand(cards: number) {
 		this.send({
 			SetCardsPerHand: {

@@ -47,6 +47,7 @@
 	export let beautyPointsBonusMin = 0;
 	export let beautyPointsBonusMax = 10;
 	export let beautyResultsDisplayMode: BeautyResultsDisplayMode = 'combined';
+	export let showPreviousResultsDuringStorytellerChoosing = true;
 	export let stellaBoardSize = 15;
 	export let stellaBoardSizeMin = 1;
 	export let stellaBoardSizeMax = 100;
@@ -266,6 +267,12 @@
 		const input = event.currentTarget as HTMLSelectElement;
 		if (!canEditSettings) return;
 		gameServer.setBeautyResultsDisplayMode(input.value as BeautyResultsDisplayMode);
+	}
+
+	function updateShowPreviousResultsDuringStorytellerChoosing(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		if (!canEditSettings) return;
+		gameServer.setShowPreviousResultsDuringStorytellerChoosing(input.checked);
 	}
 
 	function updateStellaBoardSize(event: Event) {
@@ -640,6 +647,24 @@
 										<option value="combined">Combined storyteller + beauty results</option>
 									</select>
 								</div>
+								<label class="flex items-start gap-3 text-sm">
+									<input
+										type="checkbox"
+										class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
+										checked={showPreviousResultsDuringStorytellerChoosing}
+										on:change={updateShowPreviousResultsDuringStorytellerChoosing}
+										disabled={!canEditSettings}
+									/>
+									<div>
+										<span class="block font-semibold">
+											Show previous results while storyteller is choosing
+										</span>
+										<p class="text-xs opacity-70">
+											Waiting players can locally switch between Previous Results and My Cards
+											during the next storyteller's turn.
+										</p>
+									</div>
+								</label>
 							</div>
 						</div>
 					{:else}

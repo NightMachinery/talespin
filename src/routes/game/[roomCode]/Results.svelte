@@ -40,6 +40,7 @@
 	export let beautyPointsBonusMin = 0;
 	export let beautyPointsBonusMax = 10;
 	export let beautyResultsDisplayMode: import('$lib/types').BeautyResultsDisplayMode = 'combined';
+	export let showPreviousResultsDuringStorytellerChoosing = true;
 	export let cardsPerHand = 12;
 	export let cardsPerHandMin = 1;
 	export let cardsPerHandMax = 18;
@@ -209,6 +210,7 @@
 	{beautyPointsBonusMin}
 	{beautyPointsBonusMax}
 	{beautyResultsDisplayMode}
+	{showPreviousResultsDuringStorytellerChoosing}
 	{cardsPerHand}
 	{cardsPerHandMin}
 	{cardsPerHandMax}
@@ -280,15 +282,17 @@
 						: 'Next Round'}
 				</button>
 				{#if isModerator}
-					<button
-						class="btn variant-filled w-full"
-						disabled={!canForceStartNextRound}
-						on:click={() => gameServer.forceStartNextRound()}
-					>
-						{beautyEnabled && beautyResultsDisplayMode === 'separate'
-							? 'Force beauty results'
-							: 'Force start next round'}
-					</button>
+					<div class="pt-3">
+						<button
+							class="btn variant-filled w-full"
+							disabled={!canForceStartNextRound}
+							on:click={() => gameServer.forceStartNextRound()}
+						>
+							{beautyEnabled && beautyResultsDisplayMode === 'separate'
+								? 'Force beauty results'
+								: 'Force start next round'}
+						</button>
+					</div>
 				{/if}
 			</div>
 			{#if isObserver}
@@ -320,15 +324,17 @@
 				{beautyEnabled && beautyResultsDisplayMode === 'separate' ? 'Beauty Results' : 'Next Round'}
 			</button>
 			{#if isModerator}
-				<button
-					class="btn variant-filled w-full"
-					disabled={!canForceStartNextRound}
-					on:click={() => gameServer.forceStartNextRound()}
-				>
-					{beautyEnabled && beautyResultsDisplayMode === 'separate'
-						? 'Force beauty results'
-						: 'Force start next round'}
-				</button>
+				<div class="pt-3">
+					<button
+						class="btn variant-filled w-full"
+						disabled={!canForceStartNextRound}
+						on:click={() => gameServer.forceStartNextRound()}
+					>
+						{beautyEnabled && beautyResultsDisplayMode === 'separate'
+							? 'Force beauty results'
+							: 'Force start next round'}
+					</button>
+				</div>
 			{/if}
 		</div>
 	</svelte:fragment>

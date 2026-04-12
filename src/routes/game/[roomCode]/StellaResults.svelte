@@ -31,6 +31,7 @@
 	export let beautyPointsBonusMin = 0;
 	export let beautyPointsBonusMax = 10;
 	export let beautyResultsDisplayMode: import('$lib/types').BeautyResultsDisplayMode = 'combined';
+	export let showPreviousResultsDuringStorytellerChoosing = true;
 	export let cardsPerHand = 12;
 	export let cardsPerHandMin = 1;
 	export let cardsPerHandMax = 100;
@@ -140,6 +141,7 @@
 	{beautyPointsBonusMin}
 	{beautyPointsBonusMax}
 	{beautyResultsDisplayMode}
+	{showPreviousResultsDuringStorytellerChoosing}
 	{cardsPerHand}
 	{cardsPerHandMin}
 	{cardsPerHandMax}
@@ -202,9 +204,12 @@
 				on:click={() => gameServer.ready()}>Next Round</button
 			>
 			{#if isModerator}
-				<button class="btn variant-filled w-full" on:click={() => gameServer.forceStartNextRound()}
-					>Force next round</button
-				>
+				<div class="pt-3">
+					<button
+						class="btn variant-filled w-full"
+						on:click={() => gameServer.forceStartNextRound()}>Force next round</button
+					>
+				</div>
 			{/if}
 		</div>
 	</svelte:fragment>
@@ -224,9 +229,12 @@
 				on:click={() => gameServer.ready()}>Next Round</button
 			>
 			{#if isModerator}
-				<button class="btn variant-filled w-full" on:click={() => gameServer.forceStartNextRound()}
-					>Force next round</button
-				>
+				<div class="pt-3">
+					<button
+						class="btn variant-filled w-full"
+						on:click={() => gameServer.forceStartNextRound()}>Force next round</button
+					>
+				</div>
 			{/if}
 		</div>
 	</svelte:fragment>

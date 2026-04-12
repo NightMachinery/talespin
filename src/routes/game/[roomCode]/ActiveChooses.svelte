@@ -1,10 +1,16 @@
 <script lang="ts">
 	import type GameServer from '$lib/gameServer';
-	import type { ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
+	import type {
+		ObserverInfo,
+		PlayerInfo,
+		PreviousDixitResultsView,
+		WinCondition
+	} from '$lib/types';
+	import { getToastStore } from '@skeletonlabs/skeleton';
 	import Images from './Images.svelte';
+	import PreviousDixitResultsPreview from './PreviousDixitResultsPreview.svelte';
 	import StageActionButtons from './StageActionButtons.svelte';
 	import StageShell from './StageShell.svelte';
-	import { getToastStore } from '@skeletonlabs/skeleton';
 
 	export let displayImages: string[] = [];
 	export let activePlayer = '';
@@ -32,6 +38,8 @@
 	export let beautyPointsBonusMin = 0;
 	export let beautyPointsBonusMax = 10;
 	export let beautyResultsDisplayMode: import('$lib/types').BeautyResultsDisplayMode = 'combined';
+	export let showPreviousResultsDuringStorytellerChoosing = true;
+	export let previousDixitResults: PreviousDixitResultsView | null = null;
 	export let cardsPerHand = 12;
 	export let cardsPerHandMin = 1;
 	export let cardsPerHandMax = 18;
@@ -83,18 +91,35 @@
 		target_points: 10
 	};
 
+	type WaitingViewMode = 'results' | 'hand';
+
 	let toastStore = getToastStore();
 	let descriptionBox = '';
 	let selectedImage = '';
+	let waitingViewMode: WaitingViewMode = 'results';
 	let isObserver = false;
 	let isActivePlayer = false;
 	let isModerator = false;
 	let canForceSwitchStoryteller = false;
+	let canToggleWaitingView = false;
+	let shouldShowPreviousResults = false;
+	let lastViewResetKey = '';
 	let lastActivePlayer = '';
+
 	$: isObserver = !!observers[name];
 	$: isActivePlayer = activePlayer === name && !isObserver;
 	$: isModerator = new Set(moderators).has(name);
 	$: canForceSwitchStoryteller = isModerator && Object.keys(players).length >= 2;
+	$: hasPreviousResultsPreview =
+		showPreviousResultsDuringStorytellerChoosing && previousDixitResults !== null;
+	$: canToggleWaitingView = !isObserver && !isActivePlayer && hasPreviousResultsPreview;
+	$: shouldShowPreviousResults =
+		hasPreviousResultsPreview && !isActivePlayer && (isObserver || waitingViewMode === 'results');
+	$: viewResetKey = `${roundNum}:${activePlayer}:${previousDixitResults?.kind ?? 'none'}`;
+	$: if (viewResetKey !== lastViewResetKey) {
+		lastViewResetKey = viewResetKey;
+		waitingViewMode = 'results';
+	}
 	$: if (activePlayer !== lastActivePlayer) {
 		lastActivePlayer = activePlayer;
 		descriptionBox = '';
@@ -144,6 +169,7 @@
 	{beautyPointsBonusMin}
 	{beautyPointsBonusMax}
 	{beautyResultsDisplayMode}
+	{showPreviousResultsDuringStorytellerChoosing}
 	{cardsPerHand}
 	{cardsPerHandMin}
 	{cardsPerHandMax}
@@ -191,7 +217,7 @@
 	{cardsRemaining}
 	{deckRefillFlashToken}
 	{winCondition}
-	showMobileActions={isActivePlayer || isModerator}
+	showMobileActions={isActivePlayer || isModerator || canToggleWaitingView}
 >
 	<svelte:fragment slot="leftRail">
 		{#if isActivePlayer}
@@ -222,8 +248,31 @@
 				</p>
 				{#if isObserver}
 					<p class="opacity-70">You are observing this round.</p>
+				{:else if canToggleWaitingView}
+					<p class="opacity-70">
+						Review the previous results or switch to your cards while you wait.
+					</p>
 				{/if}
 			</div>
+			{#if canToggleWaitingView}
+				<div class="card light space-y-3 p-4">
+					<p class="text-sm font-semibold">Your view</p>
+					<div class="grid grid-cols-2 gap-2">
+						<button
+							class={`btn w-full ${
+								waitingViewMode === 'results' ? 'variant-filled' : 'variant-ghost'
+							}`}
+							on:click={() => (waitingViewMode = 'results')}>Previous Results</button
+						>
+						<button
+							class={`btn w-full ${
+								waitingViewMode === 'hand' ? 'variant-filled' : 'variant-ghost'
+							}`}
+							on:click={() => (waitingViewMode = 'hand')}>My Cards</button
+						>
+					</div>
+				</div>
+			{/if}
 		{/if}
 		{#if isModerator}
 			<div class="card light p-4">
@@ -254,14 +303,18 @@
 				</p>
 				{#if isObserver}
 					<p class="opacity-70">You are observing this round.</p>
+				{:else if canToggleWaitingView}
+					<p class="opacity-70">
+						Switch between the previous results and your cards while you wait.
+					</p>
 				{/if}
 			</div>
 		{/if}
 	</svelte:fragment>
 
 	<svelte:fragment slot="mobileActions">
-		{#if isActivePlayer}
-			<div class="space-y-3">
+		<div class="space-y-3">
+			{#if isActivePlayer}
 				<input
 					id="description-mobile"
 					type="text"
@@ -274,31 +327,58 @@
 					disabled={selectedImage === '' || descriptionBox === ''}
 					on:click={activePlayerChoose}>Choose</button
 				>
-			</div>
-		{/if}
-		{#if isModerator}
-			<StageActionButtons
-				actions={[
-					{
-						label: 'Switch Storyteller',
-						disabled: !canForceSwitchStoryteller,
-						onClick: () => gameServer.forceCurrentStage()
-					}
-				]}
-			/>
-		{/if}
+			{:else if canToggleWaitingView}
+				<div class="grid grid-cols-2 gap-2">
+					<button
+						class={`btn w-full ${
+							waitingViewMode === 'results' ? 'variant-filled' : 'variant-ghost'
+						}`}
+						on:click={() => (waitingViewMode = 'results')}>Previous Results</button
+					>
+					<button
+						class={`btn w-full ${waitingViewMode === 'hand' ? 'variant-filled' : 'variant-ghost'}`}
+						on:click={() => (waitingViewMode = 'hand')}>My Cards</button
+					>
+				</div>
+			{/if}
+			{#if isModerator}
+				<StageActionButtons
+					actions={[
+						{
+							label: 'Switch Storyteller',
+							disabled: !canForceSwitchStoryteller,
+							onClick: () => gameServer.forceCurrentStage()
+						}
+					]}
+				/>
+			{/if}
+		</div>
 	</svelte:fragment>
 
-	<div class="flex h-full flex-col">
-		<h2 class="mb-2 hidden text-lg font-semibold lg:block">{name}, your cards</h2>
-		<div class="min-h-0 flex-1 overflow-y-auto">
-			<Images
-				{displayImages}
-				selectedImages={selectedImage ? [selectedImage] : []}
-				selectable={isActivePlayer}
-				mode="hand"
-				on:select={handleCardSelect}
-			/>
+	{#if shouldShowPreviousResults && previousDixitResults}
+		<PreviousDixitResultsPreview snapshot={previousDixitResults} {showVotingCardNumbers} />
+	{:else if !isObserver}
+		<div class="flex h-full flex-col">
+			<h2 class="mb-2 hidden text-lg font-semibold lg:block">{name}, your cards</h2>
+			<div class="min-h-0 flex-1 overflow-y-auto">
+				<Images
+					{displayImages}
+					selectedImages={selectedImage ? [selectedImage] : []}
+					selectable={isActivePlayer}
+					mode="hand"
+					on:select={handleCardSelect}
+				/>
+			</div>
 		</div>
-	</div>
+	{:else}
+		<div class="flex h-full items-center justify-center">
+			<div class="card light max-w-md space-y-2 p-4 text-center">
+				<h2 class="text-lg font-semibold">Observing storyteller choice</h2>
+				<p class="opacity-80">
+					You will see the next round once <span class="boujee-text">{activePlayer}</span> locks in a
+					card and clue.
+				</p>
+			</div>
+		</div>
+	{/if}
 </StageShell>
