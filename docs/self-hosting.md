@@ -86,6 +86,9 @@ Frontend rebuilds use Node 20 through `nvm-load; nvm use 20` and then:
 npm run build
 ```
 
+`npm run build` exports `BROWSERSLIST_IGNORE_OLD_DATA=1` so long-lived hosts do not emit stale-caniuse warnings during routine redeploys.
+The frontend Vite config also raises the chunk-size warning threshold to match the current monolithic game bundle, and Caddy validate/reload output is only surfaced when those commands fail.
+
 ## Compatibility Note
 
 `run_tmux.zsh` now exists only as a deprecated compatibility shim. With no arguments it forwards to:

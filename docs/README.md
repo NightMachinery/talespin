@@ -2,6 +2,9 @@
 
 This folder contains practical notes for running and maintaining the self-hosted Talespin deployment.
 
+Tooling note: frontend lint/format runs intentionally ignore generated outputs such as `build/`, `.svelte-kit/`, and `talespin-server/target/`.
+Deploy note: routine Talespin redeploys now keep benign Browserslist/Caddy noise out of successful runs and skip dangling-symlink image entries from custom card folders.
+
 - `docs/self-hosting.md`: deployment layout, tmux scripts, ports, and checks
 - `docs/images.md`: where card images live and what constraints apply
 - `docs/win_condition.md`: supported win modes, defaults, and deck-finish behavior

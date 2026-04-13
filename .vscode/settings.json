@@ -1,8 +1,6 @@
 {
 	"a11y-click-events-have-key-events": "ignore",
-	"prettier.documentSelectors": [
-		"**/*.svelte"
-	],
+	"prettier.documentSelectors": ["**/*.svelte"],
 	"tailwindCSS.classAttributes": [
 		"class",
 		"accent",

@@ -374,14 +374,23 @@ output_path.write_text(text)
 PY
 
 	caddy fmt --overwrite "$candidate_file" >/dev/null
-	caddy validate --config "$candidate_file" --adapter caddyfile >/dev/null
+	local validate_log="$STATE_DIR/caddy-validate.log"
+	if ! caddy validate --config "$candidate_file" --adapter caddyfile >"$validate_log" 2>&1; then
+		cat "$validate_log" >&2
+		die "Failed to validate $candidate_file"
+	fi
+	rm -f "$validate_log"
 	cp "$candidate_file" "$CADDYFILE"
 }
 
 reload_caddy() {
 	note 'Reloading Caddy...'
-	caddy reload --config "$CADDYFILE" --adapter caddyfile >/dev/null \
-		|| die "Failed to reload Caddy with $CADDYFILE. Ensure Caddy is running."
+	local reload_log="$STATE_DIR/caddy-reload.log"
+	if ! caddy reload --config "$CADDYFILE" --adapter caddyfile >"$reload_log" 2>&1; then
+		cat "$reload_log" >&2
+		die "Failed to reload Caddy with $CADDYFILE. Ensure Caddy is running."
+	fi
+	rm -f "$reload_log"
 }
 
 setup_caddy_cmd() {

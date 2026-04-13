@@ -7,7 +7,9 @@ export interface RankedPlayerEntry {
 	isTopScore: boolean;
 }
 
-export function rankEntriesByPoints(entries: Array<{ name: string; points: number }>): RankedPlayerEntry[] {
+export function rankEntriesByPoints(
+	entries: Array<{ name: string; points: number }>
+): RankedPlayerEntry[] {
 	const sortedEntries = [...entries].sort(
 		(a, b) => b.points - a.points || a.name.localeCompare(b.name)
 	);

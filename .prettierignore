@@ -2,3 +2,17 @@
 pnpm-lock.yaml
 package-lock.json
 yarn.lock
+
+# Generated app artifacts
+build
+.svelte-kit
+package
+.self_host
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Backend build artifacts
+talespin-server/target
+
+# Local scratch
+tmp

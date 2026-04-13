@@ -682,6 +682,7 @@ impl MostBeautifulStatsStore {
         Ok(())
     }
 
+    #[cfg(test)]
     pub fn aggregated_stats(&self) -> Result<MostBeautifulStatsResponse> {
         let conn = self.connect()?;
         let mut players = Self::load_players(&conn)?;
@@ -1006,6 +1007,7 @@ impl MostBeautifulStatsStore {
         Ok(())
     }
 
+    #[cfg(test)]
     fn load_players(conn: &Connection) -> Result<HashMap<String, MostBeautifulPlayerStats>> {
         let mut stmt = conn
             .prepare(
@@ -1045,6 +1047,7 @@ impl MostBeautifulStatsStore {
         .context("Failed to load Most Beautiful player display name")
     }
 
+    #[cfg(test)]
     fn load_vote_totals(
         conn: &Connection,
         players: &mut HashMap<String, MostBeautifulPlayerStats>,
@@ -1123,6 +1126,7 @@ impl MostBeautifulStatsStore {
         Ok(())
     }
 
+    #[cfg(test)]
     fn load_round_wins(
         conn: &Connection,
         players: &mut HashMap<String, MostBeautifulPlayerStats>,

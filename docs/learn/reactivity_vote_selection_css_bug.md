@@ -1,6 +1,7 @@
 # Svelte Reactivity Case Study: "Vote selection CSS bug" that was actually a reactivity bug
 
 ## TL;DR
+
 The cards looked like a **CSS issue** (no border/glow when selected), but the core bug was **Svelte dependency tracking**:
 
 - In template code, we used `voteCountForCard(image)`.
@@ -13,9 +14,11 @@ We fixed it by deriving a reactive map (`selectedVoteCounts`) and referencing it
 ---
 
 ## 1) What happened
+
 During voting, clicking cards changed internal vote state, but card visuals (`ring`, badge `×1/×2`, glow) did not update reliably.
 
 It looked like:
+
 - click works,
 - but selected border/glow does not appear,
 - so it feels like CSS classes are broken.
@@ -23,6 +26,7 @@ It looked like:
 ---
 
 ## 2) The subtle Svelte rule behind this
+
 Svelte tracks dependencies **statically** per expression.
 
 If markup has this:
@@ -32,6 +36,7 @@ If markup has this:
 ```
 
 Svelte sees dependency on:
+
 - `voteCountForCard` (function reference)
 - `image`
 
@@ -43,6 +48,7 @@ That is the key gotcha.
 ---
 
 ## 3) Why this looked like a CSS bug
+
 The class logic depended on `selectedCount`:
 
 - `selectedCount === 1` -> show selected styling
@@ -53,11 +59,12 @@ If `selectedCount` does not recompute, class list never switches, so it **looks*
 ---
 
 ## 4) The fix we used
+
 ### Before (problematic)
 
 ```ts
 function voteCountForCard(card: string) {
-  return selectedVotes.filter((value) => value === card).length;
+	return selectedVotes.filter((value) => value === card).length;
 }
 ```
 
@@ -71,11 +78,11 @@ function voteCountForCard(card: string) {
 let selectedVoteCounts: Record<string, number> = {};
 
 $: {
-  const nextCounts: Record<string, number> = {};
-  for (const card of selectedVotes) {
-    nextCounts[card] = (nextCounts[card] ?? 0) + 1;
-  }
-  selectedVoteCounts = nextCounts;
+	const nextCounts: Record<string, number> = {};
+	for (const card of selectedVotes) {
+		nextCounts[card] = (nextCounts[card] ?? 0) + 1;
+	}
+	selectedVoteCounts = nextCounts;
 }
 ```
 
@@ -88,6 +95,7 @@ Now markup explicitly depends on `selectedVoteCounts`, which is updated from `se
 ---
 
 ## 5) Practical debugging heuristic for Svelte newbies
+
 When UI seems stale:
 
 1. Ask: **Is template expression directly referencing reactive state?**
@@ -95,11 +103,12 @@ When UI seems stale:
 3. Prefer one of:
    - reactive derived values (`$:`), or
    - stores/derived stores,
-   instead of hidden reads in helper functions used by template expressions.
+     instead of hidden reads in helper functions used by template expressions.
 
 ---
 
 ## 6) How you could have pointed this out earlier (to avoid my mistake)
+
 Great prompt pattern:
 
 > "I suspect this is not CSS; please verify whether the card template depends on `selectedVotes` explicitly, and check for function-call dependency issues in Svelte reactivity."
@@ -119,6 +128,7 @@ That framing would have focused the investigation on the real cause much earlier
 ---
 
 ## 7) Takeaway
+
 In Svelte, **what the template references directly matters**.
 If you hide state reads inside helper functions called from markup, updates can look "random" or "CSS broken" even when logic is correct.
 
