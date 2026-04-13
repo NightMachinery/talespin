@@ -8,8 +8,8 @@ voting while keeping the canonical number badges.
 - Setting name: **Randomize voting card order per player**
 - Scope: **room-global**
 - Default: **off**
-- Editable only during Dixit **ActiveChooses**, **Voting**, **BeautyVoting**, **Results**, and
-  **BeautyResults**
+- Editable during any live Dixit stage: **ActiveChooses**, **PlayersChoose**, **Voting**,
+  **BeautyVoting**, **Results**, and **BeautyResults**
 - Available from the live game sidebar (not the Joining screen)
 
 ## Voting-stage behavior

@@ -1289,6 +1289,50 @@ impl Room {
         });
     }
 
+    fn is_live_dixit_stage(stage: RoomStage) -> bool {
+        matches!(
+            stage,
+            RoomStage::ActiveChooses
+                | RoomStage::PlayersChoose
+                | RoomStage::Voting
+                | RoomStage::BeautyVoting
+                | RoomStage::Results
+                | RoomStage::BeautyResults
+        )
+    }
+
+    fn is_joining_or_live_dixit_stage(stage: RoomStage) -> bool {
+        matches!(stage, RoomStage::Joining) || Self::is_live_dixit_stage(stage)
+    }
+
+    fn is_before_voting_stage(stage: RoomStage) -> bool {
+        matches!(
+            stage,
+            RoomStage::Joining | RoomStage::ActiveChooses | RoomStage::PlayersChoose
+        )
+    }
+
+    fn is_before_beauty_voting_stage(stage: RoomStage) -> bool {
+        matches!(
+            stage,
+            RoomStage::Joining
+                | RoomStage::ActiveChooses
+                | RoomStage::PlayersChoose
+                | RoomStage::Voting
+        )
+    }
+
+    fn is_before_results_stage(stage: RoomStage) -> bool {
+        matches!(
+            stage,
+            RoomStage::Joining
+                | RoomStage::ActiveChooses
+                | RoomStage::PlayersChoose
+                | RoomStage::Voting
+                | RoomStage::BeautyVoting
+        )
+    }
+
     fn set_stage(&self, state: &mut RwLockWriteGuard<'_, RoomState>, stage: RoomStage) {
         state.stage = stage;
         if matches!(stage, RoomStage::Joining | RoomStage::End) {
@@ -5946,6 +5990,24 @@ impl Room {
                     return Ok(());
                 }
 
+                let can_change_storyteller_setting = match state.game_mode {
+                    GameMode::DixitPlus => Self::is_joining_or_live_dixit_stage(state.stage),
+                    GameMode::Stella => !matches!(state.stage, RoomStage::End),
+                };
+                if !can_change_storyteller_setting {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Storyteller scoring can only be changed during live Dixit stages"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
                 state.storyteller_loss_complement = complement;
                 self.clamp_storyteller_loss_complement(&mut state);
                 self.clamp_stage_timer_settings(&mut state);
@@ -5957,6 +6019,24 @@ impl Room {
                         tx.send(
                             ServerMsg::ErrorMsg(
                                 "Only moderators can change storyteller win-condition auto-tune"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                let can_change_storyteller_setting = match state.game_mode {
+                    GameMode::DixitPlus => Self::is_joining_or_live_dixit_stage(state.stage),
+                    GameMode::Stella => !matches!(state.stage, RoomStage::End),
+                };
+                if !can_change_storyteller_setting {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Storyteller scoring can only be changed during live Dixit stages"
                                     .to_string(),
                             )
                             .into(),
@@ -5989,11 +6069,11 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
+                if !Self::is_before_voting_stage(state.stage) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
-                                "Votes per guesser can only be changed during storyteller choosing stage"
+                                "Votes per guesser can only be changed before voting starts"
                                     .to_string(),
                             )
                             .into(),
@@ -6030,11 +6110,11 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
+                if !Self::is_before_beauty_voting_stage(state.stage) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
-                                "Most Beautiful settings can only be changed during storyteller choosing stage"
+                                "Some Most Beautiful settings can only be changed before beauty voting starts"
                                     .to_string(),
                             )
                             .into(),
@@ -6069,11 +6149,11 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
+                if !Self::is_before_beauty_voting_stage(state.stage) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
-                                "Most Beautiful settings can only be changed during storyteller choosing stage"
+                                "Some Most Beautiful settings can only be changed before beauty voting starts"
                                     .to_string(),
                             )
                             .into(),
@@ -6110,11 +6190,11 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
+                if !Self::is_before_beauty_voting_stage(state.stage) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
-                                "Most Beautiful settings can only be changed during storyteller choosing stage"
+                                "Some Most Beautiful settings can only be changed before beauty voting starts"
                                     .to_string(),
                             )
                             .into(),
@@ -6149,11 +6229,11 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
+                if !Self::is_joining_or_live_dixit_stage(state.stage) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
-                                "Most Beautiful settings can only be changed during storyteller choosing stage"
+                                "Most Beautiful scoring can only be changed during live Dixit stages"
                                     .to_string(),
                             )
                             .into(),
@@ -6188,11 +6268,11 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
+                if !Self::is_joining_or_live_dixit_stage(state.stage) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
-                                "Most Beautiful settings can only be changed during storyteller choosing stage"
+                                "Most Beautiful scoring can only be changed during live Dixit stages"
                                     .to_string(),
                             )
                             .into(),
@@ -6228,11 +6308,11 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
+                if !Self::is_joining_or_live_dixit_stage(state.stage) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
-                                "Most Beautiful settings can only be changed during storyteller choosing stage"
+                                "Most Beautiful scoring can only be changed during live Dixit stages"
                                     .to_string(),
                             )
                             .into(),
@@ -6267,11 +6347,11 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
+                if !Self::is_joining_or_live_dixit_stage(state.stage) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
-                                "Most Beautiful settings can only be changed during storyteller choosing stage"
+                                "Most Beautiful scoring can only be changed during live Dixit stages"
                                     .to_string(),
                             )
                             .into(),
@@ -6307,11 +6387,11 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
+                if !Self::is_before_results_stage(state.stage) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
-                                "Most Beautiful settings can only be changed during storyteller choosing stage"
+                                "Most Beautiful result display can only be changed before results are revealed"
                                     .to_string(),
                             )
                             .into(),
@@ -6346,11 +6426,11 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
+                if !Self::is_joining_or_live_dixit_stage(state.stage) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
-                                "Previous-results preview can only be changed during storyteller choosing stage"
+                                "Previous-results preview can only be changed during live Dixit stages"
                                     .to_string(),
                             )
                             .into(),
@@ -6429,11 +6509,11 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
+                if !Self::is_before_voting_stage(state.stage) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
-                                "Nominations per guesser can only be changed during storyteller choosing stage"
+                                "Nominations per guesser can only be changed before voting starts"
                                     .to_string(),
                             )
                             .into(),
@@ -6467,11 +6547,11 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
+                if !Self::is_joining_or_live_dixit_stage(state.stage) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
-                                "Threshold-correct scoring bonuses can only be changed during storyteller choosing stage"
+                                "Threshold-correct scoring bonuses can only be changed during live Dixit stages"
                                     .to_string(),
                             )
                             .into(),
@@ -6503,11 +6583,11 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
+                if !Self::is_joining_or_live_dixit_stage(state.stage) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
-                                "Threshold-correct scoring bonuses can only be changed during storyteller choosing stage"
+                                "Threshold-correct scoring bonuses can only be changed during live Dixit stages"
                                     .to_string(),
                             )
                             .into(),
@@ -6539,11 +6619,11 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
+                if !Self::is_joining_or_live_dixit_stage(state.stage) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
-                                "Storyteller-loss scoring bonus scope can only be changed during storyteller choosing stage"
+                                "Storyteller-loss scoring bonus scope can only be changed during live Dixit stages"
                                     .to_string(),
                             )
                             .into(),
@@ -6574,14 +6654,17 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(
-                    state.stage,
-                    RoomStage::Joining | RoomStage::ActiveChooses | RoomStage::StellaAssociate
-                ) {
+                let can_change_number_overlays = match state.game_mode {
+                    GameMode::DixitPlus => Self::is_live_dixit_stage(state.stage),
+                    GameMode::Stella => {
+                        matches!(state.stage, RoomStage::Joining | RoomStage::StellaAssociate)
+                    }
+                };
+                if !can_change_number_overlays {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
-                                "Card number overlays can only be changed during storyteller choosing or Stella associate stage"
+                                "Card number overlays can only be changed during live Dixit stages or the Resonance associate stage"
                                     .to_string(),
                             )
                             .into(),
@@ -6617,14 +6700,7 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(
-                    state.stage,
-                    RoomStage::ActiveChooses
-                        | RoomStage::Voting
-                        | RoomStage::BeautyVoting
-                        | RoomStage::Results
-                        | RoomStage::BeautyResults
-                ) {
+                if !Self::is_live_dixit_stage(state.stage) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
@@ -6659,11 +6735,11 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
+                if !Self::is_joining_or_live_dixit_stage(state.stage) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
-                                "Round-start discard count can only be changed during storyteller choosing stage"
+                                "Round-start discard count can only be changed during live Dixit stages"
                                     .to_string(),
                             )
                             .into(),
@@ -6695,14 +6771,17 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(
-                    state.stage,
-                    RoomStage::Joining | RoomStage::ActiveChooses | RoomStage::StellaAssociate
-                ) {
+                let can_change_hint_timer = match state.game_mode {
+                    GameMode::DixitPlus => Self::is_joining_or_live_dixit_stage(state.stage),
+                    GameMode::Stella => {
+                        matches!(state.stage, RoomStage::Joining | RoomStage::StellaAssociate)
+                    }
+                };
+                if !can_change_hint_timer {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
-                                "Hint-stage timer settings can only be changed during setup or the active hint stage"
+                                "Hint-stage timer settings can only be changed during setup, live Dixit stages, or the active Resonance associate stage"
                                     .to_string(),
                             )
                             .into(),
@@ -6734,14 +6813,17 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(
-                    state.stage,
-                    RoomStage::Joining | RoomStage::ActiveChooses | RoomStage::StellaAssociate
-                ) {
+                let can_change_hint_timer = match state.game_mode {
+                    GameMode::DixitPlus => Self::is_joining_or_live_dixit_stage(state.stage),
+                    GameMode::Stella => {
+                        matches!(state.stage, RoomStage::Joining | RoomStage::StellaAssociate)
+                    }
+                };
+                if !can_change_hint_timer {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
-                                "Hint-stage timer settings can only be changed during setup or the active hint stage"
+                                "Hint-stage timer settings can only be changed during setup, live Dixit stages, or the active Resonance associate stage"
                                     .to_string(),
                             )
                             .into(),
@@ -6773,14 +6855,17 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(
-                    state.stage,
-                    RoomStage::Joining | RoomStage::ActiveChooses | RoomStage::StellaAssociate
-                ) {
+                let can_change_hint_timer = match state.game_mode {
+                    GameMode::DixitPlus => Self::is_joining_or_live_dixit_stage(state.stage),
+                    GameMode::Stella => {
+                        matches!(state.stage, RoomStage::Joining | RoomStage::StellaAssociate)
+                    }
+                };
+                if !can_change_hint_timer {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
-                                "Hint-stage timer settings can only be changed during setup or the active hint stage"
+                                "Hint-stage timer settings can only be changed during setup, live Dixit stages, or the active Resonance associate stage"
                                     .to_string(),
                             )
                             .into(),
@@ -6812,11 +6897,11 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
+                if !Self::is_joining_or_live_dixit_stage(state.stage) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
-                                "Stage timers can only be changed during storyteller choosing stage"
+                                "Stage timers can only be changed during live Dixit stages"
                                     .to_string(),
                             )
                             .into(),
@@ -6849,11 +6934,11 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
+                if !Self::is_joining_or_live_dixit_stage(state.stage) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
-                                "Stage timers can only be changed during storyteller choosing stage"
+                                "Stage timers can only be changed during live Dixit stages"
                                     .to_string(),
                             )
                             .into(),
@@ -6885,11 +6970,11 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
+                if !Self::is_joining_or_live_dixit_stage(state.stage) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
-                                "Stage timers can only be changed during storyteller choosing stage"
+                                "Stage timers can only be changed during live Dixit stages"
                                     .to_string(),
                             )
                             .into(),
@@ -6921,11 +7006,11 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
+                if !Self::is_joining_or_live_dixit_stage(state.stage) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
-                                "Stage timers can only be changed during storyteller choosing stage"
+                                "Stage timers can only be changed during live Dixit stages"
                                     .to_string(),
                             )
                             .into(),
@@ -6961,11 +7046,11 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
+                if !Self::is_joining_or_live_dixit_stage(state.stage) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
-                                "Stage timers can only be changed during storyteller choosing stage"
+                                "Stage timers can only be changed during live Dixit stages"
                                     .to_string(),
                             )
                             .into(),
@@ -7001,11 +7086,11 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
+                if !Self::is_joining_or_live_dixit_stage(state.stage) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
-                                "Stage timers can only be changed during storyteller choosing stage"
+                                "Stage timers can only be changed during live Dixit stages"
                                     .to_string(),
                             )
                             .into(),
@@ -7038,11 +7123,11 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
+                if !Self::is_joining_or_live_dixit_stage(state.stage) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
-                                "Stage timers can only be changed during storyteller choosing stage"
+                                "Stage timers can only be changed during live Dixit stages"
                                     .to_string(),
                             )
                             .into(),
@@ -7073,11 +7158,11 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
+                if !Self::is_joining_or_live_dixit_stage(state.stage) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
-                                "Stage timers can only be changed during storyteller choosing stage"
+                                "Stage timers can only be changed during live Dixit stages"
                                     .to_string(),
                             )
                             .into(),
@@ -7112,11 +7197,11 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
+                if !Self::is_joining_or_live_dixit_stage(state.stage) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
-                                "Stage timers can only be changed during storyteller choosing stage"
+                                "Stage timers can only be changed during live Dixit stages"
                                     .to_string(),
                             )
                             .into(),
@@ -7176,11 +7261,11 @@ impl Room {
                     return Ok(());
                 }
 
-                if !matches!(state.stage, RoomStage::Joining | RoomStage::ActiveChooses) {
+                if !Self::is_before_voting_stage(state.stage) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
-                                "Voting wrong-card disabling can only be changed during storyteller choosing stage"
+                                "Voting wrong-card disabling can only be changed before voting starts"
                                     .to_string(),
                             )
                             .into(),
@@ -11004,14 +11089,14 @@ alpha
     }
 
     #[tokio::test]
-    async fn moderator_can_update_beauty_scoring_mode_and_divisor() -> Result<()> {
+    async fn moderator_can_update_beauty_scoring_mode_and_divisor_in_results() -> Result<()> {
         let room = test_room();
         {
             let mut state = room.state.write().await;
             add_player(&mut state, "host", 0);
             state.moderators.insert("host".to_string());
             setup_connected_member(&mut state, "host", "t-host", 10_203);
-            room.set_stage(&mut state, RoomStage::ActiveChooses);
+            room.set_stage(&mut state, RoomStage::Results);
         }
 
         room.handle_client_msg(
@@ -11032,11 +11117,278 @@ alpha
         let state = room.state.write().await;
         assert!(
             matches!(state.beauty_scoring_mode, BeautyScoringMode::WinnerBonus),
-            "moderators should be able to switch Most Beautiful scoring mode"
+            "moderators should be able to switch Most Beautiful scoring mode in Results"
         );
         assert_eq!(
             state.beauty_vote_points_divisor, 7,
-            "moderators should be able to update the Most Beautiful vote divisor"
+            "moderators should be able to update the Most Beautiful vote divisor in Results"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn moderator_can_update_card_timer_during_players_choose_and_refresh_deadline(
+    ) -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            add_player(&mut state, "p2", 0);
+            add_player(&mut state, "p3", 0);
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 10_204);
+            room.set_stage(&mut state, RoomStage::PlayersChoose);
+            state.stage_started_at_s = Some(3_000);
+            room.refresh_current_stage_deadline(&mut state);
+        }
+
+        room.handle_client_msg(
+            "host",
+            10_204,
+            to_ws(ClientMsg::SetCardChoosingTimerDuration { seconds: 42 }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert_eq!(
+            state.card_choosing_timer_duration_s, 42,
+            "moderator update should persist the new card-choosing timer duration"
+        );
+        assert_eq!(
+            state.current_stage_deadline_s,
+            Some(3_042),
+            "current PlayersChoose deadline should be recomputed from stage start"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn moderator_can_update_voting_timer_during_voting_and_refresh_deadline() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            add_player(&mut state, "p2", 0);
+            add_player(&mut state, "p3", 0);
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 10_205);
+            room.set_stage(&mut state, RoomStage::Voting);
+            state.stage_started_at_s = Some(4_000);
+            room.refresh_current_stage_deadline(&mut state);
+        }
+
+        room.handle_client_msg(
+            "host",
+            10_205,
+            to_ws(ClientMsg::SetVotingTimerDuration { seconds: 42 }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert_eq!(
+            state.voting_timer_duration_s, 42,
+            "moderator update should persist the new voting timer duration"
+        );
+        assert_eq!(
+            state.current_stage_deadline_s,
+            Some(4_042),
+            "current voting deadline should be recomputed from stage start"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn moderator_can_update_beauty_timer_during_beauty_voting_and_refresh_deadline(
+    ) -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            add_player(&mut state, "p2", 0);
+            add_player(&mut state, "p3", 0);
+            state.game_mode = GameMode::DixitPlus;
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 10_206);
+            room.set_stage(&mut state, RoomStage::BeautyVoting);
+            state.stage_started_at_s = Some(5_000);
+            room.refresh_current_stage_deadline(&mut state);
+        }
+
+        room.handle_client_msg(
+            "host",
+            10_206,
+            to_ws(ClientMsg::SetBeautyTimerDuration { seconds: 42 }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert_eq!(
+            state.beauty_timer_duration_s, 42,
+            "moderator update should persist the new beauty timer duration"
+        );
+        assert_eq!(
+            state.current_stage_deadline_s,
+            Some(5_042),
+            "current beauty-voting deadline should be recomputed from stage start"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn most_beautiful_entry_settings_lock_when_beauty_voting_has_started() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            add_player(&mut state, "p2", 0);
+            add_player(&mut state, "p3", 0);
+            add_player(&mut state, "p4", 0);
+            state.game_mode = GameMode::DixitPlus;
+            state.stage = RoomStage::BeautyVoting;
+            state.beauty_enabled = true;
+            state.beauty_votes_per_player = 2;
+            state.beauty_allow_duplicate_votes = false;
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 10_207);
+        }
+
+        room.handle_client_msg(
+            "host",
+            10_207,
+            to_ws(ClientMsg::SetBeautyEnabled { enabled: false }),
+        )
+        .await?;
+        room.handle_client_msg(
+            "host",
+            10_207,
+            to_ws(ClientMsg::SetBeautyVotesPerPlayer { votes: 1 }),
+        )
+        .await?;
+        room.handle_client_msg(
+            "host",
+            10_207,
+            to_ws(ClientMsg::SetBeautyAllowDuplicateVotes { enabled: true }),
+        )
+        .await?;
+
+        {
+            let state = room.state.read().await;
+            assert!(
+                state.beauty_enabled,
+                "Most Beautiful should stay enabled in BeautyVoting"
+            );
+            assert_eq!(
+                state.beauty_votes_per_player, 2,
+                "beauty votes per player should stay unchanged in BeautyVoting"
+            );
+            assert!(
+                !state.beauty_allow_duplicate_votes,
+                "duplicate-vote setting should stay unchanged in BeautyVoting"
+            );
+        }
+
+        {
+            let mut state = room.state.write().await;
+            state.stage = RoomStage::Voting;
+        }
+
+        room.handle_client_msg(
+            "host",
+            10_207,
+            to_ws(ClientMsg::SetBeautyEnabled { enabled: false }),
+        )
+        .await?;
+        room.handle_client_msg(
+            "host",
+            10_207,
+            to_ws(ClientMsg::SetBeautyVotesPerPlayer { votes: 1 }),
+        )
+        .await?;
+        room.handle_client_msg(
+            "host",
+            10_207,
+            to_ws(ClientMsg::SetBeautyAllowDuplicateVotes { enabled: true }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert!(
+            !state.beauty_enabled,
+            "Most Beautiful should stay editable until BeautyVoting starts"
+        );
+        assert_eq!(
+            state.beauty_votes_per_player, 1,
+            "beauty votes per player should update during Voting"
+        );
+        assert!(
+            state.beauty_allow_duplicate_votes,
+            "duplicate-vote setting should update during Voting"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn beauty_results_display_mode_locks_once_results_start() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            add_player(&mut state, "p2", 0);
+            add_player(&mut state, "p3", 0);
+            add_player(&mut state, "p4", 0);
+            state.game_mode = GameMode::DixitPlus;
+            state.stage = RoomStage::Results;
+            state.beauty_results_display_mode = BeautyResultsDisplayMode::Combined;
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 10_208);
+        }
+
+        room.handle_client_msg(
+            "host",
+            10_208,
+            to_ws(ClientMsg::SetBeautyResultsDisplayMode {
+                mode: BeautyResultsDisplayMode::Separate,
+            }),
+        )
+        .await?;
+
+        {
+            let state = room.state.read().await;
+            assert!(
+                matches!(
+                    state.beauty_results_display_mode,
+                    BeautyResultsDisplayMode::Combined
+                ),
+                "beauty results display mode should stay unchanged after Results begin"
+            );
+        }
+
+        {
+            let mut state = room.state.write().await;
+            state.stage = RoomStage::BeautyVoting;
+        }
+
+        room.handle_client_msg(
+            "host",
+            10_208,
+            to_ws(ClientMsg::SetBeautyResultsDisplayMode {
+                mode: BeautyResultsDisplayMode::Separate,
+            }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert!(
+            matches!(
+                state.beauty_results_display_mode,
+                BeautyResultsDisplayMode::Separate
+            ),
+            "beauty results display mode should stay editable through BeautyVoting"
         );
 
         Ok(())
@@ -12122,7 +12474,7 @@ alpha
     }
 
     #[tokio::test]
-    async fn votes_and_nominations_cannot_change_in_players_choose() -> Result<()> {
+    async fn votes_and_nominations_can_change_in_players_choose() -> Result<()> {
         let room = test_room();
         {
             let mut state = room.state.write().await;
@@ -12161,24 +12513,24 @@ alpha
 
         let state = room.state.read().await;
         assert_eq!(
-            state.votes_per_guesser, 2,
-            "votes per guesser should remain unchanged in PlayersChoose stage"
+            state.votes_per_guesser, 1,
+            "votes per guesser should update in PlayersChoose stage"
         );
         assert_eq!(
-            state.nominations_per_guesser, 1,
-            "nominations per guesser should remain unchanged in PlayersChoose stage"
+            state.nominations_per_guesser, 2,
+            "nominations per guesser should update in PlayersChoose stage"
         );
         assert_eq!(
             state.voting_wrong_card_disable_distribution,
-            vec![0.5, 0.5],
-            "voting wrong-card disabling should remain unchanged in PlayersChoose stage"
+            vec![0.0, 1.0],
+            "voting wrong-card disabling should update in PlayersChoose stage"
         );
 
         Ok(())
     }
 
     #[tokio::test]
-    async fn threshold_correct_bonus_toggles_change_only_in_storyteller_stage() -> Result<()> {
+    async fn threshold_correct_bonus_toggles_change_in_live_dixit_stages() -> Result<()> {
         let room = test_room();
         {
             let mut state = room.state.write().await;
@@ -12196,7 +12548,7 @@ alpha
         room.handle_client_msg(
             "host",
             113,
-            to_ws(ClientMsg::SetBonusCorrectGuessOnThresholdCorrectLoss { enabled: false }),
+            to_ws(ClientMsg::SetBonusCorrectGuessOnThresholdCorrectLoss { enabled: true }),
         )
         .await?;
         room.handle_client_msg(
@@ -12209,18 +12561,18 @@ alpha
         {
             let state = room.state.read().await;
             assert!(
-                !state.bonus_correct_guess_on_threshold_correct_loss,
-                "correct-guess bonus toggle should remain unchanged outside ActiveChooses"
+                state.bonus_correct_guess_on_threshold_correct_loss,
+                "correct-guess bonus toggle should update in PlayersChoose"
             );
             assert!(
                 !state.bonus_double_vote_on_threshold_correct_loss,
-                "double-vote bonus toggle should remain unchanged outside ActiveChooses"
+                "double-vote bonus toggle should remain unchanged until explicitly enabled"
             );
         }
 
         {
             let mut state = room.state.write().await;
-            state.stage = RoomStage::ActiveChooses;
+            state.stage = RoomStage::Results;
         }
 
         room.handle_client_msg(
@@ -12239,18 +12591,18 @@ alpha
         let state = room.state.read().await;
         assert!(
             state.bonus_correct_guess_on_threshold_correct_loss,
-            "correct-guess bonus toggle should update in ActiveChooses"
+            "correct-guess bonus toggle should stay editable in Results"
         );
         assert!(
             state.bonus_double_vote_on_threshold_correct_loss,
-            "double-vote bonus toggle should update in ActiveChooses"
+            "double-vote bonus toggle should update in Results"
         );
 
         Ok(())
     }
 
     #[tokio::test]
-    async fn storyteller_loss_bonus_scope_changes_only_in_storyteller_stage() -> Result<()> {
+    async fn storyteller_loss_bonus_scope_changes_in_live_dixit_stages() -> Result<()> {
         let room = test_room();
         {
             let mut state = room.state.write().await;
@@ -12278,14 +12630,15 @@ alpha
         {
             let state = room.state.read().await;
             assert!(
-                !state.bonus_threshold_loss_toggles_apply_to_all_storyteller_loss_rounds,
-                "storyteller-loss bonus scope should remain unchanged outside ActiveChooses"
+                state.bonus_threshold_loss_toggles_apply_to_all_storyteller_loss_rounds,
+                "storyteller-loss bonus scope should update in PlayersChoose"
             );
         }
 
         {
             let mut state = room.state.write().await;
-            state.stage = RoomStage::ActiveChooses;
+            state.stage = RoomStage::BeautyResults;
+            state.bonus_threshold_loss_toggles_apply_to_all_storyteller_loss_rounds = false;
         }
 
         room.handle_client_msg(
@@ -12302,14 +12655,14 @@ alpha
         let state = room.state.read().await;
         assert!(
             state.bonus_threshold_loss_toggles_apply_to_all_storyteller_loss_rounds,
-            "storyteller-loss bonus scope should update in ActiveChooses"
+            "storyteller-loss bonus scope should stay editable in BeautyResults"
         );
 
         Ok(())
     }
 
     #[tokio::test]
-    async fn voting_numbering_and_round_discard_change_only_in_storyteller_stage() -> Result<()> {
+    async fn voting_numbering_and_round_discard_change_in_live_dixit_stages() -> Result<()> {
         let room = test_room();
         {
             let mut state = room.state.write().await;
@@ -12317,7 +12670,7 @@ alpha
             add_player(&mut state, "p2", 0);
             add_player(&mut state, "p3", 0);
             add_player(&mut state, "p4", 0);
-            state.stage = RoomStage::PlayersChoose;
+            state.stage = RoomStage::Paused;
             state.cards_per_hand = 6;
             state.show_voting_card_numbers = false;
             state.round_start_discard_count = 0;
@@ -12342,41 +12695,55 @@ alpha
             let state = room.state.read().await;
             assert!(
                 !state.show_voting_card_numbers,
-                "voting card numbering should stay unchanged outside ActiveChooses"
+                "voting card numbering should stay unchanged outside live Dixit stages"
             );
             assert_eq!(
                 state.round_start_discard_count, 0,
-                "round-start discard count should stay unchanged outside ActiveChooses"
+                "round-start discard count should stay unchanged outside live Dixit stages"
             );
         }
 
-        {
-            let mut state = room.state.write().await;
-            state.stage = RoomStage::ActiveChooses;
+        for stage in [
+            RoomStage::ActiveChooses,
+            RoomStage::PlayersChoose,
+            RoomStage::Voting,
+            RoomStage::BeautyVoting,
+            RoomStage::Results,
+            RoomStage::BeautyResults,
+        ] {
+            {
+                let mut state = room.state.write().await;
+                state.stage = stage;
+                state.show_voting_card_numbers = false;
+                state.round_start_discard_count = 0;
+            }
+
+            room.handle_client_msg(
+                "host",
+                114,
+                to_ws(ClientMsg::SetShowVotingCardNumbers { enabled: true }),
+            )
+            .await?;
+            room.handle_client_msg(
+                "host",
+                114,
+                to_ws(ClientMsg::SetRoundStartDiscardCount { count: 99 }),
+            )
+            .await?;
+
+            let state = room.state.read().await;
+            assert!(
+                state.show_voting_card_numbers,
+                "voting card numbering should update in {:?}",
+                stage
+            );
+            assert_eq!(
+                state.round_start_discard_count, 5,
+                "round-start discard count should clamp to cards_per_hand - 1 in {:?}",
+                stage
+            );
+            drop(state);
         }
-
-        room.handle_client_msg(
-            "host",
-            114,
-            to_ws(ClientMsg::SetShowVotingCardNumbers { enabled: true }),
-        )
-        .await?;
-        room.handle_client_msg(
-            "host",
-            114,
-            to_ws(ClientMsg::SetRoundStartDiscardCount { count: 99 }),
-        )
-        .await?;
-
-        let state = room.state.read().await;
-        assert!(
-            state.show_voting_card_numbers,
-            "voting card numbering should update in ActiveChooses"
-        );
-        assert_eq!(
-            state.round_start_discard_count, 5,
-            "round-start discard count should clamp to cards_per_hand - 1"
-        );
 
         Ok(())
     }
@@ -12406,13 +12773,14 @@ alpha
         {
             let state = room.state.read().await;
             assert!(
-                !state.randomize_voting_card_order_per_viewer,
-                "randomized voting order should stay unchanged outside live Dixit stages"
+                state.randomize_voting_card_order_per_viewer,
+                "randomized voting order should update in PlayersChoose"
             );
         }
 
         for stage in [
             RoomStage::ActiveChooses,
+            RoomStage::PlayersChoose,
             RoomStage::Voting,
             RoomStage::BeautyVoting,
             RoomStage::Results,
@@ -12557,7 +12925,7 @@ alpha
     }
 
     #[tokio::test]
-    async fn previous_results_preview_toggle_changes_only_in_storyteller_stage() -> Result<()> {
+    async fn previous_results_preview_toggle_changes_in_live_dixit_stages() -> Result<()> {
         let room = test_room();
         {
             let mut state = room.state.write().await;
@@ -12565,7 +12933,7 @@ alpha
             add_player(&mut state, "p2", 0);
             add_player(&mut state, "p3", 0);
             add_player(&mut state, "p4", 0);
-            state.stage = RoomStage::PlayersChoose;
+            state.stage = RoomStage::Paused;
             state.show_previous_results_during_storyteller_choosing = true;
             state.moderators.insert("host".to_string());
             setup_connected_member(&mut state, "host", "t-host", 116);
@@ -12582,27 +12950,41 @@ alpha
             let state = room.state.read().await;
             assert!(
                 state.show_previous_results_during_storyteller_choosing,
-                "previous-results preview should remain unchanged outside ActiveChooses"
+                "previous-results preview should remain unchanged outside live Dixit stages"
             );
         }
 
-        {
-            let mut state = room.state.write().await;
-            state.stage = RoomStage::ActiveChooses;
+        for stage in [
+            RoomStage::ActiveChooses,
+            RoomStage::PlayersChoose,
+            RoomStage::Voting,
+            RoomStage::BeautyVoting,
+            RoomStage::Results,
+            RoomStage::BeautyResults,
+        ] {
+            {
+                let mut state = room.state.write().await;
+                state.stage = stage;
+                state.show_previous_results_during_storyteller_choosing = true;
+            }
+
+            room.handle_client_msg(
+                "host",
+                116,
+                to_ws(ClientMsg::SetShowPreviousResultsDuringStorytellerChoosing {
+                    enabled: false,
+                }),
+            )
+            .await?;
+
+            let state = room.state.read().await;
+            assert!(
+                !state.show_previous_results_during_storyteller_choosing,
+                "previous-results preview should update during {:?}",
+                stage
+            );
+            drop(state);
         }
-
-        room.handle_client_msg(
-            "host",
-            116,
-            to_ws(ClientMsg::SetShowPreviousResultsDuringStorytellerChoosing { enabled: false }),
-        )
-        .await?;
-
-        let state = room.state.read().await;
-        assert!(
-            !state.show_previous_results_during_storyteller_choosing,
-            "previous-results preview should update during ActiveChooses"
-        );
 
         Ok(())
     }

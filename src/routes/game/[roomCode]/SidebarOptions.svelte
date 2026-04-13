@@ -34,7 +34,11 @@
 		type VotingWrongCardDisablePresetId
 	} from '$lib/votingWrongCardDisableDistribution';
 
-	const SETTINGS_EDIT_STAGE_HINT = 'Can only be changed during storyteller choosing stage.';
+	const STORYTELLER_CHOOSING_ONLY_HINT = 'Can only be changed during storyteller choosing stage.';
+	const BEFORE_VOTING_HINT = 'Can only be changed before voting starts.';
+	const BEFORE_BEAUTY_VOTING_HINT = 'Can only be changed before beauty voting starts.';
+	const BEFORE_RESULTS_HINT = 'Can only be changed before results are revealed.';
+	const LIVE_DIXIT_STAGE_HINT = 'Can only be changed during a live Dixit stage.';
 	const STAGE_TIMER_DURATION_MIN_S = 1;
 	const STAGE_TIMER_DURATION_MAX_S = 60 * 60;
 	const STELLA_SCOUT_TIMER_DURATION_MIN_S = 0;
@@ -128,33 +132,46 @@
 		activePlayer === name;
 	$: canBecomeObserver =
 		!isSelfObserver && stage !== 'Joining' && stage !== 'End' && !selfObserveBlocked;
-	$: canChangeCardsPerHand = isDixitMode && stage === 'ActiveChooses';
-	$: canChangePreVotingSettings = isDixitMode && stage === 'ActiveChooses';
-	$: canRefreshHands = isDixitMode && stage === 'ActiveChooses';
-	$: canChangeStageTimers =
-		(isDixitMode && stage === 'ActiveChooses') || (isStellaMode && stage === 'StellaAssociate');
-	$: canChangeStellaSettings = isStellaMode && stage === 'StellaAssociate';
-	$: canSwitchStellaWordPack =
-		isStellaMode &&
-		(stage === 'StellaAssociate' || stage === 'StellaReveal' || stage === 'StellaResults');
-	$: canChangeVotingOrderRandomizationSetting =
+	$: canChangeLiveDixitSettings =
 		isDixitMode &&
 		(stage === 'ActiveChooses' ||
+			stage === 'PlayersChoose' ||
 			stage === 'Voting' ||
 			stage === 'BeautyVoting' ||
 			stage === 'Results' ||
 			stage === 'BeautyResults');
+	$: canChangeCardsPerHand = isDixitMode && stage === 'ActiveChooses';
+	$: canChangeBeforeVotingSettings =
+		isDixitMode && (stage === 'ActiveChooses' || stage === 'PlayersChoose');
+	$: canChangeBeforeBeautyVotingSettings =
+		isDixitMode && (stage === 'ActiveChooses' || stage === 'PlayersChoose' || stage === 'Voting');
+	$: canChangeBeforeResultsSettings =
+		isDixitMode &&
+		(stage === 'ActiveChooses' ||
+			stage === 'PlayersChoose' ||
+			stage === 'Voting' ||
+			stage === 'BeautyVoting');
+	$: canRefreshHands = isDixitMode && stage === 'ActiveChooses';
+	$: canChangeStageTimers =
+		(isDixitMode && canChangeLiveDixitSettings) || (isStellaMode && stage === 'StellaAssociate');
+	$: canChangeStellaSettings = isStellaMode && stage === 'StellaAssociate';
+	$: canSwitchStellaWordPack =
+		isStellaMode &&
+		(stage === 'StellaAssociate' || stage === 'StellaReveal' || stage === 'StellaResults');
+	$: canChangeVotingOrderRandomizationSetting = canChangeLiveDixitSettings;
+	$: canChangeStorytellerScoringSettings = isDixitMode
+		? canChangeLiveDixitSettings
+		: stage !== 'End';
 	$: canChangeNumberOverlaySetting = isStellaMode
 		? stage === 'StellaAssociate'
-		: canChangePreVotingSettings;
-	$: votingOrderRandomizationHint =
-		'Can only be changed during storyteller choosing, voting, beauty voting, or results.';
+		: canChangeLiveDixitSettings;
+	$: votingOrderRandomizationHint = LIVE_DIXIT_STAGE_HINT;
 	$: settingsEditStageHint = isStellaMode
 		? 'Can only be changed during the Resonance associate stage.'
-		: SETTINGS_EDIT_STAGE_HINT;
+		: LIVE_DIXIT_STAGE_HINT;
 	$: timerSettingsEditHint = isStellaMode
 		? 'Can only be changed during the Resonance associate stage.'
-		: SETTINGS_EDIT_STAGE_HINT;
+		: LIVE_DIXIT_STAGE_HINT;
 	$: storytellerWinCondition = storytellerLossComplement + 1;
 	$: storytellerWinConditionMin = storytellerLossComplementMin + 1;
 	$: storytellerWinConditionMax = storytellerLossComplementMax + 1;
@@ -270,7 +287,7 @@
 	function updateStorytellerLossComplement(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
 		const parsed = Number(input.value);
-		if (!isModerator || storytellerLossComplementAuto) {
+		if (!isModerator || !canChangeStorytellerScoringSettings || storytellerLossComplementAuto) {
 			input.value = `${storytellerWinCondition}`;
 			return;
 		}
@@ -290,7 +307,7 @@
 
 	function updateStorytellerLossComplementAuto(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
-		if (!isModerator) {
+		if (!isModerator || !canChangeStorytellerScoringSettings) {
 			input.checked = storytellerLossComplementAuto;
 			return;
 		}
@@ -300,6 +317,10 @@
 	function updateVotesPerGuesser(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
 		const parsed = Number(input.value);
+		if (!isModerator || !canChangeBeforeVotingSettings) {
+			input.value = `${votesPerGuesser}`;
+			return;
+		}
 		if (!Number.isInteger(parsed) || parsed < votesPerGuesserMin || parsed > votesPerGuesserMax) {
 			input.value = `${votesPerGuesser}`;
 			return;
@@ -311,7 +332,7 @@
 
 	function updateBeautyEnabled(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
-		if (!isModerator || !canChangePreVotingSettings) {
+		if (!isModerator || !canChangeBeforeBeautyVotingSettings) {
 			input.checked = beautyEnabled;
 			return;
 		}
@@ -321,6 +342,10 @@
 	function updateBeautyVotesPerPlayer(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
 		const parsed = Number(input.value);
+		if (!isModerator || !canChangeBeforeBeautyVotingSettings) {
+			input.value = `${beautyVotesPerPlayer}`;
+			return;
+		}
 		if (
 			!Number.isInteger(parsed) ||
 			parsed < beautyVotesPerPlayerMin ||
@@ -336,7 +361,7 @@
 
 	function updateBeautyAllowDuplicateVotes(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
-		if (!isModerator || !canChangePreVotingSettings) {
+		if (!isModerator || !canChangeBeforeBeautyVotingSettings) {
 			input.checked = beautyAllowDuplicateVotes;
 			return;
 		}
@@ -345,7 +370,7 @@
 
 	function updateBeautySplitPointsOnTie(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
-		if (!isModerator || !canChangePreVotingSettings) {
+		if (!isModerator || !canChangeStorytellerScoringSettings) {
 			input.checked = beautySplitPointsOnTie;
 			return;
 		}
@@ -355,6 +380,10 @@
 	function updateBeautyPointsBonus(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
 		const parsed = Number(input.value);
+		if (!isModerator || !canChangeStorytellerScoringSettings) {
+			input.value = `${beautyPointsBonus}`;
+			return;
+		}
 		if (
 			!Number.isInteger(parsed) ||
 			parsed < beautyPointsBonusMin ||
@@ -370,7 +399,7 @@
 
 	function updateBeautyScoringMode(event: Event) {
 		const select = event.currentTarget as HTMLSelectElement;
-		if (!isModerator || !canChangePreVotingSettings) {
+		if (!isModerator || !canChangeStorytellerScoringSettings) {
 			select.value = $beautyScoringModeStore;
 			return;
 		}
@@ -380,6 +409,10 @@
 	function updateBeautyVotePointsDivisor(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
 		const parsed = Number(input.value);
+		if (!isModerator || !canChangeStorytellerScoringSettings) {
+			input.value = `${$beautyVotePointsDivisorStore}`;
+			return;
+		}
 		if (
 			!Number.isInteger(parsed) ||
 			parsed < BEAUTY_VOTE_POINTS_DIVISOR_MIN ||
@@ -395,7 +428,7 @@
 
 	function updateBeautyResultsDisplayMode(event: Event) {
 		const select = event.currentTarget as HTMLSelectElement;
-		if (!isModerator || !canChangePreVotingSettings) {
+		if (!isModerator || !canChangeBeforeResultsSettings) {
 			select.value = beautyResultsDisplayMode;
 			return;
 		}
@@ -404,7 +437,7 @@
 
 	function updateShowPreviousResultsDuringStorytellerChoosing(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
-		if (!isModerator || !canChangePreVotingSettings) {
+		if (!isModerator || !canChangeLiveDixitSettings) {
 			input.checked = showPreviousResultsDuringStorytellerChoosing;
 			return;
 		}
@@ -414,6 +447,10 @@
 	function updateCardsPerHand(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
 		const parsed = Number(input.value);
+		if (!isModerator || !canChangeCardsPerHand) {
+			input.value = `${cardsPerHand}`;
+			return;
+		}
 		if (!Number.isInteger(parsed) || parsed < cardsPerHandMin || parsed > cardsPerHandMax) {
 			input.value = `${cardsPerHand}`;
 			return;
@@ -426,6 +463,10 @@
 	function updateNominationsPerGuesser(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
 		const parsed = Number(input.value);
+		if (!isModerator || !canChangeBeforeVotingSettings) {
+			input.value = `${nominationsPerGuesser}`;
+			return;
+		}
 		if (
 			!Number.isInteger(parsed) ||
 			parsed < nominationsPerGuesserMin ||
@@ -441,7 +482,7 @@
 
 	function updateBonusCorrectGuessOnThresholdCorrectLoss(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
-		if (!isModerator || !canChangePreVotingSettings) {
+		if (!isModerator || !canChangeStorytellerScoringSettings) {
 			input.checked = bonusCorrectGuessOnThresholdCorrectLoss;
 			return;
 		}
@@ -450,7 +491,7 @@
 
 	function updateBonusDoubleVoteOnThresholdCorrectLoss(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
-		if (!isModerator || !canChangePreVotingSettings) {
+		if (!isModerator || !canChangeStorytellerScoringSettings) {
 			input.checked = bonusDoubleVoteOnThresholdCorrectLoss;
 			return;
 		}
@@ -459,7 +500,7 @@
 
 	function updateBonusThresholdLossTogglesApplyToAllStorytellerLossRounds(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
-		if (!isModerator || !canChangePreVotingSettings) {
+		if (!isModerator || !canChangeStorytellerScoringSettings) {
 			input.checked = bonusThresholdLossTogglesApplyToAllStorytellerLossRounds;
 			return;
 		}
@@ -487,6 +528,10 @@
 	function updateRoundStartDiscardCount(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
 		const parsed = Number(input.value);
+		if (!isModerator || !canChangeLiveDixitSettings) {
+			input.value = `${roundStartDiscardCount}`;
+			return;
+		}
 		if (!Number.isInteger(parsed) || parsed < 0 || parsed > roundStartDiscardCountMax) {
 			input.value = `${roundStartDiscardCount}`;
 			return;
@@ -742,7 +787,7 @@
 
 	function updateVotingWrongCardDisablePreset(event: Event) {
 		const select = event.currentTarget as HTMLSelectElement;
-		if (!isModerator || !canChangePreVotingSettings) {
+		if (!isModerator || !canChangeBeforeVotingSettings) {
 			select.value = selectedVotingWrongCardDisablePresetId;
 			return;
 		}
@@ -772,7 +817,7 @@
 	function updateVotingWrongCardDisableMax(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
 		const parsed = Number(input.value);
-		if (!isModerator || !canChangePreVotingSettings) {
+		if (!isModerator || !canChangeBeforeVotingSettings) {
 			input.value = `${votingWrongCardDisableMax}`;
 			return;
 		}
@@ -797,7 +842,7 @@
 	}
 
 	function updateVotingWrongCardDisableProbability(index: number, nextPercent: number) {
-		if (!isModerator || !canChangePreVotingSettings) return;
+		if (!isModerator || !canChangeBeforeVotingSettings) return;
 
 		const sanitizedPercent = Math.min(100, Math.max(0, Math.round(nextPercent)));
 		const nextDistribution = setVotingWrongCardDisableProbability(
@@ -1457,7 +1502,7 @@
 								Refresh active player hands
 							</button>
 							{#if !canRefreshHands}
-								<p class="text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
+								<p class="text-xs opacity-70">{STORYTELLER_CHOOSING_ONLY_HINT}</p>
 							{/if}
 						</div>
 					</div>
@@ -1473,7 +1518,7 @@
 								class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
 								checked={storytellerLossComplementAuto}
 								on:change={updateStorytellerLossComplementAuto}
-								disabled={!isModerator}
+								disabled={!isModerator || !canChangeStorytellerScoringSettings}
 							/>
 							<span>Auto-tune W from the number of actual guessers after voting</span>
 						</label>
@@ -1486,12 +1531,17 @@
 								step="1"
 								value={storytellerWinCondition}
 								on:change={updateStorytellerLossComplement}
-								disabled={!isModerator || storytellerLossComplementAuto}
+								disabled={!isModerator ||
+									!canChangeStorytellerScoringSettings ||
+									storytellerLossComplementAuto}
 							/>
 							<span class="text-xs opacity-75">
 								Range: {storytellerWinConditionMin}–{storytellerWinConditionMax}
 							</span>
 						</div>
+						{#if !canChangeStorytellerScoringSettings}
+							<p class="mt-1 text-xs opacity-70">{LIVE_DIXIT_STAGE_HINT}</p>
+						{/if}
 					</div>
 					<div class="mt-3 rounded border border-white/20 px-2 py-2">
 						<p class="block text-sm font-semibold">Votes per guesser</p>
@@ -1507,14 +1557,14 @@
 								step="1"
 								value={votesPerGuesser}
 								on:change={updateVotesPerGuesser}
-								disabled={!isModerator || !canChangePreVotingSettings}
+								disabled={!isModerator || !canChangeBeforeVotingSettings}
 							/>
 							<span class="text-xs opacity-75"
 								>Range: {votesPerGuesserMin}–{votesPerGuesserMax}</span
 							>
 						</div>
-						{#if !canChangePreVotingSettings}
-							<p class="mt-1 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
+						{#if !canChangeBeforeVotingSettings}
+							<p class="mt-1 text-xs opacity-70">{BEFORE_VOTING_HINT}</p>
 						{/if}
 					</div>
 					<div class="mt-3 rounded border border-white/20 px-2 py-2">
@@ -1528,7 +1578,7 @@
 								class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
 								checked={beautyEnabled}
 								on:change={updateBeautyEnabled}
-								disabled={!isModerator || !canChangePreVotingSettings}
+								disabled={!isModerator || !canChangeBeforeBeautyVotingSettings}
 							/>
 							<span>Enable Most Beautiful stage</span>
 						</label>
@@ -1546,7 +1596,7 @@
 									step="1"
 									value={beautyVotesPerPlayer}
 									on:change={updateBeautyVotesPerPlayer}
-									disabled={!isModerator || !canChangePreVotingSettings}
+									disabled={!isModerator || !canChangeBeforeBeautyVotingSettings}
 								/>
 								<p class="mt-1 text-xs opacity-75">
 									Range: {beautyVotesPerPlayerMin}–{beautyVotesPerPlayerMax}
@@ -1561,7 +1611,7 @@
 									class="mt-1 w-full rounded border px-3 py-2 text-gray-700 shadow"
 									value={$beautyScoringModeStore}
 									on:change={updateBeautyScoringMode}
-									disabled={!isModerator || !canChangePreVotingSettings}
+									disabled={!isModerator || !canChangeStorytellerScoringSettings}
 								>
 									<option value="vote_divisor">Vote divisor</option>
 									<option value="winner_bonus">Winner bonus</option>
@@ -1586,7 +1636,7 @@
 									step="1"
 									value={$beautyVotePointsDivisorStore}
 									on:change={updateBeautyVotePointsDivisor}
-									disabled={!isModerator || !canChangePreVotingSettings}
+									disabled={!isModerator || !canChangeStorytellerScoringSettings}
 								/>
 								<p class="mt-1 text-xs opacity-75">
 									Range: {BEAUTY_VOTE_POINTS_DIVISOR_MIN}–{BEAUTY_VOTE_POINTS_DIVISOR_MAX}
@@ -1607,7 +1657,7 @@
 										step="1"
 										value={beautyPointsBonus}
 										on:change={updateBeautyPointsBonus}
-										disabled={!isModerator || !canChangePreVotingSettings}
+										disabled={!isModerator || !canChangeStorytellerScoringSettings}
 									/>
 									<p class="mt-1 text-xs opacity-75">
 										Range: {beautyPointsBonusMin}–{beautyPointsBonusMax}
@@ -1621,7 +1671,7 @@
 								class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
 								checked={beautyAllowDuplicateVotes}
 								on:change={updateBeautyAllowDuplicateVotes}
-								disabled={!isModerator || !canChangePreVotingSettings}
+								disabled={!isModerator || !canChangeBeforeBeautyVotingSettings}
 							/>
 							<span>Allow duplicate beauty votes on the same card</span>
 						</label>
@@ -1632,7 +1682,7 @@
 									class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
 									checked={beautySplitPointsOnTie}
 									on:change={updateBeautySplitPointsOnTie}
-									disabled={!isModerator || !canChangePreVotingSettings}
+									disabled={!isModerator || !canChangeStorytellerScoringSettings}
 								/>
 								<span>Split beauty bonus among tied owners, rounding up</span>
 							</label>
@@ -1646,7 +1696,7 @@
 								class="mt-1 w-full rounded border px-3 py-2 text-gray-700 shadow"
 								value={beautyResultsDisplayMode}
 								on:change={updateBeautyResultsDisplayMode}
-								disabled={!isModerator || !canChangePreVotingSettings}
+								disabled={!isModerator || !canChangeBeforeResultsSettings}
 							>
 								<option value="summary">Summary in storyteller results</option>
 								<option value="separate">Separate beauty results stage</option>
@@ -1659,15 +1709,19 @@
 								class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
 								checked={showPreviousResultsDuringStorytellerChoosing}
 								on:change={updateShowPreviousResultsDuringStorytellerChoosing}
-								disabled={!isModerator || !canChangePreVotingSettings}
+								disabled={!isModerator || !canChangeLiveDixitSettings}
 							/>
 							<span>
 								Show previous results while the next storyteller is choosing, with a local Previous
 								Results / My Cards switch for waiting players
 							</span>
 						</label>
-						{#if !canChangePreVotingSettings}
-							<p class="mt-1 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
+						{#if !canChangeBeforeBeautyVotingSettings}
+							<p class="mt-1 text-xs opacity-70">{BEFORE_BEAUTY_VOTING_HINT}</p>
+						{:else if !canChangeBeforeResultsSettings}
+							<p class="mt-1 text-xs opacity-70">{BEFORE_RESULTS_HINT}</p>
+						{:else if !canChangeStorytellerScoringSettings}
+							<p class="mt-1 text-xs opacity-70">{LIVE_DIXIT_STAGE_HINT}</p>
 						{/if}
 					</div>
 					<div class="mt-3 rounded border border-white/20 px-2 py-2">
@@ -1685,7 +1739,7 @@
 								class="mt-1 w-full rounded border px-3 py-2 text-gray-700 shadow"
 								value={selectedVotingWrongCardDisablePresetId}
 								on:change={updateVotingWrongCardDisablePreset}
-								disabled={!isModerator || !canChangePreVotingSettings}
+								disabled={!isModerator || !canChangeBeforeVotingSettings}
 							>
 								{#each VOTING_WRONG_CARD_DISABLE_PRESETS as preset}
 									<option value={preset.id}>{preset.label}</option>
@@ -1709,7 +1763,7 @@
 										class="mt-1 w-24 rounded border px-2 py-1 text-gray-700 shadow"
 										value={votingWrongCardDisableMax}
 										on:change={updateVotingWrongCardDisableMax}
-										disabled={!isModerator || !canChangePreVotingSettings}
+										disabled={!isModerator || !canChangeBeforeVotingSettings}
 									/>
 									<p class="mt-1 text-xs opacity-70">Range: 0–{MAX_VOTING_WRONG_CARD_DISABLE_X}</p>
 								</div>
@@ -1734,7 +1788,7 @@
 												on:change={(event) =>
 													updateVotingWrongCardDisableProbabilityFromEvent(index, event)}
 												disabled={!isModerator ||
-													!canChangePreVotingSettings ||
+													!canChangeBeforeVotingSettings ||
 													normalizedVotingWrongCardDisableDistribution.length === 1}
 											/>
 											<input
@@ -1747,7 +1801,7 @@
 												on:change={(event) =>
 													updateVotingWrongCardDisableProbabilityFromEvent(index, event)}
 												disabled={!isModerator ||
-													!canChangePreVotingSettings ||
+													!canChangeBeforeVotingSettings ||
 													normalizedVotingWrongCardDisableDistribution.length === 1}
 											/>
 											<span class="text-xs opacity-75">%</span>
@@ -1756,8 +1810,8 @@
 								{/each}
 							</div>
 						</details>
-						{#if !canChangePreVotingSettings}
-							<p class="mt-1 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
+						{#if !canChangeBeforeVotingSettings}
+							<p class="mt-1 text-xs opacity-70">{BEFORE_VOTING_HINT}</p>
 						{/if}
 					</div>
 					<div class="mt-3 rounded border border-white/20 px-2 py-2">
@@ -1776,7 +1830,7 @@
 							<span class="text-xs opacity-75">Range: {cardsPerHandMin}–{cardsPerHandMax}</span>
 						</div>
 						{#if !canChangeCardsPerHand}
-							<p class="mt-1 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
+							<p class="mt-1 text-xs opacity-70">{STORYTELLER_CHOOSING_ONLY_HINT}</p>
 						{/if}
 					</div>
 					<div class="mt-3 rounded border border-white/20 px-2 py-2">
@@ -1790,14 +1844,14 @@
 								step="1"
 								value={nominationsPerGuesser}
 								on:change={updateNominationsPerGuesser}
-								disabled={!isModerator || !canChangePreVotingSettings}
+								disabled={!isModerator || !canChangeBeforeVotingSettings}
 							/>
 							<span class="text-xs opacity-75">
 								Range: {nominationsPerGuesserMin}–{nominationsPerGuesserMax}
 							</span>
 						</div>
-						{#if !canChangePreVotingSettings}
-							<p class="mt-1 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
+						{#if !canChangeBeforeVotingSettings}
+							<p class="mt-1 text-xs opacity-70">{BEFORE_VOTING_HINT}</p>
 						{/if}
 					</div>
 					<div class="mt-3 rounded border border-white/20 px-2 py-2">
@@ -1814,12 +1868,12 @@
 								step="1"
 								value={roundStartDiscardCount}
 								on:change={updateRoundStartDiscardCount}
-								disabled={!isModerator || !canChangePreVotingSettings}
+								disabled={!isModerator || !canChangeLiveDixitSettings}
 							/>
 							<span class="text-xs opacity-75">Range: 0–{roundStartDiscardCountMax}</span>
 						</div>
-						{#if !canChangePreVotingSettings}
-							<p class="mt-1 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
+						{#if !canChangeLiveDixitSettings}
+							<p class="mt-1 text-xs opacity-70">{LIVE_DIXIT_STAGE_HINT}</p>
 						{/if}
 					</div>
 					<div class="mt-3 rounded border border-white/20 px-2 py-2">
@@ -1829,12 +1883,12 @@
 								class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
 								checked={bonusCorrectGuessOnThresholdCorrectLoss}
 								on:change={updateBonusCorrectGuessOnThresholdCorrectLoss}
-								disabled={!isModerator || !canChangePreVotingSettings}
+								disabled={!isModerator || !canChangeStorytellerScoringSettings}
 							/>
 							<span> Give +3 correct-guess base in storyteller-loss rounds covered below </span>
 						</label>
-						{#if !canChangePreVotingSettings}
-							<p class="mt-1 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
+						{#if !canChangeStorytellerScoringSettings}
+							<p class="mt-1 text-xs opacity-70">{LIVE_DIXIT_STAGE_HINT}</p>
 						{/if}
 					</div>
 					<div class="mt-3 rounded border border-white/20 px-2 py-2">
@@ -1844,12 +1898,12 @@
 								class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
 								checked={bonusDoubleVoteOnThresholdCorrectLoss}
 								on:change={updateBonusDoubleVoteOnThresholdCorrectLoss}
-								disabled={!isModerator || !canChangePreVotingSettings}
+								disabled={!isModerator || !canChangeStorytellerScoringSettings}
 							/>
 							<span> Give +1 double-vote bonus in storyteller-loss rounds covered below </span>
 						</label>
-						{#if !canChangePreVotingSettings}
-							<p class="mt-1 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
+						{#if !canChangeStorytellerScoringSettings}
+							<p class="mt-1 text-xs opacity-70">{LIVE_DIXIT_STAGE_HINT}</p>
 						{/if}
 					</div>
 					<div class="mt-3 rounded border border-white/20 px-2 py-2">
@@ -1859,15 +1913,15 @@
 								class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
 								checked={bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 								on:change={updateBonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
-								disabled={!isModerator || !canChangePreVotingSettings}
+								disabled={!isModerator || !canChangeStorytellerScoringSettings}
 							/>
 							<span> Apply the two bonus toggles above in all storyteller-loss rounds </span>
 						</label>
 						<p class="mt-1 text-xs opacity-70">
 							Includes rounds where the storyteller loses because too many guessers were wrong.
 						</p>
-						{#if !canChangePreVotingSettings}
-							<p class="mt-1 text-xs opacity-70">{SETTINGS_EDIT_STAGE_HINT}</p>
+						{#if !canChangeStorytellerScoringSettings}
+							<p class="mt-1 text-xs opacity-70">{LIVE_DIXIT_STAGE_HINT}</p>
 						{/if}
 					</div>
 				{/if}

@@ -8,7 +8,8 @@ next storyteller is choosing.
 - Setting name: **show previous results during storyteller choosing**
 - Scope: **room-global**
 - Default: **on**
-- Editable only during Dixit **Joining** and **ActiveChooses**
+- Editable during Dixit **Joining** and any live Dixit stage: **ActiveChooses**,
+  **PlayersChoose**, **Voting**, **BeautyVoting**, **Results**, and **BeautyResults**
 
 ## ActiveChooses behavior
 
