@@ -69,6 +69,7 @@
 	export let beautyPointsBonusMax = 10;
 	export let beautyResultsDisplayMode: BeautyResultsDisplayMode = 'combined';
 	export let showPreviousResultsDuringStorytellerChoosing = true;
+	export let randomizeVotingCardOrderPerViewer = false;
 	export let cardsPerHand = 12;
 	export let cardsPerHandMin = 1;
 	export let cardsPerHandMax = 18;
@@ -136,9 +137,18 @@
 	$: canSwitchStellaWordPack =
 		isStellaMode &&
 		(stage === 'StellaAssociate' || stage === 'StellaReveal' || stage === 'StellaResults');
+	$: canChangeVotingOrderRandomizationSetting =
+		isDixitMode &&
+		(stage === 'ActiveChooses' ||
+			stage === 'Voting' ||
+			stage === 'BeautyVoting' ||
+			stage === 'Results' ||
+			stage === 'BeautyResults');
 	$: canChangeNumberOverlaySetting = isStellaMode
 		? stage === 'StellaAssociate'
 		: canChangePreVotingSettings;
+	$: votingOrderRandomizationHint =
+		'Can only be changed during storyteller choosing, voting, beauty voting, or results.';
 	$: settingsEditStageHint = isStellaMode
 		? 'Can only be changed during the Resonance associate stage.'
 		: SETTINGS_EDIT_STAGE_HINT;
@@ -463,6 +473,15 @@
 			return;
 		}
 		gameServer.setShowVotingCardNumbers(input.checked);
+	}
+
+	function updateRandomizeVotingCardOrderPerViewer(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		if (!isModerator || !canChangeVotingOrderRandomizationSetting) {
+			input.checked = randomizeVotingCardOrderPerViewer;
+			return;
+		}
+		gameServer.setRandomizeVotingCardOrderPerViewer(input.checked);
 	}
 
 	function updateRoundStartDiscardCount(event: Event) {
@@ -1406,6 +1425,27 @@
 					{/if}
 				</div>
 				{#if isDixitMode}
+					<div class="mt-3 rounded border border-white/20 px-2 py-2">
+						<label class="flex items-start gap-3 text-sm">
+							<input
+								type="checkbox"
+								class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
+								checked={randomizeVotingCardOrderPerViewer}
+								on:change={updateRandomizeVotingCardOrderPerViewer}
+								disabled={!isModerator || !canChangeVotingOrderRandomizationSetting}
+							/>
+							<div>
+								<span class="block font-medium"> Randomize voting card order per player </span>
+								<p class="text-xs opacity-75">
+									Voting and Most Beautiful show each viewer a stable per-round shuffle, while the
+									number badges keep the original canonical order. Results stay canonical.
+								</p>
+							</div>
+						</label>
+						{#if !canChangeVotingOrderRandomizationSetting}
+							<p class="mt-1 text-xs opacity-70">{votingOrderRandomizationHint}</p>
+						{/if}
+					</div>
 					<div class="mt-3 rounded border border-white/20 px-2 py-2">
 						<p class="block text-sm font-semibold">Round controls</p>
 						<div class="mt-2 space-y-2">

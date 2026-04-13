@@ -8,6 +8,7 @@ This folder contains practical notes for running and maintaining the self-hosted
 - `docs/user_auth.md`: player identity persistence across refresh
 - `docs/fit_to_height_cards.md`: fit-to-height option notes and caveats
 - `docs/talespin/dixit_previous_results_preview.md`: Dixit storyteller-stage previous-results preview and next-round auto-advance
+- `docs/talespin/dixit_randomized_voting_layout.md`: Dixit per-viewer randomized voting layout with canonical number badges
 - `docs/most-beautiful/README.md`: Most Beautiful settings, leaderboard modes, tie splitting, and audit history
 
 # Unrelated Docs for Other Projects

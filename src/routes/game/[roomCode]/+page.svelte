@@ -16,6 +16,7 @@
 		setMostBeautifulRoom,
 		storytellerLeaderboardPointChange
 	} from '$lib/mostBeautiful';
+	import { derivePerViewerVotingLayout } from '$lib/dixitVotingLayout';
 	import {
 		clearAssignedRoomName,
 		getJoinNameForRoom,
@@ -98,6 +99,7 @@
 	let beautyPointsBonusMax = 10;
 	let beautyResultsDisplayMode: BeautyResultsDisplayMode = 'combined';
 	let showPreviousResultsDuringStorytellerChoosing = true;
+	let randomizeVotingCardOrderPerViewer = false;
 	let cardsPerHand = 12;
 	let cardsPerHandMin = 1;
 	let cardsPerHandMax = 18;
@@ -158,11 +160,14 @@
 	};
 
 	// UI state
+	let stageImages: string[] = [];
 	let displayImages: string[] = [];
+	let displayImageBadgeLabels: number[] = [];
 	let votingDisabledCards: string[] = [];
 	let beautyDisabledCards: string[] = [];
 	let storytellerChosenCard = '';
 	let previousDixitResults: PreviousDixitResultsView | null = null;
+	let votingLayoutSeed: string | null = null;
 
 	// results
 	let playerToCurrentCards: { [key: string]: string[] } = {};
@@ -225,6 +230,20 @@
 	} else if (scoutTurnCueKey !== previousScoutTurnKey && get(stageChangeSoundCuesEnabled)) {
 		previousScoutTurnKey = scoutTurnCueKey;
 		void playScoutTurnCue();
+	}
+	$: {
+		const shouldRandomizeVotingLayout =
+			gameMode === 'dixit_plus' &&
+			(stage === 'Voting' || stage === 'BeautyVoting') &&
+			randomizeVotingCardOrderPerViewer;
+		if (shouldRandomizeVotingLayout) {
+			const derivedLayout = derivePerViewerVotingLayout(stageImages, name, votingLayoutSeed, true);
+			displayImages = derivedLayout.images;
+			displayImageBadgeLabels = derivedLayout.badgeLabels;
+		} else {
+			displayImages = [...stageImages];
+			displayImageBadgeLabels = stageImages.map((_, index) => index + 1);
+		}
 	}
 	function clearStoredAssignedName() {
 		if (roomCode !== '') {
@@ -338,6 +357,9 @@
 				beautyResultsDisplayMode = data.RoomState.beauty_results_display_mode ?? 'combined';
 				showPreviousResultsDuringStorytellerChoosing =
 					data.RoomState.show_previous_results_during_storyteller_choosing ?? true;
+				randomizeVotingCardOrderPerViewer =
+					data.RoomState.randomize_voting_card_order_per_viewer ?? false;
+				votingLayoutSeed = data.RoomState.voting_layout_seed ?? null;
 				previousDixitResults = data.RoomState.previous_dixit_results ?? null;
 				cardsPerHand = data.RoomState.cards_per_hand ?? 12;
 				cardsPerHandMin = data.RoomState.cards_per_hand_min ?? 1;
@@ -424,7 +446,8 @@
 				}
 			} else if (data.StartRound) {
 				setStage('ActiveChooses');
-				displayImages = data.StartRound.hand;
+				votingLayoutSeed = null;
+				stageImages = data.StartRound.hand;
 				playerToVotes = {};
 				playerToBeautyVotes = {};
 				storytellerPointChange = {};
@@ -436,7 +459,8 @@
 				storytellerChosenCard = '';
 			} else if (data.PlayersChoose) {
 				setStage('PlayersChoose');
-				displayImages = data.PlayersChoose.hand;
+				votingLayoutSeed = null;
+				stageImages = data.PlayersChoose.hand;
 				description = data.PlayersChoose.description;
 				playerToVotes = {};
 				playerToBeautyVotes = {};
@@ -449,7 +473,8 @@
 				storytellerChosenCard = data.PlayersChoose.chosen_card || '';
 			} else if (data.BeginVoting) {
 				setStage('Voting');
-				displayImages = data.BeginVoting.center_cards;
+				votingLayoutSeed = data.BeginVoting.voting_layout_seed || votingLayoutSeed;
+				stageImages = data.BeginVoting.center_cards;
 				description = data.BeginVoting.description;
 				votingDisabledCards = data.BeginVoting.disabled_cards || [];
 				votesPerGuesser = data.BeginVoting.votes_per_guesser ?? votesPerGuesser;
@@ -462,7 +487,8 @@
 				storytellerChosenCard = '';
 			} else if (data.BeginBeautyVoting) {
 				setStage('BeautyVoting');
-				displayImages = data.BeginBeautyVoting.center_cards;
+				votingLayoutSeed = data.BeginBeautyVoting.voting_layout_seed || votingLayoutSeed;
+				stageImages = data.BeginBeautyVoting.center_cards;
 				description = data.BeginBeautyVoting.description;
 				beautyDisabledCards = data.BeginBeautyVoting.disabled_cards || [];
 				beautyVotesPerPlayer = data.BeginBeautyVoting.votes_per_player ?? beautyVotesPerPlayer;
@@ -475,7 +501,7 @@
 				setStage('Results');
 				currentStageDeadlineS = null;
 				playerToCurrentCards = data.Results.player_to_current_cards || {};
-				displayImages = data.Results.center_cards || Object.values(playerToCurrentCards).flat();
+				stageImages = data.Results.center_cards || Object.values(playerToCurrentCards).flat();
 				playerToVotes = data.Results.player_to_votes || {};
 				playerToBeautyVotes = data.Results.player_to_beauty_votes || {};
 				activeCard = data.Results.active_card;
@@ -496,8 +522,7 @@
 				setStage('BeautyResults');
 				currentStageDeadlineS = null;
 				playerToCurrentCards = data.BeautyResults.player_to_current_cards || {};
-				displayImages =
-					data.BeautyResults.center_cards || Object.values(playerToCurrentCards).flat();
+				stageImages = data.BeautyResults.center_cards || Object.values(playerToCurrentCards).flat();
 				playerToBeautyVotes = data.BeautyResults.player_to_beauty_votes || {};
 				pointChange = data.BeautyResults.point_change || {};
 				storytellerPointChange = {};
@@ -513,7 +538,8 @@
 				}
 			} else if (data.StellaAssociate) {
 				setStage('StellaAssociate');
-				displayImages = data.StellaAssociate.board_cards || [];
+				votingLayoutSeed = null;
+				stageImages = data.StellaAssociate.board_cards || [];
 				stellaActiveClue = data.StellaAssociate.clue_word || '';
 				stellaSelectedCards = data.StellaAssociate.selected_cards || [];
 				stellaSelectedCounts = {};
@@ -525,7 +551,8 @@
 				beautyLeaderboardPointChange.set({});
 			} else if (data.StellaReveal) {
 				setStage('StellaReveal');
-				displayImages = data.StellaReveal.board_cards || [];
+				votingLayoutSeed = null;
+				stageImages = data.StellaReveal.board_cards || [];
 				stellaActiveClue = data.StellaReveal.clue_word || '';
 				stellaSelectedCards = data.StellaReveal.selected_cards || [];
 				stellaSelectedCounts = data.StellaReveal.selected_counts || {};
@@ -539,7 +566,8 @@
 				stellaDarkPlayer = data.StellaReveal.dark_player || stellaDarkPlayer;
 			} else if (data.StellaResults) {
 				setStage('StellaResults');
-				displayImages = data.StellaResults.board_cards || [];
+				votingLayoutSeed = null;
+				stageImages = data.StellaResults.board_cards || [];
 				stellaActiveClue = data.StellaResults.clue_word || '';
 				stellaSelectedCounts = data.StellaResults.selected_counts || {};
 				stellaRevealedCards = data.StellaResults.revealed_cards || [];
@@ -674,6 +702,7 @@
 			{beautyPointsBonusMax}
 			{beautyResultsDisplayMode}
 			{showPreviousResultsDuringStorytellerChoosing}
+			{randomizeVotingCardOrderPerViewer}
 			{cardsPerHand}
 			{cardsPerHandMin}
 			{cardsPerHandMax}
@@ -754,6 +783,7 @@
 			{beautyPointsBonusMax}
 			{beautyResultsDisplayMode}
 			{showPreviousResultsDuringStorytellerChoosing}
+			{randomizeVotingCardOrderPerViewer}
 			{cardsPerHand}
 			{cardsPerHandMin}
 			{cardsPerHandMax}
@@ -918,6 +948,7 @@
 			{beautyPointsBonusMax}
 			{beautyResultsDisplayMode}
 			{showPreviousResultsDuringStorytellerChoosing}
+			{randomizeVotingCardOrderPerViewer}
 			{cardsPerHand}
 			{cardsPerHandMin}
 			{cardsPerHandMax}
@@ -997,6 +1028,7 @@
 			{beautyPointsBonusMax}
 			{beautyResultsDisplayMode}
 			{showPreviousResultsDuringStorytellerChoosing}
+			{randomizeVotingCardOrderPerViewer}
 			{cardsPerHand}
 			{cardsPerHandMin}
 			{cardsPerHandMax}
@@ -1044,6 +1076,7 @@
 			{cardsRemaining}
 			{deckRefillFlashToken}
 			{winCondition}
+			cardNumberLabels={displayImageBadgeLabels}
 			disabledCards={votingDisabledCards}
 		/>
 	{:else if stage === 'BeautyVoting'}
@@ -1076,6 +1109,7 @@
 			{beautyPointsBonusMax}
 			{beautyResultsDisplayMode}
 			{showPreviousResultsDuringStorytellerChoosing}
+			{randomizeVotingCardOrderPerViewer}
 			{cardsPerHand}
 			{cardsPerHandMin}
 			{cardsPerHandMax}
@@ -1123,6 +1157,7 @@
 			{cardsRemaining}
 			{deckRefillFlashToken}
 			{winCondition}
+			cardNumberLabels={displayImageBadgeLabels}
 			disabledCards={beautyDisabledCards}
 		/>
 	{:else if stage === 'Results'}
@@ -1158,6 +1193,7 @@
 			{beautyPointsBonusMax}
 			{beautyResultsDisplayMode}
 			{showPreviousResultsDuringStorytellerChoosing}
+			{randomizeVotingCardOrderPerViewer}
 			{cardsPerHand}
 			{cardsPerHandMin}
 			{cardsPerHandMax}
@@ -1239,6 +1275,7 @@
 			{beautyPointsBonusMax}
 			{beautyResultsDisplayMode}
 			{showPreviousResultsDuringStorytellerChoosing}
+			{randomizeVotingCardOrderPerViewer}
 			{cardsPerHand}
 			{cardsPerHandMin}
 			{cardsPerHandMax}
@@ -1318,6 +1355,7 @@
 			{beautyPointsBonusMax}
 			{beautyResultsDisplayMode}
 			{showPreviousResultsDuringStorytellerChoosing}
+			{randomizeVotingCardOrderPerViewer}
 			{cardsPerHand}
 			{cardsPerHandMin}
 			{cardsPerHandMax}
@@ -1398,6 +1436,7 @@
 			{beautyPointsBonusMax}
 			{beautyResultsDisplayMode}
 			{showPreviousResultsDuringStorytellerChoosing}
+			{randomizeVotingCardOrderPerViewer}
 			{cardsPerHand}
 			{cardsPerHandMin}
 			{cardsPerHandMax}

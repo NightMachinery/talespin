@@ -32,6 +32,7 @@
 	export let beautyPointsBonusMax = 10;
 	export let beautyResultsDisplayMode: import('$lib/types').BeautyResultsDisplayMode = 'combined';
 	export let showPreviousResultsDuringStorytellerChoosing = true;
+	export let randomizeVotingCardOrderPerViewer = false;
 	export let cardsPerHand = 12;
 	export let cardsPerHandMin = 1;
 	export let cardsPerHandMax = 100;
@@ -142,6 +143,7 @@
 	{beautyPointsBonusMax}
 	{beautyResultsDisplayMode}
 	{showPreviousResultsDuringStorytellerChoosing}
+	{randomizeVotingCardOrderPerViewer}
 	{cardsPerHand}
 	{cardsPerHandMin}
 	{cardsPerHandMax}

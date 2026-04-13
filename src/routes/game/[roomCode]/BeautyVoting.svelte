@@ -12,6 +12,7 @@
 	import StageShell from './StageShell.svelte';
 
 	export let displayImages: string[] = [];
+	export let cardNumberLabels: number[] = [];
 	export let name = '';
 	export let creator = '';
 	export let moderators: string[] = [];
@@ -39,6 +40,7 @@
 	export let beautyPointsBonusMax = 10;
 	export let beautyResultsDisplayMode: import('$lib/types').BeautyResultsDisplayMode = 'combined';
 	export let showPreviousResultsDuringStorytellerChoosing = true;
+	export let randomizeVotingCardOrderPerViewer = false;
 	export let cardsPerHand = 12;
 	export let cardsPerHandMin = 1;
 	export let cardsPerHandMax = 18;
@@ -227,6 +229,7 @@
 	{beautyPointsBonusMax}
 	{beautyResultsDisplayMode}
 	{showPreviousResultsDuringStorytellerChoosing}
+	{randomizeVotingCardOrderPerViewer}
 	{cardsPerHand}
 	{cardsPerHandMin}
 	{cardsPerHandMax}
@@ -365,6 +368,7 @@
 		<h2 class="mb-2 hidden text-lg font-semibold lg:block">Cards on table</h2>
 		<section class={tableSectionClass} style={tableDesktopFitStyle}>
 			{#each displayImages as image, cardIndex}
+				{@const cardNumberLabel = cardNumberLabels[cardIndex] ?? cardIndex + 1}
 				{@const selectedCount = selectedVoteCounts[image] ?? 0}
 				{@const isDisabled = disabledCards.includes(image)}
 				<button
@@ -382,7 +386,7 @@
 						<div
 							class="absolute right-2 top-2 z-20 rounded bg-black/70 px-2 py-0.5 text-xs font-bold text-white shadow"
 						>
-							#{cardIndex + 1}
+							#{cardNumberLabel}
 						</div>
 					{/if}
 					{#if selectedCount > 0}

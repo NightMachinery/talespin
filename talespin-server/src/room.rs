@@ -211,6 +211,8 @@ pub enum ServerMsg {
         beauty_points_bonus_max: u16,
         beauty_results_display_mode: BeautyResultsDisplayMode,
         show_previous_results_during_storyteller_choosing: bool,
+        randomize_voting_card_order_per_viewer: bool,
+        voting_layout_seed: Option<String>,
         previous_dixit_results: Option<PreviousDixitResultsView>,
         cards_per_hand: u16,
         cards_per_hand_min: u16,
@@ -275,6 +277,7 @@ pub enum ServerMsg {
         description: String,
         disabled_cards: Vec<String>,
         votes_per_guesser: u16,
+        voting_layout_seed: String,
     },
     BeginBeautyVoting {
         center_cards: Vec<String>,
@@ -282,6 +285,7 @@ pub enum ServerMsg {
         disabled_cards: Vec<String>,
         votes_per_player: u16,
         allow_duplicate_votes: bool,
+        voting_layout_seed: String,
     },
     Results {
         center_cards: Vec<String>,
@@ -429,6 +433,9 @@ pub enum ClientMsg {
         enabled: bool,
     },
     SetShowVotingCardNumbers {
+        enabled: bool,
+    },
+    SetRandomizeVotingCardOrderPerViewer {
         enabled: bool,
     },
     SetRoundStartDiscardCount {
@@ -650,6 +657,8 @@ struct RoomState {
     beauty_results_display_mode: BeautyResultsDisplayMode,
     // whether waiting players should see the previous results while the next storyteller chooses
     show_previous_results_during_storyteller_choosing: bool,
+    // whether each viewer sees a stable per-round shuffled layout during Dixit voting stages
+    randomize_voting_card_order_per_viewer: bool,
     // hand size target for each active player
     cards_per_hand: u16,
     // number of cards each non-storyteller can submit in PlayersChoose
@@ -896,6 +905,7 @@ impl Room {
             beauty_vote_points_divisor: DEFAULT_BEAUTY_VOTE_POINTS_DIVISOR,
             beauty_results_display_mode: BeautyResultsDisplayMode::Combined,
             show_previous_results_during_storyteller_choosing: true,
+            randomize_voting_card_order_per_viewer: false,
             cards_per_hand: DEFAULT_CARDS_PER_HAND,
             nominations_per_guesser: DEFAULT_NOMINATIONS_PER_GUESSER,
             bonus_correct_guess_on_threshold_correct_loss: true,
@@ -3787,6 +3797,9 @@ impl Room {
                     let (min_votes, max_votes) = self.votes_per_guesser_bounds(state);
                     state.votes_per_guesser.clamp(min_votes, max_votes)
                 },
+                voting_layout_seed: self
+                    .voting_layout_seed(state)
+                    .unwrap_or_else(|| "0000000000000000".to_string()),
             }),
             RoomStage::BeautyVoting => Ok(ServerMsg::BeginBeautyVoting {
                 center_cards: self.get_center_cards(state),
@@ -3799,6 +3812,9 @@ impl Room {
                     state.beauty_votes_per_player.clamp(min_votes, max_votes)
                 },
                 allow_duplicate_votes: state.beauty_allow_duplicate_votes,
+                voting_layout_seed: self
+                    .voting_layout_seed(state)
+                    .unwrap_or_else(|| "0000000000000000".to_string()),
             }),
             RoomStage::Results => Ok(ServerMsg::Results {
                 center_cards: self.get_center_cards(state),
@@ -3878,6 +3894,14 @@ impl Room {
         let mut out = [0u8; 32];
         out.copy_from_slice(&digest);
         out
+    }
+
+    fn voting_layout_seed(&self, state: &RwLockWriteGuard<RoomState>) -> Option<String> {
+        if state.voting_order_seed == 0 {
+            None
+        } else {
+            Some(format!("{:016x}", state.voting_order_seed))
+        }
     }
 
     fn get_active_player(&self, state: &RwLockWriteGuard<RoomState>) -> Result<String> {
@@ -6570,6 +6594,53 @@ impl Room {
                 state.show_voting_card_numbers = enabled;
                 self.broadcast_msg(self.room_state(&state))?;
             }
+            ClientMsg::SetRandomizeVotingCardOrderPerViewer { enabled } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change voting card order randomization"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if matches!(state.stage, RoomStage::End) {
+                    return Ok(());
+                }
+
+                if !matches!(state.game_mode, GameMode::DixitPlus) {
+                    return Ok(());
+                }
+
+                if !matches!(
+                    state.stage,
+                    RoomStage::ActiveChooses
+                        | RoomStage::Voting
+                        | RoomStage::BeautyVoting
+                        | RoomStage::Results
+                        | RoomStage::BeautyResults
+                ) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Voting card order randomization can only be changed during live Dixit stages"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                state.randomize_voting_card_order_per_viewer = enabled;
+                self.broadcast_msg(self.room_state(&state))?;
+            }
             ClientMsg::SetRoundStartDiscardCount { count } => {
                 if !self.is_moderator(&state, name) {
                     if let Some(tx) = state.player_to_socket.get(name) {
@@ -8058,6 +8129,8 @@ impl Room {
             beauty_results_display_mode: state.beauty_results_display_mode,
             show_previous_results_during_storyteller_choosing: state
                 .show_previous_results_during_storyteller_choosing,
+            randomize_voting_card_order_per_viewer: state.randomize_voting_card_order_per_viewer,
+            voting_layout_seed: self.voting_layout_seed(state),
             previous_dixit_results: if matches!(state.stage, RoomStage::ActiveChooses)
                 && matches!(state.game_mode, GameMode::DixitPlus)
             {
@@ -10644,6 +10717,8 @@ mod tests {
                 bonus_double_vote_on_threshold_correct_loss,
                 bonus_threshold_loss_toggles_apply_to_all_storyteller_loss_rounds,
                 show_voting_card_numbers,
+                randomize_voting_card_order_per_viewer,
+                voting_layout_seed,
                 round_start_discard_count,
                 hint_choosing_timer_enabled,
                 hint_choosing_timer_duration_s,
@@ -10703,6 +10778,14 @@ mod tests {
                 assert!(
                     show_voting_card_numbers,
                     "voting card numbering should default to on"
+                );
+                assert!(
+                    !randomize_voting_card_order_per_viewer,
+                    "per-viewer voting card order randomization should default to off"
+                );
+                assert!(
+                    voting_layout_seed.is_none(),
+                    "joining room state should not expose a voting layout seed"
                 );
                 assert_eq!(
                     round_start_discard_count, 3,
@@ -12299,6 +12382,155 @@ alpha
     }
 
     #[tokio::test]
+    async fn voting_card_order_randomization_changes_only_in_live_dixit_stages() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            add_player(&mut state, "p2", 0);
+            add_player(&mut state, "p3", 0);
+            add_player(&mut state, "p4", 0);
+            state.stage = RoomStage::PlayersChoose;
+            state.randomize_voting_card_order_per_viewer = false;
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 115);
+        }
+
+        room.handle_client_msg(
+            "host",
+            115,
+            to_ws(ClientMsg::SetRandomizeVotingCardOrderPerViewer { enabled: true }),
+        )
+        .await?;
+
+        {
+            let state = room.state.read().await;
+            assert!(
+                !state.randomize_voting_card_order_per_viewer,
+                "randomized voting order should stay unchanged outside live Dixit stages"
+            );
+        }
+
+        for stage in [
+            RoomStage::ActiveChooses,
+            RoomStage::Voting,
+            RoomStage::BeautyVoting,
+            RoomStage::Results,
+            RoomStage::BeautyResults,
+        ] {
+            {
+                let mut state = room.state.write().await;
+                state.stage = stage;
+                state.randomize_voting_card_order_per_viewer = false;
+            }
+
+            room.handle_client_msg(
+                "host",
+                115,
+                to_ws(ClientMsg::SetRandomizeVotingCardOrderPerViewer { enabled: true }),
+            )
+            .await?;
+
+            let state = room.state.read().await;
+            assert!(
+                state.randomize_voting_card_order_per_viewer,
+                "randomized voting order should update in {:?}",
+                stage
+            );
+            drop(state);
+        }
+
+        {
+            let mut state = room.state.write().await;
+            state.game_mode = GameMode::Stella;
+            state.stage = RoomStage::StellaAssociate;
+            state.randomize_voting_card_order_per_viewer = true;
+        }
+
+        room.handle_client_msg(
+            "host",
+            115,
+            to_ws(ClientMsg::SetRandomizeVotingCardOrderPerViewer { enabled: false }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert!(
+            state.randomize_voting_card_order_per_viewer,
+            "Stella should ignore Dixit-only randomized voting order changes"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn voting_stage_messages_and_room_state_expose_voting_layout_seed() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        add_player(&mut state, "a", 0);
+        add_player(&mut state, "b", 0);
+        add_player(&mut state, "c", 0);
+        add_player(&mut state, "d", 0);
+        state.game_mode = GameMode::DixitPlus;
+        state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into()];
+        state.active_player = 0;
+        state.randomize_voting_card_order_per_viewer = true;
+        state.voting_order_seed = 0x0123_4567_89ab_cdef;
+        state
+            .player_to_current_cards
+            .insert("a".into(), vec!["ca".into()]);
+        state
+            .player_to_current_cards
+            .insert("b".into(), vec!["cb".into()]);
+        state
+            .player_to_current_cards
+            .insert("c".into(), vec!["cc".into()]);
+        state
+            .player_to_current_cards
+            .insert("d".into(), vec!["cd".into()]);
+
+        state.stage = RoomStage::Voting;
+        match room.get_msg(Some("b"), &state)? {
+            ServerMsg::BeginVoting {
+                voting_layout_seed, ..
+            } => {
+                assert_eq!(voting_layout_seed, "0123456789abcdef");
+            }
+            _ => return Err(anyhow!("Expected BeginVoting message")),
+        }
+
+        state.stage = RoomStage::BeautyVoting;
+        match room.get_msg(Some("b"), &state)? {
+            ServerMsg::BeginBeautyVoting {
+                voting_layout_seed, ..
+            } => {
+                assert_eq!(voting_layout_seed, "0123456789abcdef");
+            }
+            _ => return Err(anyhow!("Expected BeginBeautyVoting message")),
+        }
+
+        state.stage = RoomStage::Results;
+        match room.room_state(&state) {
+            ServerMsg::RoomState {
+                randomize_voting_card_order_per_viewer,
+                voting_layout_seed,
+                ..
+            } => {
+                assert!(randomize_voting_card_order_per_viewer);
+                assert_eq!(
+                    voting_layout_seed.as_deref(),
+                    Some("0123456789abcdef"),
+                    "room state should expose the current round's voting layout seed as a string"
+                );
+            }
+            _ => return Err(anyhow!("Expected RoomState")),
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn previous_results_preview_toggle_defaults_to_on() -> Result<()> {
         let room = test_room();
         let state = room.state.write().await;
@@ -12480,10 +12712,12 @@ alpha
                         assert_eq!(active_card, "a-card");
                         assert_eq!(center_cards.len(), 4);
                     }
-                    other => return Err(anyhow!(
+                    other => {
+                        return Err(anyhow!(
                         "expected previous Dixit results payload during ActiveChooses, got {:?}",
                         other
-                    )),
+                    ))
+                    }
                 }
             }
             other => return Err(anyhow!("Expected RoomState, got {:?}", other)),

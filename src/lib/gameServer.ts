@@ -321,6 +321,14 @@ class GameServer {
 		});
 	}
 
+	setRandomizeVotingCardOrderPerViewer(enabled: boolean) {
+		this.send({
+			SetRandomizeVotingCardOrderPerViewer: {
+				enabled
+			}
+		});
+	}
+
 	setRoundStartDiscardCount(count: number) {
 		this.send({
 			SetRoundStartDiscardCount: {
