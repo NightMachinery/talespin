@@ -1865,6 +1865,10 @@ impl Room {
             )
     }
 
+    fn has_pending_separate_beauty_results(&self, state: &RwLockWriteGuard<'_, RoomState>) -> bool {
+        matches!(state.stage, RoomStage::Results) && self.uses_separate_beauty_results_stage(state)
+    }
+
     fn compute_player_disabled_voting_cards(
         &self,
         state: &RwLockWriteGuard<'_, RoomState>,
@@ -2124,6 +2128,51 @@ impl Room {
         delta
     }
 
+    fn vote_divisor_applied_point_totals(
+        &self,
+        cumulative_totals: &HashMap<String, u16>,
+        pending_round_delta: &HashMap<String, i32>,
+    ) -> HashMap<String, u16> {
+        let mut applied_totals = HashMap::new();
+        let players = cumulative_totals
+            .keys()
+            .chain(pending_round_delta.keys())
+            .cloned()
+            .collect::<HashSet<_>>();
+        for player in players {
+            let cumulative_total = cumulative_totals.get(&player).copied().unwrap_or(0);
+            let pending_delta = pending_round_delta.get(&player).copied().unwrap_or(0);
+            let applied_total = Self::apply_signed_delta(cumulative_total, -pending_delta);
+            if applied_total > 0 {
+                applied_totals.insert(player, applied_total);
+            }
+        }
+        applied_totals
+    }
+
+    fn diff_vote_divisor_applied_point_totals_after_rescore(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+        previous_totals: &HashMap<String, u16>,
+        next_totals: &HashMap<String, u16>,
+        previous_pending_round_delta: Option<&HashMap<String, i32>>,
+    ) -> HashMap<String, i32> {
+        let Some(previous_pending_round_delta) = previous_pending_round_delta else {
+            return self.diff_vote_divisor_point_totals(previous_totals, next_totals);
+        };
+
+        let next_pending_round_delta = state
+            .dixit_end_round_history
+            .last()
+            .map(|entry| entry.beauty_deltas.clone())
+            .unwrap_or_default();
+        let previous_applied_totals =
+            self.vote_divisor_applied_point_totals(previous_totals, previous_pending_round_delta);
+        let next_applied_totals =
+            self.vote_divisor_applied_point_totals(next_totals, &next_pending_round_delta);
+        self.diff_vote_divisor_point_totals(&previous_applied_totals, &next_applied_totals)
+    }
+
     fn compute_beauty_winning_cards(&self, state: &RwLockWriteGuard<'_, RoomState>) -> Vec<String> {
         let votes_for_card = self.compute_beauty_vote_totals(state);
         let highest_vote_total = votes_for_card.values().copied().max().unwrap_or(0);
@@ -2300,6 +2349,9 @@ impl Room {
         }
 
         let previous_point_totals = state.vote_divisor_member_to_points.clone();
+        let previous_pending_round_delta = self
+            .has_pending_separate_beauty_results(state)
+            .then(|| state.beauty_point_change.clone());
         let Some(segment_start_history_index) = state.vote_divisor_segment_start_history_index
         else {
             let next_totals = self.compute_vote_divisor_points_for_cumulative_votes(
@@ -2307,8 +2359,12 @@ impl Room {
                 &state.vote_divisor_member_to_cumulative_beauty_votes,
                 state.vote_divisor_completed_rounds,
             );
-            let point_change = self
-                .diff_vote_divisor_point_totals(&state.vote_divisor_member_to_points, &next_totals);
+            let point_change = self.diff_vote_divisor_applied_point_totals_after_rescore(
+                state,
+                &previous_point_totals,
+                &next_totals,
+                previous_pending_round_delta.as_ref(),
+            );
             if point_change.is_empty() {
                 return;
             }
@@ -2448,9 +2504,11 @@ impl Room {
         state.vote_divisor_completed_rounds = completed_rounds;
         state.vote_divisor_member_to_points = point_totals.clone();
 
-        let point_change = self.diff_vote_divisor_point_totals(
+        let point_change = self.diff_vote_divisor_applied_point_totals_after_rescore(
+            state,
             &previous_point_totals,
             &state.vote_divisor_member_to_points,
+            previous_pending_round_delta.as_ref(),
         );
         if !point_change.is_empty() {
             self.apply_point_change(state, &point_change);
@@ -3839,7 +3897,7 @@ impl Room {
         }
         state.observer_hand.insert(player_name.to_string(), hand);
 
-        if let Some(pos) = state
+        let removed_from_player_order = if let Some(pos) = state
             .player_order
             .iter()
             .position(|player| player == player_name)
@@ -3851,7 +3909,10 @@ impl Room {
             if state.active_player >= state.player_order.len() {
                 state.active_player = 0;
             }
-        }
+            true
+        } else {
+            false
+        };
 
         state.players.remove(player_name);
         state.observers.insert(
@@ -3888,6 +3949,7 @@ impl Room {
         self.clamp_beauty_vote_submission_lengths(state);
         self.clamp_player_nominations_lengths(state);
         self.clean_moderators(state);
+        self.maybe_rescore_vote_divisor_for_player_order_change(state, removed_from_player_order);
         Ok(true)
     }
 
@@ -3982,7 +4044,7 @@ impl Room {
         state.player_to_votes.remove(player_name);
         state.player_to_beauty_votes.remove(player_name);
 
-        if let Some(pos) = state
+        let removed_from_player_order = if let Some(pos) = state
             .player_order
             .iter()
             .position(|player| player == player_name)
@@ -3994,7 +4056,10 @@ impl Room {
             if state.active_player >= state.player_order.len() {
                 state.active_player = 0;
             }
-        }
+            true
+        } else {
+            false
+        };
 
         state.players.remove(player_name);
         state.observer_since_round.remove(player_name);
@@ -4033,6 +4098,7 @@ impl Room {
         self.clamp_beauty_vote_submission_lengths(state);
         self.clamp_player_nominations_lengths(state);
         self.clean_moderators(state);
+        self.maybe_rescore_vote_divisor_for_player_order_change(state, removed_from_player_order);
         Ok(true)
     }
 
@@ -10580,6 +10646,213 @@ mod tests {
             history_entry.beauty_total_after_round.get("b").copied(),
             Some(1),
             "history beauty subtotals should refresh alongside the rescored delta"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn rescore_vote_divisor_points_defers_pending_separate_beauty_delta_until_beauty_results(
+    ) -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        for player in ["a", "b", "c", "d"] {
+            add_player(&mut state, player, 0);
+        }
+        state.game_mode = GameMode::DixitPlus;
+        state.beauty_enabled = true;
+        state.stage = RoomStage::Results;
+        state.beauty_scoring_mode = BeautyScoringMode::VoteDivisor;
+        state.beauty_results_display_mode = BeautyResultsDisplayMode::Separate;
+        state.beauty_vote_points_divisor_mode = BeautyVotePointsDivisorMode::Manual;
+        state.beauty_vote_points_divisor_tenths = 20;
+        state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into()];
+        state.active_player = 0;
+        state
+            .player_to_current_cards
+            .insert("a".into(), vec!["ca".into()]);
+        state
+            .player_to_current_cards
+            .insert("b".into(), vec!["cb".into()]);
+        state
+            .player_to_current_cards
+            .insert("c".into(), vec!["cc".into()]);
+        state
+            .player_to_current_cards
+            .insert("d".into(), vec!["cd".into()]);
+        state
+            .player_to_beauty_votes
+            .insert("c".into(), vec!["cb".into()]);
+        state
+            .player_to_beauty_votes
+            .insert("d".into(), vec!["cb".into()]);
+        state.vote_divisor_member_to_cumulative_beauty_votes = HashMap::from([("b".into(), 7)]);
+        state.vote_divisor_completed_rounds = 2;
+        state.vote_divisor_member_to_points = HashMap::from([("b".into(), 3)]);
+        state.member_to_beauty_points = HashMap::from([("b".into(), 2)]);
+        state.players.get_mut("b").unwrap().points = 2;
+        state.vote_divisor_segment_start_history_index = Some(0);
+        let active_players = state.player_order.clone();
+        state.vote_divisor_round_vote_totals_by_history_index = HashMap::from([
+            (0usize, HashMap::from([("b".into(), 5)])),
+            (1usize, HashMap::from([("b".into(), 2)])),
+        ]);
+        state
+            .dixit_end_round_history
+            .push(DixitEndRoundHistoryEntry {
+                round_num: 1,
+                storyteller: "a".into(),
+                clue: "clue1".into(),
+                active_players: active_players.clone(),
+                story_deltas: HashMap::new(),
+                beauty_deltas: HashMap::from([("b".into(), 2)]),
+                total_after_round: HashMap::from([("b".into(), 2)]),
+                beauty_total_after_round: HashMap::from([("b".into(), 2)]),
+                results_display_mode: BeautyResultsDisplayMode::Separate,
+            });
+        state
+            .dixit_end_round_history
+            .push(DixitEndRoundHistoryEntry {
+                round_num: 2,
+                storyteller: "a".into(),
+                clue: "clue2".into(),
+                active_players,
+                story_deltas: HashMap::new(),
+                beauty_deltas: HashMap::from([("b".into(), 1)]),
+                total_after_round: HashMap::from([("b".into(), 3)]),
+                beauty_total_after_round: HashMap::from([("b".into(), 3)]),
+                results_display_mode: BeautyResultsDisplayMode::Separate,
+            });
+        state.beauty_point_change = HashMap::from([("b".into(), 1)]);
+
+        state.beauty_vote_points_divisor_tenths = 40;
+        room.rescore_vote_divisor_points(&mut state);
+
+        assert_eq!(
+            state.players.get("b").map(|player| player.points),
+            Some(1),
+            "separate Results should only rescore already-awarded beauty totals"
+        );
+        assert_eq!(
+            state.member_to_beauty_points.get("b").copied(),
+            Some(1),
+            "member beauty subtotals should stay aligned with the already-awarded rescored total"
+        );
+        assert!(
+            state.beauty_point_change.is_empty(),
+            "the current round's rescored beauty delta should stay pending until BeautyResults"
+        );
+        assert_eq!(
+            state.vote_divisor_member_to_points.get("b").copied(),
+            Some(1),
+            "cumulative vote-divisor totals should still reflect the rescored full-round total"
+        );
+        assert_eq!(
+            state
+                .dixit_end_round_history
+                .last()
+                .and_then(|entry| entry.total_after_round.get("b"))
+                .copied(),
+            Some(1),
+            "history should reflect the fully rescored cumulative total for the pending round"
+        );
+
+        room.init_beauty_results(&mut state)?;
+
+        assert_eq!(
+            state.players.get("b").map(|player| player.points),
+            Some(1),
+            "BeautyResults should not re-apply the old pending delta after a rescore"
+        );
+        assert_eq!(
+            state.member_to_beauty_points.get("b").copied(),
+            Some(1),
+            "the applied beauty subtotal should remain correct after BeautyResults begins"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn remove_player_rescores_auto_vote_divisor_points() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        for player in ["a", "b", "c", "d", "e"] {
+            add_player(&mut state, player, 0);
+        }
+        state.game_mode = GameMode::DixitPlus;
+        state.beauty_scoring_mode = BeautyScoringMode::VoteDivisor;
+        state.beauty_vote_points_divisor_mode = BeautyVotePointsDivisorMode::PlayerCountAuto;
+        state.beauty_vote_points_divisor_player_count_base = 4;
+        state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into(), "e".into()];
+        state.vote_divisor_member_to_cumulative_beauty_votes = HashMap::from([("b".into(), 8)]);
+        state.vote_divisor_completed_rounds = 1;
+        state.vote_divisor_member_to_points = room
+            .compute_vote_divisor_points_for_cumulative_votes(
+                &state,
+                &state.vote_divisor_member_to_cumulative_beauty_votes,
+                state.vote_divisor_completed_rounds,
+            );
+        state.member_to_beauty_points = HashMap::from([("b".into(), 6)]);
+        state.players.get_mut("b").unwrap().points = 6;
+
+        let removed = room.remove_player(&mut state, "e", None).await?;
+        assert!(removed, "expected player e to be removed");
+
+        assert_eq!(
+            state.players.get("b").map(|player| player.points),
+            Some(8),
+            "removing an active player should immediately rescore auto-K vote-divisor totals"
+        );
+        assert_eq!(
+            state.member_to_beauty_points.get("b").copied(),
+            Some(8),
+            "member beauty totals should track the auto-K rescore after a player removal"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn convert_player_to_observer_rescores_auto_vote_divisor_points() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        for player in ["a", "b", "c", "d", "e"] {
+            add_player(&mut state, player, 0);
+        }
+        state.game_mode = GameMode::DixitPlus;
+        state.beauty_scoring_mode = BeautyScoringMode::VoteDivisor;
+        state.beauty_vote_points_divisor_mode = BeautyVotePointsDivisorMode::PlayerCountAuto;
+        state.beauty_vote_points_divisor_player_count_base = 4;
+        state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into(), "e".into()];
+        state.vote_divisor_member_to_cumulative_beauty_votes = HashMap::from([("b".into(), 8)]);
+        state.vote_divisor_completed_rounds = 1;
+        state.vote_divisor_member_to_points = room
+            .compute_vote_divisor_points_for_cumulative_votes(
+                &state,
+                &state.vote_divisor_member_to_cumulative_beauty_votes,
+                state.vote_divisor_completed_rounds,
+            );
+        state.member_to_beauty_points = HashMap::from([("b".into(), 6)]);
+        state.players.get_mut("b").unwrap().points = 6;
+
+        let converted = room
+            .convert_player_to_observer(&mut state, "e", false)
+            .await?;
+        assert!(converted, "expected player e to convert to observer");
+
+        assert_eq!(
+            state.players.get("b").map(|player| player.points),
+            Some(8),
+            "moving an active player to observer should immediately rescore auto-K vote-divisor totals"
+        );
+        assert_eq!(
+            state.member_to_beauty_points.get("b").copied(),
+            Some(8),
+            "member beauty totals should track the auto-K rescore after an observer conversion"
         );
 
         Ok(())
