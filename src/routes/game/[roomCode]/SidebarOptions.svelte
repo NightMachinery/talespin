@@ -981,8 +981,8 @@
 			<div>
 				<span class="block font-medium">Sticky card navigator</span>
 				<p class="text-xs opacity-70">
-					Local view option for Dixit voting and results. Shows a small sticky row of canonical card
-					numbers for quick jumping, even if card badges are hidden.
+					Local view option for Dixit voting and results. Shows a compact sticky grid of canonical
+					card numbers for quick jumping, even if card badges are hidden.
 				</p>
 			</div>
 		</label>

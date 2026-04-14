@@ -12,7 +12,6 @@
 	export let targetIdScope = '';
 	export let selectedLabels: number[] = [];
 	export let mutedLabels: number[] = [];
-	export let title = 'Jump to card';
 	export let collapsedLabel = 'Card navigator';
 
 	const TARGET_HIGHLIGHT_CLASS = 'card-number-navigator-target-highlight';
@@ -24,6 +23,9 @@
 	$: selectedLabelSet = new Set(selectedLabels);
 	$: mutedLabelSet = new Set(mutedLabels);
 	$: shouldShowNavigator = $stickyVotingCardNavigatorEnabled && uniqueOrderedLabels.length > 1;
+	$: toggleNavigatorLabel = `${
+		$stickyVotingCardNavigatorCollapsed ? 'Show' : 'Collapse'
+	} ${collapsedLabel}`;
 
 	function prefersReducedMotion() {
 		return browser && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -61,38 +63,67 @@
 </script>
 
 {#if shouldShowNavigator}
-	<div class="sticky top-2 z-10 mb-3">
+	<div class="sticky top-2 z-50 mb-3">
 		{#if $stickyVotingCardNavigatorCollapsed}
 			<div class="flex justify-start">
 				<button
 					type="button"
-					class="rounded-full border border-white/15 bg-slate-950/85 px-3 py-1.5 text-xs font-semibold text-white shadow-lg backdrop-blur transition hover:bg-slate-900/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
+					class="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-slate-950/90 text-white shadow-lg backdrop-blur transition hover:bg-slate-900/95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
+					aria-label={toggleNavigatorLabel}
+					aria-expanded={!$stickyVotingCardNavigatorCollapsed}
+					title={toggleNavigatorLabel}
 					on:click={() => stickyVotingCardNavigatorCollapsed.set(false)}
 				>
-					Show {collapsedLabel}
+					<svg
+						viewBox="0 0 24 24"
+						class="h-4 w-4"
+						fill="none"
+						stroke="currentColor"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						stroke-width="2"
+						aria-hidden="true"
+					>
+						<path d="M6 9l6 6 6-6" />
+					</svg>
+					<span class="sr-only">{toggleNavigatorLabel}</span>
 				</button>
 			</div>
 		{:else}
 			<div
-				class="rounded-2xl border border-white/10 bg-slate-950/80 px-3 py-2 shadow-lg backdrop-blur"
+				class="relative rounded-2xl border border-white/10 bg-slate-950/90 px-2.5 py-2 shadow-lg backdrop-blur"
 			>
-				<div class="mb-2 flex items-center justify-between gap-3">
-					<p class="text-xs font-semibold uppercase tracking-[0.18em] text-white/70">{title}</p>
-					<button
-						type="button"
-						class="rounded-full border border-white/15 px-2.5 py-1 text-xs font-medium text-white/80 transition hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
-						on:click={() => stickyVotingCardNavigatorCollapsed.set(true)}
+				<button
+					type="button"
+					class="absolute right-2 top-2 inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/15 bg-slate-950/70 text-white/80 transition hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
+					aria-label={toggleNavigatorLabel}
+					aria-expanded={!$stickyVotingCardNavigatorCollapsed}
+					title={toggleNavigatorLabel}
+					on:click={() => stickyVotingCardNavigatorCollapsed.set(true)}
+				>
+					<svg
+						viewBox="0 0 24 24"
+						class="h-4 w-4"
+						fill="none"
+						stroke="currentColor"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						stroke-width="2"
+						aria-hidden="true"
 					>
-						Collapse
-					</button>
-				</div>
-				<div class="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+						<path d="M6 15l6-6 6 6" />
+					</svg>
+					<span class="sr-only">{toggleNavigatorLabel}</span>
+				</button>
+				<div
+					class="card-number-navigator-grid -mx-0.5 flex flex-wrap gap-1.5 overflow-y-auto px-0.5 pr-10"
+				>
 					{#each uniqueOrderedLabels as label}
 						{@const isSelected = selectedLabelSet.has(label)}
 						{@const isMuted = mutedLabelSet.has(label)}
 						<button
 							type="button"
-							class={`shrink-0 rounded-full border px-3 py-1 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 ${
+							class={`shrink-0 rounded-full border px-2 py-0.5 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 ${
 								isSelected
 									? 'border-primary-300 bg-primary-500 text-white shadow-[0_0_0_1px_rgba(255,255,255,0.18)]'
 									: isMuted
@@ -141,5 +172,11 @@
 				0 0 0 4px rgb(250 204 21 / 0.82),
 				0 0 0 8px rgb(255 255 255 / 0.2);
 		}
+	}
+
+	.card-number-navigator-grid {
+		max-height: 5.75rem;
+		scrollbar-gutter: stable;
+		overscroll-behavior: contain;
 	}
 </style>

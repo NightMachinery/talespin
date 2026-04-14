@@ -1019,7 +1019,7 @@ impl Room {
             round: 0,
             win_condition,
             deck_refill_count: 0,
-            leaderboard_view_mode_default: LeaderboardViewMode::Total,
+            leaderboard_view_mode_default: LeaderboardViewMode::Combined,
             leaderboard_view_mode_default_version: 0,
         };
 
@@ -12386,8 +12386,8 @@ mod tests {
                     "beauty point totals should start empty"
                 );
                 assert!(
-                    matches!(leaderboard_view_mode_default, LeaderboardViewMode::Total),
-                    "leaderboard view should default to total"
+                    matches!(leaderboard_view_mode_default, LeaderboardViewMode::Combined),
+                    "leaderboard view should default to combined"
                 );
                 assert_eq!(
                     leaderboard_view_mode_default_version, 0,
@@ -12848,7 +12848,7 @@ alpha
             setup_connected_member(&mut state, "host", "t-host", 10_202);
             state.game_mode = GameMode::Stella;
             state.beauty_timer_duration_s = 60;
-            state.leaderboard_view_mode_default = LeaderboardViewMode::Total;
+            state.leaderboard_view_mode_default = LeaderboardViewMode::Combined;
         }
 
         room.handle_client_msg(
@@ -12874,7 +12874,7 @@ alpha
         assert!(
             matches!(
                 state.leaderboard_view_mode_default,
-                LeaderboardViewMode::Total
+                LeaderboardViewMode::Combined
             ),
             "Stella should ignore Dixit leaderboard view pushes"
         );

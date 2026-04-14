@@ -33,6 +33,7 @@ voting while keeping the canonical number badges.
 
 ## Local navigation aid
 
-- Players can also enable the local **Sticky card navigator** view option.
+- The local **Sticky card navigator** view option is enabled by default, and players can still turn
+  it off if they prefer.
 - That navigator stays client-side, shows the same canonical numbers, and can jump to any card in
   `Voting`, `BeautyVoting`, `Results`, and `BeautyResults`.

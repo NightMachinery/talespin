@@ -48,7 +48,7 @@ export const hideNonSelectedStellaRevealCards = createPersistentBooleanStore(
 );
 export const stickyVotingCardNavigatorEnabled = createPersistentBooleanStore(
 	'sticky_voting_card_navigator_enabled',
-	false
+	true
 );
 export const stickyVotingCardNavigatorCollapsed = createPersistentBooleanStore(
 	'sticky_voting_card_navigator_collapsed',

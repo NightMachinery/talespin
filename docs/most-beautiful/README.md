@@ -45,6 +45,9 @@ Dixit leaderboards expose four view modes:
 - **Beauty Only**: accumulated beauty points only
 - **Combined**: aligned `T / S / B` columns for total, story, and beauty
 
+The default Dixit leaderboard view is **Combined** for fresh clients / rooms, while existing saved
+per-room client preferences keep their previous choice.
+
 Moderators can force-push the current leaderboard view to everyone in the room. In Resonance/Stella mode, Most Beautiful leaderboard controls are hidden and ignored.
 
 ## End-game history

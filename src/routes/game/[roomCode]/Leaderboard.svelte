@@ -26,6 +26,15 @@
 	import { OFFLINE_STATUS_LABEL } from '$lib/presence';
 	import { formatWinCondition } from '$lib/winCondition';
 
+	type CombinedScoreKey = 'total' | 'story' | 'beauty';
+
+	const COMBINED_SCORE_KEYS: CombinedScoreKey[] = ['total', 'story', 'beauty'];
+	const COMBINED_SCORE_LABELS: Record<CombinedScoreKey, string> = {
+		total: 'T',
+		story: 'S',
+		beauty: 'B'
+	};
+
 	export let players: { [key: string]: PlayerInfo } = {};
 	export let observers: { [key: string]: ObserverInfo } = {};
 	export let name = '';
@@ -39,6 +48,10 @@
 	export let deckRefillFlashToken = 0;
 	export let darkPlayer = '';
 	export let gameMode: GameMode = 'dixit_plus';
+	export let leaderboardPointChangeStageOverride = '';
+	export let leaderboardPointChangeOverride: { [key: string]: number } | null = null;
+	export let leaderboardStoryPointChangeOverride: { [key: string]: number } | null = null;
+	export let leaderboardBeautyPointChangeOverride: { [key: string]: number } | null = null;
 	export let winCondition: WinCondition = {
 		mode: 'points',
 		target_points: 10
@@ -57,10 +70,17 @@
 		displayPointChange: number | null;
 	}> = [];
 	let digitWidths = { total: 1, story: 1, beauty: 1 };
+	let combinedDeltaWidths = { total: 2, story: 2, beauty: 2 };
 
 	$: isModerator = new Set(moderators).has(name);
 	$: supportsBeautyModes = gameMode === 'dixit_plus';
 	$: activeLeaderboardViewMode = supportsBeautyModes ? $leaderboardViewMode : 'total';
+	$: pointChangeStage = leaderboardPointChangeStageOverride || stage;
+	$: effectivePointChange = leaderboardPointChangeOverride ?? pointChange;
+	$: effectiveStorytellerPointChange =
+		leaderboardStoryPointChangeOverride ?? $storytellerLeaderboardPointChange;
+	$: effectiveBeautyPointChange =
+		leaderboardBeautyPointChangeOverride ?? $beautyLeaderboardPointChange;
 	$: {
 		rankedPlayers = rankEntriesByMode(
 			Object.entries(players).map(([entryName, info]) => ({
@@ -86,6 +106,11 @@
 			entry.breakdown ? [{ breakdown: entry.breakdown }] : []
 		)
 	]);
+	$: combinedDeltaWidths = {
+		total: combinedDeltaWidth('total'),
+		story: combinedDeltaWidth('story'),
+		beauty: combinedDeltaWidth('beauty')
+	};
 
 	$: winConditionLabel = formatWinCondition(winCondition);
 
@@ -125,11 +150,15 @@
 
 	function shouldShowPointChange() {
 		return (
-			stage === 'Results' ||
-			stage === 'BeautyResults' ||
-			stage === 'StellaReveal' ||
-			stage === 'StellaResults'
+			pointChangeStage === 'Results' ||
+			pointChangeStage === 'BeautyResults' ||
+			pointChangeStage === 'StellaReveal' ||
+			pointChangeStage === 'StellaResults'
 		);
+	}
+
+	function shouldShowCombinedDeltaColumns() {
+		return activeLeaderboardViewMode === 'combined' && shouldShowPointChange();
 	}
 
 	function beautyPointsForPlayer(playerName: string) {
@@ -138,21 +167,21 @@
 
 	function displayedPointChangeForPlayer(playerName: string) {
 		if (!supportsBeautyModes) {
-			return pointChange[playerName] ?? 0;
+			return effectivePointChange[playerName] ?? 0;
 		}
 		switch (activeLeaderboardViewMode) {
 			case 'story_only':
-				if (stage === 'BeautyResults') {
+				if (pointChangeStage === 'BeautyResults') {
 					return 0;
 				}
-				return $storytellerLeaderboardPointChange[playerName] ?? 0;
+				return effectiveStorytellerPointChange[playerName] ?? 0;
 			case 'beauty_only':
-				return $beautyLeaderboardPointChange[playerName] ?? 0;
+				return effectiveBeautyPointChange[playerName] ?? 0;
 			case 'combined':
 				return null;
 			case 'total':
 			default:
-				return pointChange[playerName] ?? 0;
+				return effectivePointChange[playerName] ?? 0;
 		}
 	}
 
@@ -161,16 +190,17 @@
 			return null;
 		}
 		return {
-			total: pointChange[playerName] ?? 0,
-			story: stage === 'BeautyResults' ? 0 : $storytellerLeaderboardPointChange[playerName] ?? 0,
-			beauty: $beautyLeaderboardPointChange[playerName] ?? 0
+			total: effectivePointChange[playerName] ?? 0,
+			story:
+				pointChangeStage === 'BeautyResults' ? 0 : effectiveStorytellerPointChange[playerName] ?? 0,
+			beauty: effectiveBeautyPointChange[playerName] ?? 0
 		};
 	}
 
 	function combinedColumns(
 		playerName: string,
 		breakdown: ReturnType<typeof scoreBreakdown>
-	): Array<{ key: 'total' | 'story' | 'beauty'; value: number; delta: number | null }> {
+	): Array<{ key: CombinedScoreKey; value: number; delta: number | null }> {
 		const deltas = combinedPointChangeForPlayer(playerName);
 		return [
 			{
@@ -191,8 +221,31 @@
 		];
 	}
 
-	function digitWidthForKey(key: 'total' | 'story' | 'beauty') {
+	function combinedHeaderLabel(key: CombinedScoreKey) {
+		return COMBINED_SCORE_LABELS[key];
+	}
+
+	function combinedDeltaWidth(key: CombinedScoreKey) {
+		if (!shouldShowCombinedDeltaColumns()) {
+			return 2;
+		}
+
+		const values = [
+			...rankedPlayers.map((entry) => combinedPointChangeForPlayer(entry.name)?.[key] ?? null),
+			...adjustedObserverEntries.map((entry) =>
+				entry.breakdown === null ? null : combinedPointChangeForPlayer(entry.name)?.[key] ?? null
+			)
+		].filter((value): value is number => value !== null);
+
+		return Math.max(2, ...values.map((value) => formatSignedDelta(value).length));
+	}
+
+	function digitWidthForKey(key: CombinedScoreKey) {
 		return widthStyle(digitWidths[key]);
+	}
+
+	function combinedDeltaWidthStyle(key: CombinedScoreKey) {
+		return widthStyle(combinedDeltaWidths[key]);
 	}
 
 	function formatSignedDelta(delta: number) {
@@ -248,11 +301,24 @@
 		<div class="mt-3">
 			{#if activeLeaderboardViewMode === 'combined'}
 				<div
-					class="mb-2 flex items-center justify-end gap-2 pr-1 text-[11px] font-semibold uppercase tracking-wide opacity-60"
+					class="mb-2 flex justify-end pr-1 text-[11px] font-semibold uppercase tracking-wide opacity-60"
 				>
-					<span class="score-column" style={widthStyle(digitWidths.total)}>T</span>
-					<span class="score-column" style={widthStyle(digitWidths.story)}>S</span>
-					<span class="score-column" style={widthStyle(digitWidths.beauty)}>B</span>
+					<div class="combined-score-header">
+						{#each COMBINED_SCORE_KEYS as key}
+							<div class="combined-score-group">
+								<span class="score-column" style={digitWidthForKey(key)}
+									>{combinedHeaderLabel(key)}</span
+								>
+								{#if shouldShowCombinedDeltaColumns()}
+									<span
+										class="combined-delta combined-delta-placeholder"
+										style={combinedDeltaWidthStyle(key)}
+										aria-hidden="true"
+									></span>
+								{/if}
+							</div>
+						{/each}
+					</div>
 				</div>
 			{/if}
 			<div>
@@ -292,10 +358,13 @@
 											<span class="score-column" style={digitWidthForKey(column.key)}
 												>{column.value}</span
 											>
-											{#if column.delta !== null}
-												<span class={`combined-delta ${column.delta === 0 ? 'opacity-45' : ''}`}
-													>{formatSignedDelta(column.delta)}</span
+											{#if shouldShowCombinedDeltaColumns()}
+												<span
+													class={`combined-delta ${column.delta === 0 ? 'opacity-45' : ''}`}
+													style={combinedDeltaWidthStyle(column.key)}
 												>
+													{formatSignedDelta(column.delta ?? 0)}
+												</span>
 											{/if}
 										</div>
 									{/each}
@@ -324,11 +393,24 @@
 				<p class="font-semibold">Observers</p>
 				{#if activeLeaderboardViewMode === 'combined'}
 					<div
-						class="mb-2 mt-1 flex items-center justify-end gap-2 pr-1 text-[11px] font-semibold uppercase tracking-wide opacity-60"
+						class="mb-2 mt-1 flex justify-end pr-1 text-[11px] font-semibold uppercase tracking-wide opacity-60"
 					>
-						<span class="score-column" style={widthStyle(digitWidths.total)}>T</span>
-						<span class="score-column" style={widthStyle(digitWidths.story)}>S</span>
-						<span class="score-column" style={widthStyle(digitWidths.beauty)}>B</span>
+						<div class="combined-score-header">
+							{#each COMBINED_SCORE_KEYS as key}
+								<div class="combined-score-group">
+									<span class="score-column" style={digitWidthForKey(key)}
+										>{combinedHeaderLabel(key)}</span
+									>
+									{#if shouldShowCombinedDeltaColumns()}
+										<span
+											class="combined-delta combined-delta-placeholder"
+											style={combinedDeltaWidthStyle(key)}
+											aria-hidden="true"
+										></span>
+									{/if}
+								</div>
+							{/each}
+						</div>
 					</div>
 				{/if}
 				<div class="mt-1 space-y-1">
@@ -360,10 +442,13 @@
 												<span class="score-column" style={digitWidthForKey(column.key)}
 													>{column.value}</span
 												>
-												{#if column.delta !== null}
-													<span class={`combined-delta ${column.delta === 0 ? 'opacity-45' : ''}`}
-														>{formatSignedDelta(column.delta)}</span
+												{#if shouldShowCombinedDeltaColumns()}
+													<span
+														class={`combined-delta ${column.delta === 0 ? 'opacity-45' : ''}`}
+														style={combinedDeltaWidthStyle(column.key)}
 													>
+														{formatSignedDelta(column.delta ?? 0)}
+													</span>
 												{/if}
 											</div>
 										{/each}
@@ -395,28 +480,34 @@
 		text-align: right;
 	}
 
-	.combined-score {
+	.combined-score,
+	.combined-score-header {
 		display: flex;
-		align-items: center;
+		align-items: baseline;
 		justify-content: flex-end;
-		gap: 0.4rem;
 	}
 
 	.combined-score-group {
 		display: flex;
 		align-items: baseline;
-		gap: 0.15rem;
+		gap: 0.18rem;
 	}
 
-	.combined-score-group + .combined-score-group::before {
-		content: '|';
-		margin-right: 0.25rem;
-		opacity: 0.35;
+	.combined-score-group + .combined-score-group {
+		margin-left: 0.55rem;
+		padding-left: 0.55rem;
+		border-left: 1px solid rgb(255 255 255 / 0.18);
 	}
 
 	.combined-delta {
+		display: inline-block;
+		text-align: left;
 		font-size: 0.72rem;
 		opacity: 0.75;
+	}
+
+	.combined-delta-placeholder {
+		visibility: hidden;
 	}
 
 	@keyframes cards-refilled-pulse {

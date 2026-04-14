@@ -1,7 +1,10 @@
 <script lang="ts">
 	import { getDesktopFitRowCount } from '$lib/cardGrid';
 	import { buildBeautyBadgeMetadata } from '$lib/beautyResults';
-	import { buildCardNumberNavigatorTargetId } from '$lib/cardNumberNavigator';
+	import {
+		buildCardNumberNavigatorTargetId,
+		CARD_NUMBER_NAVIGATOR_SCROLL_MARGIN_TOP
+	} from '$lib/cardNumberNavigator';
 	import { CARD_IMAGE_ALT_TEXT } from '$lib/cardImageText';
 	import CardImage from '$lib/CardImage.svelte';
 	import { http_host } from '$lib/gameServer';
@@ -283,7 +286,7 @@
 			</p>
 		</div>
 		<div class="card light p-4">
-			<div class="space-y-2">
+			<div class="space-y-4">
 				<button
 					class="btn variant-filled w-full"
 					disabled={isObserver}
@@ -294,17 +297,15 @@
 						: 'Next Round'}
 				</button>
 				{#if isModerator}
-					<div class="pt-3">
-						<button
-							class="btn variant-filled w-full"
-							disabled={!canForceStartNextRound}
-							on:click={() => gameServer.forceStartNextRound()}
-						>
-							{beautyEnabled && beautyResultsDisplayMode === 'separate'
-								? 'Force beauty results'
-								: 'Force start next round'}
-						</button>
-					</div>
+					<button
+						class="btn variant-filled w-full"
+						disabled={!canForceStartNextRound}
+						on:click={() => gameServer.forceStartNextRound()}
+					>
+						{beautyEnabled && beautyResultsDisplayMode === 'separate'
+							? 'Force beauty results'
+							: 'Force start next round'}
+					</button>
 				{/if}
 			</div>
 			{#if isObserver}
@@ -327,7 +328,7 @@
 	</svelte:fragment>
 
 	<svelte:fragment slot="mobileActions">
-		<div class="space-y-2">
+		<div class="space-y-4">
 			<button
 				class="btn variant-filled w-full"
 				disabled={isObserver}
@@ -336,17 +337,15 @@
 				{beautyEnabled && beautyResultsDisplayMode === 'separate' ? 'Beauty Results' : 'Next Round'}
 			</button>
 			{#if isModerator}
-				<div class="pt-3">
-					<button
-						class="btn variant-filled w-full"
-						disabled={!canForceStartNextRound}
-						on:click={() => gameServer.forceStartNextRound()}
-					>
-						{beautyEnabled && beautyResultsDisplayMode === 'separate'
-							? 'Force beauty results'
-							: 'Force start next round'}
-					</button>
-				</div>
+				<button
+					class="btn variant-filled w-full"
+					disabled={!canForceStartNextRound}
+					on:click={() => gameServer.forceStartNextRound()}
+				>
+					{beautyEnabled && beautyResultsDisplayMode === 'separate'
+						? 'Force beauty results'
+						: 'Force start next round'}
+				</button>
 			{/if}
 		</div>
 	</svelte:fragment>
@@ -356,7 +355,6 @@
 		<CardNumberNavigator
 			{cardNumberLabels}
 			targetIdScope="results"
-			title="Jump to round card"
 			collapsedLabel="round card navigator"
 		/>
 		<section class={resultsSectionClass} style={resultsDesktopFitStyle}>
@@ -365,7 +363,7 @@
 				<div
 					id={buildCardNumberNavigatorTargetId('results', cardNumberLabel)}
 					class={resultsCardClass(image)}
-					style:scroll-margin-top="7rem"
+					style:scroll-margin-top={CARD_NUMBER_NAVIGATOR_SCROLL_MARGIN_TOP}
 				>
 					<CardImage
 						src={`${http_host}/cards/${image}`}
@@ -407,7 +405,8 @@
 						style="bottom: 0;"
 						class="rounded-tr w-full absolute bg-primary-200 p-0.5 px-2 text-black font-bold"
 					>
-						{cardToPlayer[image]}'s card
+						<span class={image === activeCard ? 'boujee-text' : ''}>{cardToPlayer[image]}</span>'s
+						card
 					</div>
 				</div>
 			{/each}

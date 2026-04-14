@@ -2,7 +2,10 @@
 	import { getToastStore } from '@skeletonlabs/skeleton';
 
 	import { getDesktopFitRowCount } from '$lib/cardGrid';
-	import { buildCardNumberNavigatorTargetId } from '$lib/cardNumberNavigator';
+	import {
+		buildCardNumberNavigatorTargetId,
+		CARD_NUMBER_NAVIGATOR_SCROLL_MARGIN_TOP
+	} from '$lib/cardNumberNavigator';
 	import { CARD_IMAGE_ALT_TEXT } from '$lib/cardImageText';
 	import CardImage from '$lib/CardImage.svelte';
 	import { http_host } from '$lib/gameServer';
@@ -376,23 +379,29 @@
 	</svelte:fragment>
 
 	<svelte:fragment slot="mobileActions">
-		{#if !isObserver}
-			<button class="btn variant-filled w-full" disabled={!canSubmit} on:click={submitBeautyVotes}>
-				Submit Beauty Votes
-			</button>
-		{/if}
-		{#if isModerator}
-			<StageActionButtons
-				actions={[
-					{ label: 'Force Skip', onClick: () => gameServer.forceCurrentStage() },
-					{
-						label: 'Auto-observerify',
-						disabled: !canAutoObserverify,
-						onClick: () => gameServer.autoObserverifyOfflinePendingPlayers()
-					}
-				]}
-			/>
-		{/if}
+		<div class="space-y-4">
+			{#if !isObserver}
+				<button
+					class="btn variant-filled w-full"
+					disabled={!canSubmit}
+					on:click={submitBeautyVotes}
+				>
+					Submit Beauty Votes
+				</button>
+			{/if}
+			{#if isModerator}
+				<StageActionButtons
+					actions={[
+						{ label: 'Force Skip', onClick: () => gameServer.forceCurrentStage() },
+						{
+							label: 'Auto-observerify',
+							disabled: !canAutoObserverify,
+							onClick: () => gameServer.autoObserverifyOfflinePendingPlayers()
+						}
+					]}
+				/>
+			{/if}
+		</div>
 	</svelte:fragment>
 
 	<div class="flex h-full min-h-0 flex-col">
@@ -402,7 +411,6 @@
 			targetIdScope="beauty-voting"
 			selectedLabels={selectedCardNumberLabels}
 			mutedLabels={mutedCardNumberLabels}
-			title="Jump to beauty card"
 			collapsedLabel="beauty card navigator"
 		/>
 		<section class={tableSectionClass} style={tableDesktopFitStyle}>
@@ -414,7 +422,7 @@
 					type="button"
 					id={buildCardNumberNavigatorTargetId('beauty-voting', cardNumberLabel)}
 					class={`${tableButtonClass} ${isDisabled || isObserver ? 'cursor-default' : ''}`}
-					style:scroll-margin-top="7rem"
+					style:scroll-margin-top={CARD_NUMBER_NAVIGATOR_SCROLL_MARGIN_TOP}
 					disabled={isObserver || isDisabled}
 					on:click={() => cycleCardVote(image)}
 				>

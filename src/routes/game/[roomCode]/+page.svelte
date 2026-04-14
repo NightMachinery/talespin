@@ -160,7 +160,7 @@
 	let deckRefillCount = 0;
 	let deckRefillFlashToken = 0;
 	let hasReceivedRoomState = false;
-	let leaderboardViewModeDefault: LeaderboardViewMode = 'total';
+	let leaderboardViewModeDefault: LeaderboardViewMode = 'combined';
 	let leaderboardExcludeBeautyDefaultVersion = 0;
 	let dixitEndRoundHistory: DixitEndRoundHistoryEntry[] = [];
 	let winCondition: WinCondition = {
@@ -438,7 +438,7 @@
 					...DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION
 				];
 				memberBeautyPoints.set(data.RoomState.member_to_beauty_points ?? {});
-				leaderboardViewModeDefault = data.RoomState.leaderboard_view_mode_default ?? 'total';
+				leaderboardViewModeDefault = data.RoomState.leaderboard_view_mode_default ?? 'combined';
 				leaderboardExcludeBeautyDefaultVersion =
 					data.RoomState.leaderboard_view_mode_default_version ?? 0;
 				applyRoomLeaderboardViewModeDefault(

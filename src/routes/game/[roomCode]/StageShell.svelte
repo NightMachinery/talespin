@@ -95,6 +95,10 @@
 	};
 	export let gameMode: GameMode = 'dixit_plus';
 	export let showMobileActions = true;
+	export let leaderboardPointChangeStageOverride = '';
+	export let leaderboardPointChangeOverride: { [key: string]: number } | null = null;
+	export let leaderboardStoryPointChangeOverride: { [key: string]: number } | null = null;
+	export let leaderboardBeautyPointChangeOverride: { [key: string]: number } | null = null;
 
 	const hasMobileTop = !!$$slots.mobileTop;
 	const hasMobileActions = !!$$slots.mobileActions;
@@ -206,7 +210,7 @@
 
 			{#if hasMobileActions && showMobileActions}
 				<div class="order-2 sticky bottom-2 z-20 lg:hidden">
-					<div class="card light p-3">
+					<div class="card light p-4">
 						<slot name="mobileActions" />
 					</div>
 				</div>
@@ -235,6 +239,10 @@
 						{darkPlayer}
 						{winCondition}
 						{gameMode}
+						{leaderboardPointChangeStageOverride}
+						{leaderboardPointChangeOverride}
+						{leaderboardStoryPointChangeOverride}
+						{leaderboardBeautyPointChangeOverride}
 					/>
 
 					{#if hasMobileBottom}

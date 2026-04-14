@@ -2,7 +2,10 @@
 	import { getToastStore } from '@skeletonlabs/skeleton';
 
 	import { getDesktopFitRowCount } from '$lib/cardGrid';
-	import { buildCardNumberNavigatorTargetId } from '$lib/cardNumberNavigator';
+	import {
+		buildCardNumberNavigatorTargetId,
+		CARD_NUMBER_NAVIGATOR_SCROLL_MARGIN_TOP
+	} from '$lib/cardNumberNavigator';
 	import { CARD_IMAGE_ALT_TEXT } from '$lib/cardImageText';
 	import CardImage from '$lib/CardImage.svelte';
 	import { http_host } from '$lib/gameServer';
@@ -364,27 +367,29 @@
 	</svelte:fragment>
 
 	<svelte:fragment slot="mobileActions">
-		{#if isVoter}
-			<button class="btn variant-filled w-full" disabled={!canSubmit} on:click={submitVotes}
-				>Submit Votes</button
-			>
-		{/if}
-		{#if isModerator}
-			<StageActionButtons
-				actions={[
-					{
-						label: 'Force Random',
-						disabled: !canForceRandomVote,
-						onClick: () => gameServer.forceCurrentStage()
-					},
-					{
-						label: 'Auto-observerify',
-						disabled: !canAutoObserverify,
-						onClick: () => gameServer.autoObserverifyOfflinePendingPlayers()
-					}
-				]}
-			/>
-		{/if}
+		<div class="space-y-4">
+			{#if isVoter}
+				<button class="btn variant-filled w-full" disabled={!canSubmit} on:click={submitVotes}
+					>Submit Votes</button
+				>
+			{/if}
+			{#if isModerator}
+				<StageActionButtons
+					actions={[
+						{
+							label: 'Force Random',
+							disabled: !canForceRandomVote,
+							onClick: () => gameServer.forceCurrentStage()
+						},
+						{
+							label: 'Auto-observerify',
+							disabled: !canAutoObserverify,
+							onClick: () => gameServer.autoObserverifyOfflinePendingPlayers()
+						}
+					]}
+				/>
+			{/if}
+		</div>
 	</svelte:fragment>
 
 	<div class="flex h-full min-h-0 flex-col">
@@ -394,7 +399,6 @@
 			targetIdScope="voting"
 			selectedLabels={selectedCardNumberLabels}
 			mutedLabels={mutedCardNumberLabels}
-			title="Jump to voting card"
 			collapsedLabel="voting card navigator"
 		/>
 		<section class={tableSectionClass} style={tableDesktopFitStyle}>
@@ -406,7 +410,7 @@
 					type="button"
 					id={buildCardNumberNavigatorTargetId('voting', cardNumberLabel)}
 					class={`${tableButtonClass} ${isDisabled || !isVoter ? 'cursor-default' : ''}`}
-					style:scroll-margin-top="7rem"
+					style:scroll-margin-top={CARD_NUMBER_NAVIGATOR_SCROLL_MARGIN_TOP}
 					disabled={!isVoter || isDisabled}
 					on:click={() => cycleCardVote(image)}
 				>

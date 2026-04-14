@@ -19,6 +19,15 @@
 	} from '$lib/types';
 	import MostBeautifulStatsPanel from './MostBeautifulStatsPanel.svelte';
 
+	type CombinedScoreKey = 'total' | 'story' | 'beauty';
+
+	const COMBINED_SCORE_KEYS: CombinedScoreKey[] = ['total', 'story', 'beauty'];
+	const COMBINED_SCORE_LABELS: Record<CombinedScoreKey, string> = {
+		total: 'T',
+		story: 'S',
+		beauty: 'B'
+	};
+
 	export let players: { [key: string]: PlayerInfo } = {};
 	export let observers: { [key: string]: ObserverInfo } = {};
 	export let gameMode: GameMode = 'dixit_plus';
@@ -143,6 +152,18 @@
 		};
 	}
 
+	function combinedHeaderLabel(key: CombinedScoreKey) {
+		return COMBINED_SCORE_LABELS[key];
+	}
+
+	function combinedColumns(breakdown: ReturnType<typeof scoreBreakdown>) {
+		return [
+			{ key: 'total' as const, value: breakdown.total },
+			{ key: 'story' as const, value: breakdown.story },
+			{ key: 'beauty' as const, value: breakdown.beauty }
+		];
+	}
+
 	function handleViewModeChange(event: Event) {
 		const select = event.currentTarget as HTMLSelectElement;
 		setLeaderboardViewModePreference(select.value as LeaderboardViewMode);
@@ -193,11 +214,17 @@
 
 			{#if activeLeaderboardViewMode === 'combined'}
 				<div
-					class="mb-2 flex items-center justify-end gap-2 pr-1 text-[11px] font-semibold uppercase tracking-wide opacity-60"
+					class="mb-2 flex justify-end pr-1 text-[11px] font-semibold uppercase tracking-wide opacity-60"
 				>
-					<span class="score-column" style={widthStyle(digitWidths.total)}>T</span>
-					<span class="score-column" style={widthStyle(digitWidths.story)}>S</span>
-					<span class="score-column" style={widthStyle(digitWidths.beauty)}>B</span>
+					<div class="combined-score-header">
+						{#each COMBINED_SCORE_KEYS as key}
+							<div class="combined-score-group">
+								<span class="score-column" style={widthStyle(digitWidths[key])}
+									>{combinedHeaderLabel(key)}</span
+								>
+							</div>
+						{/each}
+					</div>
 				</div>
 			{/if}
 
@@ -210,16 +237,14 @@
 						</div>
 						<div class="shrink-0 text-right font-mono tabular-nums">
 							{#if activeLeaderboardViewMode === 'combined'}
-								<div class="flex items-center justify-end gap-2">
-									<span class="score-column" style={widthStyle(digitWidths.total)}
-										>{entry.breakdown.total}</span
-									>
-									<span class="score-column opacity-85" style={widthStyle(digitWidths.story)}
-										>{entry.breakdown.story}</span
-									>
-									<span class="score-column opacity-85" style={widthStyle(digitWidths.beauty)}
-										>{entry.breakdown.beauty}</span
-									>
+								<div class="combined-score">
+									{#each combinedColumns(entry.breakdown) as column}
+										<div class="combined-score-group">
+											<span class="score-column" style={widthStyle(digitWidths[column.key])}
+												>{column.value}</span
+											>
+										</div>
+									{/each}
 								</div>
 							{:else if activeLeaderboardViewMode === 'beauty_only'}
 								{entry.breakdown.beauty}
@@ -244,16 +269,14 @@
 									{#if observerEntry.breakdown === null}
 										NA
 									{:else if activeLeaderboardViewMode === 'combined'}
-										<div class="flex items-center justify-end gap-2">
-											<span class="score-column" style={widthStyle(digitWidths.total)}
-												>{observerEntry.breakdown.total}</span
-											>
-											<span class="score-column opacity-85" style={widthStyle(digitWidths.story)}
-												>{observerEntry.breakdown.story}</span
-											>
-											<span class="score-column opacity-85" style={widthStyle(digitWidths.beauty)}
-												>{observerEntry.breakdown.beauty}</span
-											>
+										<div class="combined-score">
+											{#each combinedColumns(observerEntry.breakdown) as column}
+												<div class="combined-score-group">
+													<span class="score-column" style={widthStyle(digitWidths[column.key])}
+														>{column.value}</span
+													>
+												</div>
+											{/each}
 										</div>
 									{:else if activeLeaderboardViewMode === 'beauty_only'}
 										{observerEntry.breakdown.beauty}
@@ -282,5 +305,23 @@
 	.score-column {
 		display: inline-block;
 		text-align: right;
+	}
+
+	.combined-score,
+	.combined-score-header {
+		display: flex;
+		align-items: baseline;
+		justify-content: flex-end;
+	}
+
+	.combined-score-group {
+		display: flex;
+		align-items: baseline;
+	}
+
+	.combined-score-group + .combined-score-group {
+		margin-left: 0.55rem;
+		padding-left: 0.55rem;
+		border-left: 1px solid rgb(255 255 255 / 0.18);
 	}
 </style>

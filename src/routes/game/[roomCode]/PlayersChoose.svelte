@@ -6,6 +6,10 @@
 		PreviousDixitResultsView,
 		WinCondition
 	} from '$lib/types';
+	import {
+		previousDixitResultsLeaderboardContext,
+		type PreviousDixitResultsLeaderboardContext
+	} from '$lib/previousDixitResultsLeaderboard';
 	import Images from './Images.svelte';
 	import PreviousDixitResultsPreview from './PreviousDixitResultsPreview.svelte';
 	import StageActionButtons from './StageActionButtons.svelte';
@@ -106,6 +110,7 @@
 	let canAutoObserverify = false;
 	let highlightedImages: string[] = [];
 	let lastViewResetKey = '';
+	let previousResultsLeaderboardContext: PreviousDixitResultsLeaderboardContext | null = null;
 	$: isObserver = !!observers[name];
 	$: isChooser = activePlayer !== name && !isObserver;
 	$: isStoryteller = activePlayer === name && !isObserver;
@@ -120,6 +125,9 @@
 	$: canToggleResultsView = !isObserver && hasPreviousResultsPreview;
 	$: shouldShowPreviousResults =
 		hasPreviousResultsPreview && (isObserver || viewMode === 'results');
+	$: previousResultsLeaderboardContext = shouldShowPreviousResults
+		? previousDixitResultsLeaderboardContext(previousDixitResults)
+		: null;
 	$: viewResetKey = `${roundNum}:${activePlayer}:${previousDixitResults?.kind ?? 'none'}`;
 	$: if (viewResetKey !== lastViewResetKey) {
 		lastViewResetKey = viewResetKey;
@@ -257,6 +265,11 @@
 	{cardsRemaining}
 	{deckRefillFlashToken}
 	{winCondition}
+	leaderboardPointChangeStageOverride={previousResultsLeaderboardContext?.stage ?? ''}
+	leaderboardPointChangeOverride={previousResultsLeaderboardContext?.pointChange ?? null}
+	leaderboardStoryPointChangeOverride={previousResultsLeaderboardContext?.storyPointChange ?? null}
+	leaderboardBeautyPointChangeOverride={previousResultsLeaderboardContext?.beautyPointChange ??
+		null}
 	showMobileActions={isChooser || isModerator || canToggleResultsView}
 >
 	<svelte:fragment slot="leftRail">
@@ -393,35 +406,37 @@
 	</svelte:fragment>
 
 	<svelte:fragment slot="mobileActions">
-		{#if isChooser}
-			<button class="btn variant-filled w-full" disabled={!canSubmit} on:click={choose}
-				>Choose</button
-			>
-		{/if}
-		{#if canToggleResultsView}
-			<div class="grid grid-cols-2 gap-2">
-				<button
-					class={`btn w-full ${viewMode === 'results' ? 'variant-filled' : 'variant-ghost'}`}
-					on:click={() => (viewMode = 'results')}>Previous Results</button
+		<div class="space-y-4">
+			{#if isChooser}
+				<button class="btn variant-filled w-full" disabled={!canSubmit} on:click={choose}
+					>Choose</button
 				>
-				<button
-					class={`btn w-full ${viewMode === 'hand' ? 'variant-filled' : 'variant-ghost'}`}
-					on:click={() => (viewMode = 'hand')}>My Cards</button
-				>
-			</div>
-		{/if}
-		{#if isModerator}
-			<StageActionButtons
-				actions={[
-					{ label: 'Force Random', onClick: () => gameServer.forceCurrentStage() },
-					{
-						label: 'Auto-observerify',
-						disabled: !canAutoObserverify,
-						onClick: () => gameServer.autoObserverifyOfflinePendingPlayers()
-					}
-				]}
-			/>
-		{/if}
+			{/if}
+			{#if canToggleResultsView}
+				<div class="grid grid-cols-2 gap-2">
+					<button
+						class={`btn w-full ${viewMode === 'results' ? 'variant-filled' : 'variant-ghost'}`}
+						on:click={() => (viewMode = 'results')}>Previous Results</button
+					>
+					<button
+						class={`btn w-full ${viewMode === 'hand' ? 'variant-filled' : 'variant-ghost'}`}
+						on:click={() => (viewMode = 'hand')}>My Cards</button
+					>
+				</div>
+			{/if}
+			{#if isModerator}
+				<StageActionButtons
+					actions={[
+						{ label: 'Force Random', onClick: () => gameServer.forceCurrentStage() },
+						{
+							label: 'Auto-observerify',
+							disabled: !canAutoObserverify,
+							onClick: () => gameServer.autoObserverifyOfflinePendingPlayers()
+						}
+					]}
+				/>
+			{/if}
+		</div>
 	</svelte:fragment>
 
 	{#if shouldShowPreviousResults && previousDixitResults}

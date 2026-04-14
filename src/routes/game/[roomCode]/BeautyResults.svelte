@@ -1,7 +1,10 @@
 <script lang="ts">
 	import { getDesktopFitRowCount } from '$lib/cardGrid';
 	import { buildBeautyBadgeMetadata } from '$lib/beautyResults';
-	import { buildCardNumberNavigatorTargetId } from '$lib/cardNumberNavigator';
+	import {
+		buildCardNumberNavigatorTargetId,
+		CARD_NUMBER_NAVIGATOR_SCROLL_MARGIN_TOP
+	} from '$lib/cardNumberNavigator';
 	import { CARD_IMAGE_ALT_TEXT } from '$lib/cardImageText';
 	import CardImage from '$lib/CardImage.svelte';
 	import { http_host } from '$lib/gameServer';
@@ -258,22 +261,20 @@
 			</p>
 		</div>
 		<div class="card light p-4">
-			<div class="space-y-2">
+			<div class="space-y-4">
 				<button
 					class="btn variant-filled w-full"
 					disabled={isObserver}
 					on:click={() => gameServer.ready()}>Next Round</button
 				>
 				{#if isModerator}
-					<div class="pt-3">
-						<button
-							class="btn variant-filled w-full"
-							disabled={!canForceStartNextRound}
-							on:click={() => gameServer.forceStartNextRound()}
-						>
-							Force start next round
-						</button>
-					</div>
+					<button
+						class="btn variant-filled w-full"
+						disabled={!canForceStartNextRound}
+						on:click={() => gameServer.forceStartNextRound()}
+					>
+						Force start next round
+					</button>
 				{/if}
 			</div>
 			{#if isObserver}
@@ -299,22 +300,20 @@
 	</svelte:fragment>
 
 	<svelte:fragment slot="mobileActions">
-		<div class="space-y-2">
+		<div class="space-y-4">
 			<button
 				class="btn variant-filled w-full"
 				disabled={isObserver}
 				on:click={() => gameServer.ready()}>Next Round</button
 			>
 			{#if isModerator}
-				<div class="pt-3">
-					<button
-						class="btn variant-filled w-full"
-						disabled={!canForceStartNextRound}
-						on:click={() => gameServer.forceStartNextRound()}
-					>
-						Force start next round
-					</button>
-				</div>
+				<button
+					class="btn variant-filled w-full"
+					disabled={!canForceStartNextRound}
+					on:click={() => gameServer.forceStartNextRound()}
+				>
+					Force start next round
+				</button>
 			{/if}
 		</div>
 	</svelte:fragment>
@@ -324,7 +323,6 @@
 		<CardNumberNavigator
 			{cardNumberLabels}
 			targetIdScope="beauty-results"
-			title="Jump to beauty result card"
 			collapsedLabel="beauty result navigator"
 		/>
 		<section class={resultsSectionClass} style={resultsDesktopFitStyle}>
@@ -333,7 +331,7 @@
 				<div
 					id={buildCardNumberNavigatorTargetId('beauty-results', cardNumberLabel)}
 					class={resultsCardClass(winningCardSet.has(image))}
-					style:scroll-margin-top="7rem"
+					style:scroll-margin-top={CARD_NUMBER_NAVIGATOR_SCROLL_MARGIN_TOP}
 				>
 					<CardImage
 						src={`${http_host}/cards/${image}`}

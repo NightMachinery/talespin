@@ -7,6 +7,10 @@
 		WinCondition
 	} from '$lib/types';
 	import { getToastStore } from '@skeletonlabs/skeleton';
+	import {
+		previousDixitResultsLeaderboardContext,
+		type PreviousDixitResultsLeaderboardContext
+	} from '$lib/previousDixitResultsLeaderboard';
 	import Images from './Images.svelte';
 	import PreviousDixitResultsPreview from './PreviousDixitResultsPreview.svelte';
 	import StageActionButtons from './StageActionButtons.svelte';
@@ -107,6 +111,7 @@
 	let shouldShowPreviousResults = false;
 	let lastViewResetKey = '';
 	let lastActivePlayer = '';
+	let previousResultsLeaderboardContext: PreviousDixitResultsLeaderboardContext | null = null;
 
 	$: isObserver = !!observers[name];
 	$: isActivePlayer = activePlayer === name && !isObserver;
@@ -119,6 +124,9 @@
 	$: canToggleResultsView = !isObserver && hasPreviousResultsPreview;
 	$: shouldShowPreviousResults =
 		hasPreviousResultsPreview && (isObserver || waitingViewMode === 'results');
+	$: previousResultsLeaderboardContext = shouldShowPreviousResults
+		? previousDixitResultsLeaderboardContext(previousDixitResults)
+		: null;
 	$: viewResetKey = `${roundNum}:${activePlayer}:${previousDixitResults?.kind ?? 'none'}`;
 	$: if (viewResetKey !== lastViewResetKey) {
 		lastViewResetKey = viewResetKey;
@@ -222,6 +230,11 @@
 	{cardsRemaining}
 	{deckRefillFlashToken}
 	{winCondition}
+	leaderboardPointChangeStageOverride={previousResultsLeaderboardContext?.stage ?? ''}
+	leaderboardPointChangeOverride={previousResultsLeaderboardContext?.pointChange ?? null}
+	leaderboardStoryPointChangeOverride={previousResultsLeaderboardContext?.storyPointChange ?? null}
+	leaderboardBeautyPointChangeOverride={previousResultsLeaderboardContext?.beautyPointChange ??
+		null}
 	showMobileActions={isActivePlayer || isModerator || canToggleResultsView}
 >
 	<svelte:fragment slot="leftRail">
@@ -354,7 +367,7 @@
 	</svelte:fragment>
 
 	<svelte:fragment slot="mobileActions">
-		<div class="space-y-3">
+		<div class="space-y-4">
 			{#if isActivePlayer}
 				{#if canToggleResultsView}
 					<div class="grid grid-cols-2 gap-2">

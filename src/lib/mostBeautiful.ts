@@ -33,7 +33,7 @@ interface PersistedLeaderboardViewPreference {
 
 const LEADERBOARD_VIEW_PREF_PREFIX = 'leaderboard_view_mode:';
 const LEGACY_LEADERBOARD_BEAUTY_PREF_PREFIX = 'leaderboard_exclude_beauty:';
-const DEFAULT_LEADERBOARD_VIEW_MODE: LeaderboardViewMode = 'total';
+const DEFAULT_LEADERBOARD_VIEW_MODE: LeaderboardViewMode = 'combined';
 
 function preferenceKey(roomCode: string) {
 	return `${LEADERBOARD_VIEW_PREF_PREFIX}${roomCode}`;

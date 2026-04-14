@@ -20,6 +20,8 @@ next storyteller is choosing and while nominations are happening.
 - **Observers** keep the previous-results view only.
 - The local view choice resets each round: storytellers default to **My Cards**, while waiting
   active players default to **Previous Results**.
+- While the preview is visible, the sidebar leaderboard also shows the **previous round's score
+  deltas** instead of hiding them.
 
 ## PlayersChoose behavior
 
@@ -27,6 +29,8 @@ next storyteller is choosing and while nominations are happening.
 - **Observers** keep the previous-results view only.
 - Switching views is local-only and does not clear current nominations or the storyteller card
   highlight.
+- While the preview is visible, the sidebar leaderboard shows the same **previous round delta
+  values** that were shown on the live results screen.
 
 ## What is shown
 
@@ -37,6 +41,8 @@ next storyteller is choosing and while nominations are happening.
 - The data is sent in room state so reconnecting players can still see the same preview.
 - Preview card highlights mirror live Dixit results states: correct card = animated green sweep,
   beauty winner = silver border, overlap = green sweep with a moving silver glint.
+- Leaderboard deltas come from the cached previous-results snapshot, so they match the previewed
+  board rather than the current live stage.
 
 ## Next-round auto-advance
 

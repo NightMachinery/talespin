@@ -7,7 +7,7 @@ navigator for the shared table layouts.
 
 - Setting name: **Sticky card navigator**
 - Scope: **per browser / per player device**
-- Default: **off**
+- Default: **on**
 - Lives in the local **Options** card, not in moderator-only room settings
 
 ## Behavior
@@ -16,9 +16,16 @@ navigator for the shared table layouts.
   compact sticky bar above the card grid.
 - The bar lists the round's **canonical card numbers** (`#1`, `#2`, etc.), even if the room's
   badge overlays are hidden.
+- The expanded bar auto-sizes between **1 and 3 rows** depending on how many cards are in the
+  round. It does not reserve extra empty rows.
+- If more than 3 rows are needed, the chip grid keeps its height and **scrolls vertically inside
+  the navigator**.
 - Clicking or tapping a number **scrolls to that card** and briefly highlights it.
-- The navigator has a **Collapse** control. The collapsed/expanded state is also stored locally, so
-  the bar stays collapsed on future visits until that player expands it again.
+- The navigator has an **icon-only collapse / expand control**. The collapsed/expanded state is
+  also stored locally, so the bar stays collapsed on future visits until that player expands it
+  again.
+- The visible title row was removed; only the compact chip grid and toggle remain.
+- The sticky bar now sits **above** card number badges instead of falling behind them.
 
 ## Randomized voting layout interaction
 

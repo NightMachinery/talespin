@@ -125,11 +125,10 @@
 					/>
 				{/if}
 				<div
-					class={`absolute bottom-0 w-full rounded-tr bg-primary-200 p-0.5 px-2 font-bold text-black ${
-						image === activeCard ? 'boujee-text' : ''
-					}`}
+					class="absolute bottom-0 w-full rounded-tr bg-primary-200 p-0.5 px-2 font-bold text-black"
 				>
-					{cardToPlayer[image]}'s card
+					<span class={image === activeCard ? 'boujee-text' : ''}>{cardToPlayer[image]}</span>'s
+					card
 				</div>
 			</div>
 		{/each}
