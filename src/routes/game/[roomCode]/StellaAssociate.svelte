@@ -91,10 +91,13 @@
 	let draggedQueueCard = '';
 	let isModerator = false;
 	let canForceRandomSelection = false;
+	let canAutoObserverify = false;
 	const toastStore = getToastStore();
 	$: isObserver = !!observers[name];
 	$: isModerator = new Set(moderators).has(name);
 	$: canForceRandomSelection = isModerator && Object.values(players).some((player) => player.ready);
+	$: canAutoObserverify =
+		isModerator && Object.values(players).some((player) => !player.connected && !player.ready);
 	$: canSubmit =
 		!isObserver &&
 		localSelectedCards.length >= stellaSelectionMin &&
@@ -337,6 +340,11 @@
 							label: 'Force Random',
 							disabled: !canForceRandomSelection,
 							onClick: () => gameServer.forceCurrentStage()
+						},
+						{
+							label: 'Auto-observerify',
+							disabled: !canAutoObserverify,
+							onClick: () => gameServer.autoObserverifyOfflinePendingPlayers()
 						}
 					]}
 				/>
@@ -374,6 +382,11 @@
 						label: 'Force Random',
 						disabled: !canForceRandomSelection,
 						onClick: () => gameServer.forceCurrentStage()
+					},
+					{
+						label: 'Auto-observerify',
+						disabled: !canAutoObserverify,
+						onClick: () => gameServer.autoObserverifyOfflinePendingPlayers()
 					}
 				]}
 			/>

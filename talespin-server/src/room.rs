@@ -537,6 +537,7 @@ pub enum ClientMsg {
     ResetStellaClue {},
     ResetStellaBoard {},
     ForceCurrentStage {},
+    ObserverifyOfflinePendingPlayers {},
     ForceStartNextRound {},
     RefreshHands {},
     ResumeGame {},
@@ -579,7 +580,7 @@ pub enum ClientMsg {
     Ping {},
 }
 
-#[derive(Debug, Serialize, Clone, Copy)]
+#[derive(Debug, Serialize, Clone, Copy, PartialEq, Eq)]
 pub enum RoomStage {
     // waiting for players to join with room code
     Joining,
@@ -1589,6 +1590,108 @@ impl Room {
             RoomStage::StellaReveal => self.advance_random_stella_reveal(state).await,
             _ => Ok(false),
         }
+    }
+
+    fn offline_pending_player_to_observerify(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+    ) -> Option<String> {
+        match state.stage {
+            RoomStage::ActiveChooses => {
+                let active_player = self.active_player_name(state)?;
+                state
+                    .players
+                    .get(active_player)
+                    .filter(|player| !player.connected)
+                    .map(|_| active_player.to_string())
+            }
+            RoomStage::StellaReveal if !state.stella_queue_during_association => {
+                let scout = self.active_player_name(state)?;
+                state
+                    .players
+                    .get(scout)
+                    .filter(|player| !player.connected)
+                    .filter(|_| self.stella_player_has_unrevealed_selection(state, scout))
+                    .map(|_| scout.to_string())
+            }
+            _ => None,
+        }
+    }
+
+    fn offline_pending_players_to_observerify(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+    ) -> Vec<String> {
+        match state.stage {
+            RoomStage::PlayersChoose | RoomStage::Voting => {
+                let active_player = self.active_player_name(state);
+                state
+                    .player_order
+                    .iter()
+                    .filter(|player_name| active_player != Some(player_name.as_str()))
+                    .filter_map(|player_name| {
+                        state
+                            .players
+                            .get(player_name.as_str())
+                            .filter(|player| !player.connected && !player.ready)
+                            .map(|_| player_name.clone())
+                    })
+                    .collect()
+            }
+            RoomStage::BeautyVoting | RoomStage::StellaAssociate => state
+                .player_order
+                .iter()
+                .filter_map(|player_name| {
+                    state
+                        .players
+                        .get(player_name.as_str())
+                        .filter(|player| !player.connected && !player.ready)
+                        .map(|_| player_name.clone())
+                })
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    async fn observerify_offline_pending_players(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+    ) -> Result<bool> {
+        let mut observerified_any = false;
+
+        match state.stage {
+            RoomStage::ActiveChooses | RoomStage::StellaReveal => {
+                while let Some(player_name) = self.offline_pending_player_to_observerify(state) {
+                    if !self
+                        .convert_player_to_observer(state, &player_name, false)
+                        .await?
+                    {
+                        break;
+                    }
+                    observerified_any = true;
+                }
+            }
+            RoomStage::PlayersChoose
+            | RoomStage::Voting
+            | RoomStage::BeautyVoting
+            | RoomStage::StellaAssociate => {
+                for player_name in self.offline_pending_players_to_observerify(state) {
+                    if self
+                        .convert_player_to_observer(state, &player_name, false)
+                        .await?
+                    {
+                        observerified_any = true;
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        if observerified_any {
+            self.after_member_removed_or_observered(state).await?;
+        }
+
+        Ok(observerified_any)
     }
 
     async fn handle_expired_stage_timer(
@@ -8035,6 +8138,46 @@ impl Room {
                     }
                 }
             }
+            ClientMsg::ObserverifyOfflinePendingPlayers {} => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can auto-observerify offline players".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                let stage_supports_observerify = matches!(
+                    state.stage,
+                    RoomStage::ActiveChooses
+                        | RoomStage::PlayersChoose
+                        | RoomStage::Voting
+                        | RoomStage::BeautyVoting
+                        | RoomStage::StellaAssociate
+                        | RoomStage::StellaReveal
+                );
+                if !stage_supports_observerify {
+                    return Ok(());
+                }
+
+                if !self.observerify_offline_pending_players(&mut state).await? {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "No offline players with pending actions to observerify"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                }
+            }
             ClientMsg::ForceStartNextRound {} => {
                 if !self.is_moderator(&state, name) {
                     if let Some(tx) = state.player_to_socket.get(name) {
@@ -9143,6 +9286,26 @@ mod tests {
         let (tx, rx) = mpsc::channel(256);
         state.player_to_socket.insert(name.to_string(), tx);
         rx
+    }
+
+    fn run_async_test_on_large_stack<Fut>(future: Fut) -> Result<()>
+    where
+        Fut: std::future::Future<Output = Result<()>> + Send + 'static,
+    {
+        let handle = std::thread::Builder::new()
+            .name("large-stack-test".to_string())
+            .stack_size(64 * 1024 * 1024)
+            .spawn(move || {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("build test runtime");
+                runtime.block_on(future)
+            })?;
+
+        handle
+            .join()
+            .map_err(|_| anyhow!("large-stack async test panicked"))?
     }
 
     fn to_ws(msg: ClientMsg) -> WsMessage {
@@ -13273,6 +13436,407 @@ alpha
         }
 
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn auto_observerify_targets_offline_active_storyteller_in_active_chooses() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            for player in ["host", "a", "b", "c", "d"] {
+                add_player(&mut state, player, 0);
+            }
+            state.stage = RoomStage::ActiveChooses;
+            state.player_order = vec![
+                "host".into(),
+                "a".into(),
+                "b".into(),
+                "c".into(),
+                "d".into(),
+            ];
+            state.active_player = 1;
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 30_005);
+
+            state.players.get_mut("a").unwrap().connected = false;
+            state.players.get_mut("b").unwrap().connected = false;
+            set_storyteller_count(&mut state, "host", 3);
+            set_storyteller_count(&mut state, "a", 0);
+            set_storyteller_count(&mut state, "b", 0);
+            set_storyteller_count(&mut state, "c", 1);
+            set_storyteller_count(&mut state, "d", 2);
+            assert_eq!(
+                room.offline_pending_player_to_observerify(&state),
+                Some("a".to_string()),
+                "ActiveChooses should target the offline current storyteller"
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn moderator_auto_observerify_offline_players_choose_guessers_advances_to_voting() -> Result<()>
+    {
+        run_async_test_on_large_stack(async move {
+            let room = test_room();
+            {
+                let mut state = room.state.write().await;
+                for player in ["host", "b", "c", "d", "e"] {
+                    add_player(&mut state, player, 0);
+                }
+                state.stage = RoomStage::PlayersChoose;
+                state.current_description = "clue".into();
+                state.player_order = vec![
+                    "host".into(),
+                    "b".into(),
+                    "c".into(),
+                    "d".into(),
+                    "e".into(),
+                ];
+                state.active_player = 0;
+                state.moderators.insert("host".to_string());
+                setup_connected_member(&mut state, "host", "t-host", 30_006);
+
+                state
+                    .player_to_current_cards
+                    .insert("host".into(), vec!["host-card".into()]);
+                state
+                    .player_to_current_cards
+                    .insert("c".into(), vec!["c-card".into()]);
+                state
+                    .player_to_current_cards
+                    .insert("e".into(), vec!["e-card".into()]);
+                state.players.get_mut("b").unwrap().connected = false;
+                state.players.get_mut("c").unwrap().ready = true;
+                state.players.get_mut("d").unwrap().connected = false;
+                state.players.get_mut("e").unwrap().ready = true;
+            }
+
+            room.handle_client_msg(
+                "host",
+                30_006,
+                to_ws(ClientMsg::ObserverifyOfflinePendingPlayers {}),
+            )
+            .await?;
+
+            let state = room.state.read().await;
+            assert!(
+                matches!(state.stage, RoomStage::Voting),
+                "removing the remaining offline unready guessers should advance to Voting"
+            );
+            assert!(
+                state.observers.contains_key("b") && state.observers.contains_key("d"),
+                "offline unready guessers should become observers"
+            );
+
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn moderator_auto_observerify_offline_voters_advances_to_results() -> Result<()> {
+        run_async_test_on_large_stack(async move {
+            let room = test_room();
+            {
+                let mut state = room.state.write().await;
+                for player in ["host", "b", "c", "d", "e"] {
+                    add_player(&mut state, player, 0);
+                }
+                state.stage = RoomStage::Voting;
+                state.current_description = "clue".into();
+                state.player_order = vec![
+                    "host".into(),
+                    "b".into(),
+                    "c".into(),
+                    "d".into(),
+                    "e".into(),
+                ];
+                state.active_player = 0;
+                state.votes_per_guesser = 1;
+                state.moderators.insert("host".to_string());
+                setup_connected_member(&mut state, "host", "t-host", 30_007);
+
+                for (player, card) in [
+                    ("host", "host-card"),
+                    ("b", "b-card"),
+                    ("c", "c-card"),
+                    ("d", "d-card"),
+                    ("e", "e-card"),
+                ] {
+                    state
+                        .player_to_current_cards
+                        .insert(player.to_string(), vec![card.to_string()]);
+                }
+                state
+                    .player_to_votes
+                    .insert("b".into(), vec!["host-card".into()]);
+                state
+                    .player_to_votes
+                    .insert("c".into(), vec!["b-card".into()]);
+                state.players.get_mut("b").unwrap().ready = true;
+                state.players.get_mut("c").unwrap().ready = true;
+                state.players.get_mut("d").unwrap().connected = false;
+                state.players.get_mut("e").unwrap().connected = false;
+            }
+
+            room.handle_client_msg(
+                "host",
+                30_007,
+                to_ws(ClientMsg::ObserverifyOfflinePendingPlayers {}),
+            )
+            .await?;
+
+            let state = room.state.read().await;
+            assert!(
+                matches!(state.stage, RoomStage::Results),
+                "removing the remaining offline unready voters should advance to Results"
+            );
+            assert!(
+                state.observers.contains_key("d") && state.observers.contains_key("e"),
+                "offline pending voters should become observers"
+            );
+
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn moderator_auto_observerify_offline_beauty_voters_advances_to_results() -> Result<()> {
+        run_async_test_on_large_stack(async move {
+            let room = test_room();
+            {
+                let mut state = room.state.write().await;
+                for player in ["host", "b", "c", "d", "e"] {
+                    add_player(&mut state, player, 0);
+                }
+                state.stage = RoomStage::BeautyVoting;
+                state.current_description = "clue".into();
+                state.player_order = vec![
+                    "host".into(),
+                    "b".into(),
+                    "c".into(),
+                    "d".into(),
+                    "e".into(),
+                ];
+                state.active_player = 0;
+                state.moderators.insert("host".to_string());
+                setup_connected_member(&mut state, "host", "t-host", 30_008);
+
+                for (player, card) in [
+                    ("host", "host-card"),
+                    ("b", "b-card"),
+                    ("c", "c-card"),
+                    ("d", "d-card"),
+                    ("e", "e-card"),
+                ] {
+                    state
+                        .player_to_current_cards
+                        .insert(player.to_string(), vec![card.to_string()]);
+                }
+                state
+                    .player_to_beauty_votes
+                    .insert("host".into(), vec!["b-card".into()]);
+                state
+                    .player_to_beauty_votes
+                    .insert("b".into(), vec!["c-card".into()]);
+                state
+                    .player_to_beauty_votes
+                    .insert("c".into(), vec!["b-card".into()]);
+                state.players.get_mut("host").unwrap().ready = true;
+                state.players.get_mut("b").unwrap().ready = true;
+                state.players.get_mut("c").unwrap().ready = true;
+                state.players.get_mut("d").unwrap().connected = false;
+                state.players.get_mut("e").unwrap().connected = false;
+            }
+
+            room.handle_client_msg(
+                "host",
+                30_008,
+                to_ws(ClientMsg::ObserverifyOfflinePendingPlayers {}),
+            )
+            .await?;
+
+            let state = room.state.read().await;
+            assert!(
+                matches!(state.stage, RoomStage::Results),
+                "removing offline pending beauty voters should advance to Results"
+            );
+            assert!(
+                state.observers.contains_key("d") && state.observers.contains_key("e"),
+                "offline beauty voters should become observers"
+            );
+
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn moderator_auto_observerify_offline_stella_associates_advances_to_reveal() -> Result<()> {
+        run_async_test_on_large_stack(async move {
+            let room = test_room();
+            {
+                let mut state = room.state.write().await;
+                state.game_mode = GameMode::Stella;
+                state.stage = RoomStage::StellaAssociate;
+                state.stella_clue_word = "spark".into();
+                state.stella_board_cards = vec![
+                    "s1".into(),
+                    "s2".into(),
+                    "s3".into(),
+                    "s4".into(),
+                    "s5".into(),
+                ];
+                state.player_order = vec![
+                    "host".into(),
+                    "b".into(),
+                    "c".into(),
+                    "d".into(),
+                    "e".into(),
+                ];
+                state.active_player = 0;
+                for player in ["host", "b", "c", "d", "e"] {
+                    add_player(&mut state, player, 0);
+                }
+                state.moderators.insert("host".to_string());
+                setup_connected_member(&mut state, "host", "t-host", 30_009);
+
+                state
+                    .stella_player_selections
+                    .insert("host".into(), vec!["s1".into()]);
+                state
+                    .stella_player_selections
+                    .insert("b".into(), vec!["s2".into()]);
+                state
+                    .stella_player_selections
+                    .insert("c".into(), vec!["s3".into()]);
+                state.players.get_mut("host").unwrap().ready = true;
+                state.players.get_mut("b").unwrap().ready = true;
+                state.players.get_mut("c").unwrap().ready = true;
+                state.players.get_mut("d").unwrap().connected = false;
+                state.players.get_mut("e").unwrap().connected = false;
+            }
+
+            room.handle_client_msg(
+                "host",
+                30_009,
+                to_ws(ClientMsg::ObserverifyOfflinePendingPlayers {}),
+            )
+            .await?;
+
+            let state = room.state.read().await;
+            assert!(
+                matches!(state.stage, RoomStage::StellaReveal),
+                "removing offline pending Stella associators should advance to reveal"
+            );
+            assert!(
+                state.observers.contains_key("d") && state.observers.contains_key("e"),
+                "offline Stella associators should become observers"
+            );
+
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn moderator_auto_observerify_offline_stella_scout_passes_reveal_turn() -> Result<()> {
+        run_async_test_on_large_stack(async move {
+            let room = test_room();
+            {
+                let mut state = room.state.write().await;
+                state.game_mode = GameMode::Stella;
+                state.stage = RoomStage::StellaReveal;
+                state.stella_queue_during_association = false;
+                state.stella_board_cards = vec!["shared".into(), "solo".into()];
+                state.player_order = vec!["host".into(), "b".into(), "c".into(), "d".into()];
+                state.active_player = 1;
+                for player in ["host", "b", "c", "d"] {
+                    add_player(&mut state, player, 0);
+                }
+                state.moderators.insert("host".to_string());
+                setup_connected_member(&mut state, "host", "t-host", 30_010);
+
+                state
+                    .stella_player_selections
+                    .insert("b".into(), vec!["shared".into()]);
+                state
+                    .stella_player_selections
+                    .insert("c".into(), vec!["solo".into()]);
+                state.players.get_mut("b").unwrap().connected = false;
+            }
+
+            room.handle_client_msg(
+                "host",
+                30_010,
+                to_ws(ClientMsg::ObserverifyOfflinePendingPlayers {}),
+            )
+            .await?;
+
+            let state = room.state.read().await;
+            assert!(
+                matches!(state.stage, RoomStage::StellaReveal),
+                "observerifying the offline manual scout should keep reveal running when another scout can act"
+            );
+            assert!(
+                state.observers.contains_key("b"),
+                "the offline scout should become an observer"
+            );
+            assert_eq!(
+                state
+                    .player_order
+                    .get(state.active_player)
+                    .map(String::as_str),
+                Some("c"),
+                "reveal control should pass to the next connected scout with unrevealed cards"
+            );
+
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn moderator_auto_observerify_reports_when_no_offline_pending_players() -> Result<()> {
+        run_async_test_on_large_stack(async move {
+            let room = test_room();
+            let mut socket_rx = {
+                let mut state = room.state.write().await;
+                for player in ["host", "b", "c"] {
+                    add_player(&mut state, player, 0);
+                }
+                state.stage = RoomStage::Voting;
+                state.player_order = vec!["host".into(), "b".into(), "c".into()];
+                state.active_player = 0;
+                state.moderators.insert("host".to_string());
+                setup_connected_member(&mut state, "host", "t-host", 30_011);
+                attach_test_socket(&mut state, "host")
+            };
+
+            room.handle_client_msg(
+                "host",
+                30_011,
+                to_ws(ClientMsg::ObserverifyOfflinePendingPlayers {}),
+            )
+            .await?;
+
+            let error = socket_rx
+                .recv()
+                .await
+                .ok_or_else(|| anyhow!("Expected no-op observerify error"))?;
+            match error {
+                ServerMsg::ErrorMsg(message) => assert_eq!(
+                    message, "No offline players with pending actions to observerify",
+                    "moderators should get a clear error when nothing can be auto-observerified"
+                ),
+                other => {
+                    return Err(anyhow!(
+                        "Expected auto-observerify error message, got {:?}",
+                        other
+                    ));
+                }
+            }
+
+            Ok(())
+        })
     }
 
     #[tokio::test]

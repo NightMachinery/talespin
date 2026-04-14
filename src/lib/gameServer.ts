@@ -543,6 +543,12 @@ class GameServer {
 		});
 	}
 
+	autoObserverifyOfflinePendingPlayers() {
+		this.send({
+			ObserverifyOfflinePendingPlayers: {}
+		});
+	}
+
 	forceStartNextRound() {
 		this.send({
 			ForceStartNextRound: {}

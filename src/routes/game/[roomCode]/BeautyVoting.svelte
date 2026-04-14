@@ -101,8 +101,11 @@
 	let toastStore = getToastStore();
 	let isObserver = false;
 	let isModerator = false;
+	let canAutoObserverify = false;
 	$: isObserver = !!observers[name];
 	$: isModerator = new Set(moderators).has(name);
+	$: canAutoObserverify =
+		isModerator && Object.values(players).some((player) => !player.connected && !player.ready);
 	$: effectiveBeautyVotesPerPlayer = Math.max(
 		1,
 		Math.min(beautyVotesPerPlayer, Math.max(beautyVotesPerPlayerMax, 1))
@@ -331,7 +334,14 @@
 		{#if isModerator}
 			<div class="card light p-4">
 				<StageActionButtons
-					actions={[{ label: 'Force Skip', onClick: () => gameServer.forceCurrentStage() }]}
+					actions={[
+						{ label: 'Force Skip', onClick: () => gameServer.forceCurrentStage() },
+						{
+							label: 'Auto-observerify',
+							disabled: !canAutoObserverify,
+							onClick: () => gameServer.autoObserverifyOfflinePendingPlayers()
+						}
+					]}
 				/>
 			</div>
 		{/if}
@@ -373,7 +383,14 @@
 		{/if}
 		{#if isModerator}
 			<StageActionButtons
-				actions={[{ label: 'Force Skip', onClick: () => gameServer.forceCurrentStage() }]}
+				actions={[
+					{ label: 'Force Skip', onClick: () => gameServer.forceCurrentStage() },
+					{
+						label: 'Auto-observerify',
+						disabled: !canAutoObserverify,
+						onClick: () => gameServer.autoObserverifyOfflinePendingPlayers()
+					}
+				]}
 			/>
 		{/if}
 	</svelte:fragment>

@@ -103,6 +103,7 @@
 	let isVoter = false;
 	let isModerator = false;
 	let canForceRandomVote = false;
+	let canAutoObserverify = false;
 	$: isObserver = !!observers[name];
 	$: isVoter = activePlayer !== name && !isObserver;
 	$: isModerator = new Set(moderators).has(name);
@@ -111,6 +112,11 @@
 		Object.entries(players).filter(
 			([playerName, info]) => playerName !== activePlayer && info.ready
 		).length >= 2;
+	$: canAutoObserverify =
+		isModerator &&
+		Object.entries(players).some(
+			([playerName, info]) => playerName !== activePlayer && !info.connected && !info.ready
+		);
 	$: effectiveVotesPerGuesser = Math.max(
 		1,
 		Math.min(votesPerGuesser, Math.max(votesPerGuesserMax, 1))
@@ -323,6 +329,11 @@
 							label: 'Force Random',
 							disabled: !canForceRandomVote,
 							onClick: () => gameServer.forceCurrentStage()
+						},
+						{
+							label: 'Auto-observerify',
+							disabled: !canAutoObserverify,
+							onClick: () => gameServer.autoObserverifyOfflinePendingPlayers()
 						}
 					]}
 				/>
@@ -365,6 +376,11 @@
 						label: 'Force Random',
 						disabled: !canForceRandomVote,
 						onClick: () => gameServer.forceCurrentStage()
+					},
+					{
+						label: 'Auto-observerify',
+						disabled: !canAutoObserverify,
+						onClick: () => gameServer.autoObserverifyOfflinePendingPlayers()
 					}
 				]}
 			/>

@@ -103,12 +103,18 @@
 	let isChooser = false;
 	let isStoryteller = false;
 	let isModerator = false;
+	let canAutoObserverify = false;
 	let highlightedImages: string[] = [];
 	let lastViewResetKey = '';
 	$: isObserver = !!observers[name];
 	$: isChooser = activePlayer !== name && !isObserver;
 	$: isStoryteller = activePlayer === name && !isObserver;
 	$: isModerator = new Set(moderators).has(name);
+	$: canAutoObserverify =
+		isModerator &&
+		Object.entries(players).some(
+			([playerName, info]) => playerName !== activePlayer && !info.connected && !info.ready
+		);
 	$: hasPreviousResultsPreview =
 		showPreviousResultsDuringStorytellerChoosing && previousDixitResults !== null;
 	$: canToggleResultsView = !isObserver && hasPreviousResultsPreview;
@@ -326,7 +332,14 @@
 		{#if isModerator}
 			<div class="card light p-4">
 				<StageActionButtons
-					actions={[{ label: 'Force Random', onClick: () => gameServer.forceCurrentStage() }]}
+					actions={[
+						{ label: 'Force Random', onClick: () => gameServer.forceCurrentStage() },
+						{
+							label: 'Auto-observerify',
+							disabled: !canAutoObserverify,
+							onClick: () => gameServer.autoObserverifyOfflinePendingPlayers()
+						}
+					]}
 				/>
 			</div>
 		{/if}
@@ -399,7 +412,14 @@
 		{/if}
 		{#if isModerator}
 			<StageActionButtons
-				actions={[{ label: 'Force Random', onClick: () => gameServer.forceCurrentStage() }]}
+				actions={[
+					{ label: 'Force Random', onClick: () => gameServer.forceCurrentStage() },
+					{
+						label: 'Auto-observerify',
+						disabled: !canAutoObserverify,
+						onClick: () => gameServer.autoObserverifyOfflinePendingPlayers()
+					}
+				]}
 			/>
 		{/if}
 	</svelte:fragment>

@@ -102,6 +102,7 @@
 	let isActivePlayer = false;
 	let isModerator = false;
 	let canForceSwitchStoryteller = false;
+	let canAutoObserverify = false;
 	let canToggleResultsView = false;
 	let shouldShowPreviousResults = false;
 	let lastViewResetKey = '';
@@ -111,6 +112,8 @@
 	$: isActivePlayer = activePlayer === name && !isObserver;
 	$: isModerator = new Set(moderators).has(name);
 	$: canForceSwitchStoryteller = isModerator && Object.keys(players).length >= 2;
+	$: canAutoObserverify =
+		isModerator && !!players[activePlayer] && !players[activePlayer].connected;
 	$: hasPreviousResultsPreview =
 		showPreviousResultsDuringStorytellerChoosing && previousDixitResults !== null;
 	$: canToggleResultsView = !isObserver && hasPreviousResultsPreview;
@@ -309,6 +312,11 @@
 							label: 'Switch Storyteller',
 							disabled: !canForceSwitchStoryteller,
 							onClick: () => gameServer.forceCurrentStage()
+						},
+						{
+							label: 'Auto-observerify',
+							disabled: !canAutoObserverify,
+							onClick: () => gameServer.autoObserverifyOfflinePendingPlayers()
 						}
 					]}
 				/>
@@ -397,6 +405,11 @@
 							label: 'Switch Storyteller',
 							disabled: !canForceSwitchStoryteller,
 							onClick: () => gameServer.forceCurrentStage()
+						},
+						{
+							label: 'Auto-observerify',
+							disabled: !canAutoObserverify,
+							onClick: () => gameServer.autoObserverifyOfflinePendingPlayers()
 						}
 					]}
 				/>

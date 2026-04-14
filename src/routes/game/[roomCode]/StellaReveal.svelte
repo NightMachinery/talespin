@@ -99,11 +99,17 @@
 	let scoutFlashTimeout: ReturnType<typeof setTimeout> | undefined;
 	let previousScoutTurnKey = '';
 	let isModerator = false;
+	let canAutoObserverify = false;
 	let forceRevealLabel = '';
 
 	$: isObserver = !!observers[name];
 	$: isScout = activePlayer === name && !isObserver;
 	$: isModerator = new Set(moderators).has(name);
+	$: canAutoObserverify =
+		isModerator &&
+		!stellaQueueDuringAssociation &&
+		!!players[activePlayer] &&
+		!players[activePlayer].connected;
 	$: forceRevealLabel = stellaQueueDuringAssociation ? 'Force Next Reveal' : 'Force Random Reveal';
 	$: revealableCards = selectedCards.filter((card) => !revealedCards.includes(card));
 	$: selectedCardSet = new Set(selectedCards);
@@ -306,7 +312,16 @@
 		{#if isModerator}
 			<div class="card light p-4">
 				<StageActionButtons
-					actions={[{ label: forceRevealLabel, onClick: () => gameServer.forceCurrentStage() }]}
+					actions={stellaQueueDuringAssociation
+						? [{ label: forceRevealLabel, onClick: () => gameServer.forceCurrentStage() }]
+						: [
+								{ label: forceRevealLabel, onClick: () => gameServer.forceCurrentStage() },
+								{
+									label: 'Auto-observerify',
+									disabled: !canAutoObserverify,
+									onClick: () => gameServer.autoObserverifyOfflinePendingPlayers()
+								}
+							]}
 				/>
 			</div>
 		{/if}
@@ -328,7 +343,16 @@
 	<svelte:fragment slot="mobileActions">
 		{#if isModerator}
 			<StageActionButtons
-				actions={[{ label: forceRevealLabel, onClick: () => gameServer.forceCurrentStage() }]}
+				actions={stellaQueueDuringAssociation
+					? [{ label: forceRevealLabel, onClick: () => gameServer.forceCurrentStage() }]
+					: [
+							{ label: forceRevealLabel, onClick: () => gameServer.forceCurrentStage() },
+							{
+								label: 'Auto-observerify',
+								disabled: !canAutoObserverify,
+								onClick: () => gameServer.autoObserverifyOfflinePendingPlayers()
+							}
+						]}
 			/>
 		{/if}
 	</svelte:fragment>
