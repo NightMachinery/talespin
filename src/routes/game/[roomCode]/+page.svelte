@@ -27,9 +27,14 @@
 	import {
 		playScoutTurnCue,
 		playStageChangeCue,
-		type StageCueStage,
 		unlockStageChangeAudio
 	} from '$lib/stageChangeAudio';
+	import {
+		getCueVisualTone,
+		isStageCueStage,
+		type CueVisualTone,
+		type StageCueStage
+	} from '$lib/stageCues';
 	import type {
 		BeautyResultsDisplayMode,
 		BeautyScoringMode,
@@ -42,7 +47,7 @@
 		StellaQueuedRevealMode,
 		WinCondition
 	} from '$lib/types';
-	import { stageChangeSoundCuesEnabled } from '$lib/viewOptions';
+	import { stageChangeSoundCuesEnabled, stageChangeVisualCuesEnabled } from '$lib/viewOptions';
 	import GameServer from '$lib/gameServer';
 	import { DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION } from '$lib/votingWrongCardDisableDistribution';
 
@@ -168,6 +173,10 @@
 	let storytellerChosenCard = '';
 	let previousDixitResults: PreviousDixitResultsView | null = null;
 	let votingLayoutSeed: string | null = null;
+	let stageVisualCueVisible = false;
+	let stageVisualCueKey = 0;
+	let activeStageVisualCueTone: CueVisualTone = 'choose';
+	let stageVisualCueTimeout: number | undefined;
 
 	// results
 	let playerToCurrentCards: { [key: string]: string[] } = {};
@@ -184,17 +193,6 @@
 	let stellaRevealedCards: string[] = [];
 	let stellaRevealedCardChoosers: { [key: string]: string[] } = {};
 	let stellaCardPoints: { [key: string]: number } = {};
-	const GAMEPLAY_STAGE_CUES = new Set<StageCueStage>([
-		'ActiveChooses',
-		'StellaAssociate',
-		'PlayersChoose',
-		'StellaReveal',
-		'Voting',
-		'BeautyVoting',
-		'Results',
-		'BeautyResults',
-		'StellaResults'
-	]);
 	let previousScoutTurnKey = '';
 	let hasLoadedMostBeautifulStats = false;
 
@@ -211,14 +209,40 @@
 	function setStage(nextStage: string, { suppressCue = false } = {}) {
 		const previousStage = stage;
 		stage = nextStage;
-		if (suppressCue || nextStage === previousStage || !get(stageChangeSoundCuesEnabled)) return;
-		if (!GAMEPLAY_STAGE_CUES.has(nextStage as StageCueStage)) return;
-		void playStageChangeCue(nextStage as StageCueStage);
+		if (suppressCue || nextStage === previousStage || !isStageCueStage(nextStage)) return;
+		triggerStageCue(nextStage);
 	}
 
 	function maybeUnlockStageChangeAudio() {
 		if (!get(stageChangeSoundCuesEnabled)) return;
 		void unlockStageChangeAudio();
+	}
+
+	function triggerStageCue(nextStage: StageCueStage) {
+		if (get(stageChangeSoundCuesEnabled)) {
+			void playStageChangeCue(nextStage);
+		}
+
+		if (get(stageChangeVisualCuesEnabled)) {
+			triggerStageVisualCue(nextStage);
+		}
+	}
+
+	function triggerStageVisualCue(nextStage: StageCueStage) {
+		const visualTone = getCueVisualTone(nextStage);
+		if (!visualTone) return;
+
+		activeStageVisualCueTone = visualTone;
+		stageVisualCueVisible = true;
+		stageVisualCueKey += 1;
+
+		if (stageVisualCueTimeout) {
+			clearTimeout(stageVisualCueTimeout);
+		}
+
+		stageVisualCueTimeout = window.setTimeout(() => {
+			stageVisualCueVisible = false;
+		}, 1100);
 	}
 
 	$: scoutTurnCueKey =
@@ -272,6 +296,9 @@
 	}
 
 	onDestroy(() => {
+		if (stageVisualCueTimeout) {
+			clearTimeout(stageVisualCueTimeout);
+		}
 		resetMostBeautifulClientState();
 		if (gameServer) {
 			rejoin = false;
@@ -633,6 +660,14 @@
 </script>
 
 <div class="w-full">
+	{#if stageVisualCueVisible}
+		{#key stageVisualCueKey}
+			<div
+				class={`stage-visual-cue-overlay stage-visual-cue-${activeStageVisualCueTone}`}
+				aria-hidden="true"
+			></div>
+		{/key}
+	{/if}
 	{#if stage === 'Joining'}
 		<div class="pt-10">
 			<Joining
@@ -1515,3 +1550,95 @@
 		</div>
 	{/if}
 </div>
+
+<style>
+	.stage-visual-cue-overlay {
+		--stage-cue-rgb: 96 165 250;
+		position: fixed;
+		inset: 0;
+		z-index: 40;
+		pointer-events: none;
+		animation: stage-visual-cue-pulse 1.1s ease-out both;
+	}
+
+	.stage-visual-cue-overlay::before,
+	.stage-visual-cue-overlay::after {
+		content: '';
+		position: absolute;
+		inset: 0;
+	}
+
+	.stage-visual-cue-overlay::before {
+		inset: 0 0 auto 0;
+		height: 0.4rem;
+		background: linear-gradient(
+			90deg,
+			rgb(var(--stage-cue-rgb) / 0),
+			rgb(var(--stage-cue-rgb) / 0.82) 14%,
+			rgb(var(--stage-cue-rgb) / 0.96) 50%,
+			rgb(var(--stage-cue-rgb) / 0.82) 86%,
+			rgb(var(--stage-cue-rgb) / 0)
+		);
+		box-shadow: 0 0 24px rgb(var(--stage-cue-rgb) / 0.56);
+	}
+
+	.stage-visual-cue-overlay::after {
+		background: radial-gradient(
+				circle at top center,
+				rgb(var(--stage-cue-rgb) / 0.18),
+				transparent 30%
+			),
+			linear-gradient(180deg, rgb(var(--stage-cue-rgb) / 0.08), transparent 22%);
+		box-shadow:
+			inset 0 0 0 1px rgb(var(--stage-cue-rgb) / 0.16),
+			inset 0 0 96px rgb(var(--stage-cue-rgb) / 0.08),
+			inset 0 24px 72px rgb(var(--stage-cue-rgb) / 0.12);
+	}
+
+	.stage-visual-cue-choose {
+		--stage-cue-rgb: 96 165 250;
+	}
+
+	.stage-visual-cue-vote {
+		--stage-cue-rgb: 251 191 36;
+	}
+
+	.stage-visual-cue-results {
+		--stage-cue-rgb: 74 222 128;
+	}
+
+	.stage-visual-cue-paused {
+		--stage-cue-rgb: 251 146 60;
+	}
+
+	.stage-visual-cue-end {
+		--stage-cue-rgb: 196 181 253;
+	}
+
+	@keyframes stage-visual-cue-pulse {
+		0% {
+			opacity: 0;
+		}
+
+		12% {
+			opacity: 1;
+		}
+
+		100% {
+			opacity: 0;
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.stage-visual-cue-overlay {
+			animation-duration: 0.7s;
+		}
+
+		.stage-visual-cue-overlay::after {
+			background: linear-gradient(180deg, rgb(var(--stage-cue-rgb) / 0.08), transparent 22%);
+			box-shadow:
+				inset 0 0 0 2px rgb(var(--stage-cue-rgb) / 0.2),
+				inset 0 0 54px rgb(var(--stage-cue-rgb) / 0.08);
+		}
+	}
+</style>

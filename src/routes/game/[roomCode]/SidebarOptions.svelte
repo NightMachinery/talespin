@@ -20,6 +20,7 @@
 		hideNonSelectedStellaRevealCards,
 		stickyVotingCardNavigatorEnabled,
 		stageChangeSoundCuesEnabled,
+		stageChangeVisualCuesEnabled,
 		transparentCardNameOverlays
 	} from '$lib/viewOptions';
 	import {
@@ -895,11 +896,24 @@
 		<div>
 			<span class="block font-medium">Stage change sound cues</span>
 			<p class="text-xs opacity-70">
-				Short tones for storyteller, card choosing, voting, and results stages.
+				Short tones for stage changes, including pause/game-over, plus Resonance scout turns.
 			</p>
 			{#if !supportsStageChangeAudio}
 				<p class="mt-1 text-xs opacity-70">Not supported in this browser.</p>
 			{/if}
+		</div>
+	</label>
+	<label class="flex items-start gap-3">
+		<input
+			type="checkbox"
+			class="mt-1 h-4 w-4 cursor-pointer accent-primary-500"
+			bind:checked={$stageChangeVisualCuesEnabled}
+		/>
+		<div>
+			<span class="block font-medium">Stage change visual cues</span>
+			<p class="text-xs opacity-70">
+				Brief screen-edge flash when the room enters a new stage. Local view option only.
+			</p>
 		</div>
 	</label>
 	<label class="flex items-start gap-3">

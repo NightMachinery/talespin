@@ -14,6 +14,7 @@ Deploy note: routine Talespin redeploys now keep benign Browserslist/Caddy noise
 - `docs/talespin/mod/options.md`: Dixit moderator option lock windows after storyteller clue lock
 - `docs/talespin/dixit_randomized_voting_layout.md`: Dixit per-viewer randomized voting layout with canonical number badges
 - `docs/talespin/sticky_card_navigator.md`: local sticky card-number navigator for Dixit voting and results
+- `docs/talespin/stage_change_cues.md`: local stage-change sound + visual cues, supported stages, and persistence
 - `docs/most-beautiful/README.md`: Most Beautiful settings, leaderboard modes, tie splitting, and audit history
 
 # Unrelated Docs for Other Projects

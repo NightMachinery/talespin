@@ -1,20 +1,11 @@
 import { browser } from '$app/environment';
-
-export type StageCueStage =
-	| 'ActiveChooses'
-	| 'PlayersChoose'
-	| 'Voting'
-	| 'BeautyVoting'
-	| 'Results'
-	| 'BeautyResults'
-	| 'StellaAssociate'
-	| 'StellaReveal'
-	| 'StellaResults';
-
-type CueNote = {
-	frequencyHz: number;
-	durationS: number;
-};
+import {
+	DEFAULT_CUE_VOLUME,
+	getCueDefinition,
+	type CueNote,
+	type GameCueId,
+	type StageCueStage
+} from '$lib/stageCues';
 
 type BrowserWindow = Window &
 	typeof globalThis & {
@@ -22,59 +13,8 @@ type BrowserWindow = Window &
 	};
 
 const CUE_NOTE_GAP_S = 0.03;
-const CUE_VOLUME = 0.045;
 const CUE_FADE_IN_S = 0.015;
 const CUE_FADE_OUT_S = 0.04;
-const STAGE_CUES: Record<StageCueStage, CueNote[]> = {
-	ActiveChooses: [
-		{ frequencyHz: 523.25, durationS: 0.18 },
-		{ frequencyHz: 659.25, durationS: 0.18 }
-	],
-	PlayersChoose: [
-		{ frequencyHz: 587.33, durationS: 0.18 },
-		{ frequencyHz: 698.46, durationS: 0.18 }
-	],
-	Voting: [
-		{ frequencyHz: 783.99, durationS: 0.18 },
-		{ frequencyHz: 987.77, durationS: 0.18 }
-	],
-	BeautyVoting: [
-		{ frequencyHz: 698.46, durationS: 0.16 },
-		{ frequencyHz: 880, durationS: 0.18 },
-		{ frequencyHz: 1046.5, durationS: 0.18 }
-	],
-	Results: [
-		{ frequencyHz: 987.77, durationS: 0.16 },
-		{ frequencyHz: 783.99, durationS: 0.16 },
-		{ frequencyHz: 659.25, durationS: 0.2 }
-	],
-	BeautyResults: [
-		{ frequencyHz: 1046.5, durationS: 0.16 },
-		{ frequencyHz: 1318.51, durationS: 0.18 },
-		{ frequencyHz: 1174.66, durationS: 0.22 }
-	],
-	StellaAssociate: [
-		{ frequencyHz: 440, durationS: 0.14 },
-		{ frequencyHz: 554.37, durationS: 0.16 },
-		{ frequencyHz: 659.25, durationS: 0.18 }
-	],
-	StellaReveal: [
-		{ frequencyHz: 659.25, durationS: 0.15 },
-		{ frequencyHz: 783.99, durationS: 0.15 },
-		{ frequencyHz: 880, durationS: 0.2 }
-	],
-	StellaResults: [
-		{ frequencyHz: 880, durationS: 0.16 },
-		{ frequencyHz: 1174.66, durationS: 0.18 },
-		{ frequencyHz: 987.77, durationS: 0.22 }
-	]
-};
-
-const SCOUT_TURN_CUE: CueNote[] = [
-	{ frequencyHz: 740, durationS: 0.1 },
-	{ frequencyHz: 987.77, durationS: 0.16 },
-	{ frequencyHz: 1318.51, durationS: 0.2 }
-];
 
 let audioContext: AudioContext | null = null;
 
@@ -97,64 +37,52 @@ export function isStageChangeAudioSupported() {
 }
 
 export async function unlockStageChangeAudio() {
-	const context = getAudioContext();
+	await getRunningAudioContext();
+}
+
+export async function playCue(cueId: GameCueId) {
+	const context = await getRunningAudioContext();
 	if (!context) return;
+
+	const cue = getCueDefinition(cueId);
+	playCueNotes(
+		context,
+		cue.notes,
+		cue.oscillatorType ?? 'sine',
+		cue.volume ?? DEFAULT_CUE_VOLUME,
+		context.currentTime + 0.01
+	);
+}
+
+export async function playStageChangeCue(stage: StageCueStage) {
+	await playCue(stage);
+}
+
+export async function playScoutTurnCue() {
+	await playCue('ScoutTurn');
+}
+
+async function getRunningAudioContext() {
+	const context = getAudioContext();
+	if (!context) return null;
+
 	if (context.state === 'suspended') {
 		try {
 			await context.resume();
 		} catch {
 			// Ignore autoplay-policy failures and keep gameplay uninterrupted.
-		}
-	}
-}
-
-export async function playStageChangeCue(stage: StageCueStage) {
-	const context = getAudioContext();
-	if (!context) return;
-
-	if (context.state === 'suspended') {
-		try {
-			await context.resume();
-		} catch {
-			return;
+			return null;
 		}
 	}
 
-	if (context.state !== 'running') return;
-
-	const notes = STAGE_CUES[stage];
-	const startTime = context.currentTime + 0.01;
-
-	playCueNotes(
-		context,
-		notes,
-		stage === 'Results' || stage === 'StellaResults' ? 'triangle' : 'sine',
-		startTime
-	);
-}
-
-export async function playScoutTurnCue() {
-	const context = getAudioContext();
-	if (!context) return;
-
-	if (context.state === 'suspended') {
-		try {
-			await context.resume();
-		} catch {
-			return;
-		}
-	}
-
-	if (context.state !== 'running') return;
-
-	const startTime = context.currentTime + 0.01;
-	playCueNotes(context, SCOUT_TURN_CUE, 'triangle', startTime);
+	return context.state === 'running' ? context : null;
 }
 
 function playCueNotes(
 	context: AudioContext,
-	notes: CueNote[],
+	notes: readonly CueNote[],
 	oscillatorType: OscillatorType,
+	volume: number,
 	startTime: number
 ) {
 	for (const note of notes) {
@@ -167,8 +95,8 @@ function playCueNotes(
 		oscillator.frequency.setValueAtTime(note.frequencyHz, startTime);
 
 		gainNode.gain.setValueAtTime(0.0001, startTime);
-		gainNode.gain.linearRampToValueAtTime(CUE_VOLUME, startTime + CUE_FADE_IN_S);
-		gainNode.gain.setValueAtTime(CUE_VOLUME, fadeOutStartTime);
+		gainNode.gain.linearRampToValueAtTime(volume, startTime + CUE_FADE_IN_S);
+		gainNode.gain.setValueAtTime(volume, fadeOutStartTime);
 		gainNode.gain.exponentialRampToValueAtTime(0.0001, noteEndTime);
 
 		oscillator.connect(gainNode);

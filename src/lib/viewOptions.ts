@@ -34,6 +34,10 @@ export const stageChangeSoundCuesEnabled = createPersistentBooleanStore(
 	true
 	// false
 );
+export const stageChangeVisualCuesEnabled = createPersistentBooleanStore(
+	'stage_change_visual_cues_enabled',
+	true
+);
 export const transparentCardNameOverlays = createPersistentBooleanStore(
 	'transparent_card_name_overlays',
 	false
