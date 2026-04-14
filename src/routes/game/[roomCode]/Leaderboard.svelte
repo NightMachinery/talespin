@@ -281,7 +281,9 @@
 						</div>
 						<div class="shrink-0 text-right font-mono tabular-nums">
 							{#if activeLeaderboardViewMode !== 'combined' && shouldShowPointChange() && displayedPointChangeForPlayer(entry.name) !== 0}
-								<span class="mr-2 opacity-50">(+{displayedPointChangeForPlayer(entry.name)})</span>
+								<span class="mr-2 opacity-50"
+									>({formatSignedDelta(displayedPointChangeForPlayer(entry.name) ?? 0)})</span
+								>
 							{/if}
 							{#if activeLeaderboardViewMode === 'combined'}
 								<div class="combined-score">
@@ -345,7 +347,9 @@
 							</div>
 							<div class="shrink-0 text-right font-mono tabular-nums">
 								{#if activeLeaderboardViewMode !== 'combined' && shouldShowPointChange() && observerEntry.displayPointChange !== 0}
-									<span class="mr-2 opacity-50">(+{observerEntry.displayPointChange})</span>
+									<span class="mr-2 opacity-50"
+										>({formatSignedDelta(observerEntry.displayPointChange ?? 0)})</span
+									>
 								{/if}
 								{#if observerEntry.breakdown === null}
 									NA

@@ -47,9 +47,13 @@ const DEFAULT_BEAUTY_SPLIT_POINTS_ON_TIE: bool = true;
 const DEFAULT_BEAUTY_POINTS_BONUS: u16 = 2;
 const MIN_BEAUTY_POINTS_BONUS: u16 = 0;
 const MAX_BEAUTY_POINTS_BONUS: u16 = 10;
-const DEFAULT_BEAUTY_VOTE_POINTS_DIVISOR: u16 = 3;
-const MIN_BEAUTY_VOTE_POINTS_DIVISOR: u16 = 1;
-const MAX_BEAUTY_VOTE_POINTS_DIVISOR: u16 = 100;
+const BEAUTY_VOTE_POINTS_DIVISOR_SCALE: u16 = 10;
+const DEFAULT_BEAUTY_VOTE_POINTS_DIVISOR_TENTHS: u16 = 30;
+const MIN_BEAUTY_VOTE_POINTS_DIVISOR_TENTHS: u16 = 10;
+const MAX_BEAUTY_VOTE_POINTS_DIVISOR_TENTHS: u16 = 1000;
+const DEFAULT_BEAUTY_VOTE_POINTS_DIVISOR_PLAYER_COUNT_BASE: u16 = 4;
+const MIN_BEAUTY_VOTE_POINTS_DIVISOR_PLAYER_COUNT_BASE: u16 = 1;
+const MAX_BEAUTY_VOTE_POINTS_DIVISOR_PLAYER_COUNT_BASE: u16 = 100;
 pub(crate) const MAX_MEMBER_NAME_LEN: usize = 30;
 
 pub(crate) fn canonical_member_name(name: &str) -> &str {
@@ -88,9 +92,9 @@ pub enum PreviousDixitResultsView {
         player_to_current_cards: HashMap<String, Vec<String>>,
         active_card: String,
         beauty_results_display_mode: BeautyResultsDisplayMode,
-        point_change: HashMap<String, u16>,
+        point_change: HashMap<String, i32>,
         storyteller_point_change: HashMap<String, u16>,
-        beauty_point_change: HashMap<String, u16>,
+        beauty_point_change: HashMap<String, i32>,
         beauty_vote_totals: HashMap<String, u16>,
         beauty_winning_cards: Vec<String>,
     },
@@ -98,7 +102,7 @@ pub enum PreviousDixitResultsView {
         center_cards: Vec<String>,
         player_to_beauty_votes: HashMap<String, Vec<String>>,
         player_to_current_cards: HashMap<String, Vec<String>>,
-        point_change: HashMap<String, u16>,
+        point_change: HashMap<String, i32>,
         beauty_vote_totals: HashMap<String, u16>,
         beauty_winning_cards: Vec<String>,
     },
@@ -109,6 +113,14 @@ pub enum PreviousDixitResultsView {
 pub enum BeautyScoringMode {
     VoteDivisor,
     WinnerBonus,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BeautyVotePointsDivisorMode {
+    Manual,
+    PlayerCountAuto,
+    MedianAuto,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
@@ -127,7 +139,7 @@ pub struct DixitEndRoundHistoryEntry {
     clue: String,
     active_players: Vec<String>,
     story_deltas: HashMap<String, u16>,
-    beauty_deltas: HashMap<String, u16>,
+    beauty_deltas: HashMap<String, i32>,
     total_after_round: HashMap<String, u16>,
     beauty_total_after_round: HashMap<String, u16>,
     results_display_mode: BeautyResultsDisplayMode,
@@ -206,7 +218,10 @@ pub enum ServerMsg {
         beauty_split_points_on_tie: bool,
         beauty_points_bonus: u16,
         beauty_scoring_mode: BeautyScoringMode,
-        beauty_vote_points_divisor: u16,
+        beauty_vote_points_divisor_mode: BeautyVotePointsDivisorMode,
+        beauty_vote_points_divisor: f64,
+        beauty_vote_points_divisor_effective: Option<f64>,
+        beauty_vote_points_divisor_player_count_base: u16,
         beauty_points_bonus_min: u16,
         beauty_points_bonus_max: u16,
         beauty_results_display_mode: BeautyResultsDisplayMode,
@@ -293,9 +308,9 @@ pub enum ServerMsg {
         player_to_beauty_votes: HashMap<String, Vec<String>>,
         player_to_current_cards: HashMap<String, Vec<String>>,
         active_card: String,
-        point_change: HashMap<String, u16>,
+        point_change: HashMap<String, i32>,
         storyteller_point_change: HashMap<String, u16>,
-        beauty_point_change: HashMap<String, u16>,
+        beauty_point_change: HashMap<String, i32>,
         beauty_vote_totals: HashMap<String, u16>,
         beauty_winning_cards: Vec<String>,
     },
@@ -303,7 +318,7 @@ pub enum ServerMsg {
         center_cards: Vec<String>,
         player_to_beauty_votes: HashMap<String, Vec<String>>,
         player_to_current_cards: HashMap<String, Vec<String>>,
-        point_change: HashMap<String, u16>,
+        point_change: HashMap<String, i32>,
         beauty_vote_totals: HashMap<String, u16>,
         beauty_winning_cards: Vec<String>,
     },
@@ -409,7 +424,13 @@ pub enum ClientMsg {
         mode: BeautyScoringMode,
     },
     SetBeautyVotePointsDivisor {
-        divisor: u16,
+        divisor: f64,
+    },
+    SetBeautyVotePointsDivisorMode {
+        mode: BeautyVotePointsDivisorMode,
+    },
+    SetBeautyVotePointsDivisorPlayerCountBase {
+        base: u16,
     },
     SetBeautyResultsDisplayMode {
         mode: BeautyResultsDisplayMode,
@@ -651,8 +672,12 @@ struct RoomState {
     beauty_points_bonus: u16,
     // how beauty votes convert into points
     beauty_scoring_mode: BeautyScoringMode,
-    // divisor used by vote-divisor Most Beautiful scoring
-    beauty_vote_points_divisor: u16,
+    // how vote-divisor K is selected
+    beauty_vote_points_divisor_mode: BeautyVotePointsDivisorMode,
+    // manual divisor used by vote-divisor Most Beautiful scoring, stored in tenths
+    beauty_vote_points_divisor_tenths: u16,
+    // base used by player-count auto divisor mode
+    beauty_vote_points_divisor_player_count_base: u16,
     // how beauty results are revealed
     beauty_results_display_mode: BeautyResultsDisplayMode,
     // whether waiting players should see the previous results while the next storyteller chooses
@@ -740,9 +765,15 @@ struct RoomState {
     // cached storyteller-stage point change for the current round
     storyteller_point_change: HashMap<String, u16>,
     // cached beauty-stage point change for the current round
-    beauty_point_change: HashMap<String, u16>,
+    beauty_point_change: HashMap<String, i32>,
     // accumulated beauty points already applied to each member this game
     member_to_beauty_points: HashMap<String, u16>,
+    // cumulative beauty votes received during the current vote-divisor segment of this game
+    vote_divisor_member_to_cumulative_beauty_votes: HashMap<String, u32>,
+    // accumulated vote-divisor points already applied during the current vote-divisor segment
+    vote_divisor_member_to_points: HashMap<String, u16>,
+    // number of completed vote-divisor rounds in the current vote-divisor segment
+    vote_divisor_completed_rounds: u16,
     // in-progress/current Dixit game id for persisted audit history
     current_dixit_game_id: Option<String>,
     // timestamp when the current Dixit game began
@@ -902,7 +933,10 @@ impl Room {
             beauty_split_points_on_tie: DEFAULT_BEAUTY_SPLIT_POINTS_ON_TIE,
             beauty_points_bonus: DEFAULT_BEAUTY_POINTS_BONUS,
             beauty_scoring_mode: BeautyScoringMode::VoteDivisor,
-            beauty_vote_points_divisor: DEFAULT_BEAUTY_VOTE_POINTS_DIVISOR,
+            beauty_vote_points_divisor_mode: BeautyVotePointsDivisorMode::Manual,
+            beauty_vote_points_divisor_tenths: DEFAULT_BEAUTY_VOTE_POINTS_DIVISOR_TENTHS,
+            beauty_vote_points_divisor_player_count_base:
+                DEFAULT_BEAUTY_VOTE_POINTS_DIVISOR_PLAYER_COUNT_BASE,
             beauty_results_display_mode: BeautyResultsDisplayMode::Combined,
             show_previous_results_during_storyteller_choosing: true,
             randomize_voting_card_order_per_viewer: false,
@@ -947,6 +981,9 @@ impl Room {
             storyteller_point_change: HashMap::new(),
             beauty_point_change: HashMap::new(),
             member_to_beauty_points: HashMap::new(),
+            vote_divisor_member_to_cumulative_beauty_votes: HashMap::new(),
+            vote_divisor_member_to_points: HashMap::new(),
+            vote_divisor_completed_rounds: 0,
             current_dixit_game_id: None,
             current_dixit_game_started_at_s: None,
             dixit_end_round_history: Vec::new(),
@@ -1182,10 +1219,17 @@ impl Room {
         (MIN_BEAUTY_POINTS_BONUS, MAX_BEAUTY_POINTS_BONUS)
     }
 
-    fn beauty_vote_points_divisor_bounds(&self) -> (u16, u16) {
+    fn beauty_vote_points_divisor_tenths_bounds(&self) -> (u16, u16) {
         (
-            MIN_BEAUTY_VOTE_POINTS_DIVISOR,
-            MAX_BEAUTY_VOTE_POINTS_DIVISOR,
+            MIN_BEAUTY_VOTE_POINTS_DIVISOR_TENTHS,
+            MAX_BEAUTY_VOTE_POINTS_DIVISOR_TENTHS,
+        )
+    }
+
+    fn beauty_vote_points_divisor_player_count_base_bounds(&self) -> (u16, u16) {
+        (
+            MIN_BEAUTY_VOTE_POINTS_DIVISOR_PLAYER_COUNT_BASE,
+            MAX_BEAUTY_VOTE_POINTS_DIVISOR_PLAYER_COUNT_BASE,
         )
     }
 
@@ -1381,6 +1425,60 @@ impl Room {
         }
     }
 
+    fn rounded_median_ratio_u32(values: &[u32]) -> Option<(u64, u64)> {
+        if values.is_empty() {
+            return None;
+        }
+
+        let mut sorted = values.to_vec();
+        sorted.sort_unstable();
+        let mid = sorted.len() / 2;
+        if sorted.len() % 2 == 1 {
+            Some((u64::from(sorted[mid]), 1))
+        } else {
+            let lower = u64::from(sorted[mid - 1]);
+            let upper = u64::from(sorted[mid]);
+            Some((lower.saturating_add(upper), 2))
+        }
+    }
+
+    fn round_ratio_to_divisor_tenths(numerator: u64, denominator: u64) -> Option<u16> {
+        if denominator == 0 {
+            return None;
+        }
+
+        let scaled = numerator
+            .saturating_mul(u64::from(BEAUTY_VOTE_POINTS_DIVISOR_SCALE))
+            .saturating_mul(2)
+            .saturating_add(denominator)
+            / denominator.saturating_mul(2);
+        Some(scaled.min(u64::from(u16::MAX)) as u16)
+    }
+
+    fn beauty_vote_points_divisor_from_tenths(tenths: u16) -> f64 {
+        f64::from(tenths) / f64::from(BEAUTY_VOTE_POINTS_DIVISOR_SCALE)
+    }
+
+    fn beauty_vote_points_divisor_tenths_from_input(divisor: f64) -> Option<u16> {
+        if !divisor.is_finite() || divisor.is_sign_negative() {
+            return None;
+        }
+
+        let scaled = (divisor * f64::from(BEAUTY_VOTE_POINTS_DIVISOR_SCALE)).round();
+        if !(0.0..=f64::from(u16::MAX)).contains(&scaled) {
+            return None;
+        }
+        Some(scaled as u16)
+    }
+
+    fn apply_signed_delta(value: u16, delta: i32) -> u16 {
+        if delta >= 0 {
+            value.saturating_add(delta as u16)
+        } else {
+            value.saturating_sub(delta.unsigned_abs() as u16)
+        }
+    }
+
     fn fill_missing_stella_associate_selections(
         &self,
         state: &mut RwLockWriteGuard<'_, RoomState>,
@@ -1539,11 +1637,21 @@ impl Room {
         state.beauty_points_bonus = state.beauty_points_bonus.clamp(min_points, max_points);
     }
 
-    fn clamp_beauty_vote_points_divisor(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
-        let (min_divisor, max_divisor) = self.beauty_vote_points_divisor_bounds();
-        state.beauty_vote_points_divisor = state
-            .beauty_vote_points_divisor
+    fn clamp_beauty_vote_points_divisor_tenths(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
+        let (min_divisor, max_divisor) = self.beauty_vote_points_divisor_tenths_bounds();
+        state.beauty_vote_points_divisor_tenths = state
+            .beauty_vote_points_divisor_tenths
             .clamp(min_divisor, max_divisor);
+    }
+
+    fn clamp_beauty_vote_points_divisor_player_count_base(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+    ) {
+        let (min_base, max_base) = self.beauty_vote_points_divisor_player_count_base_bounds();
+        state.beauty_vote_points_divisor_player_count_base = state
+            .beauty_vote_points_divisor_player_count_base
+            .clamp(min_base, max_base);
     }
 
     fn clamp_cards_per_hand(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
@@ -1864,7 +1972,7 @@ impl Room {
     fn compute_beauty_owner_vote_totals(
         &self,
         state: &RwLockWriteGuard<'_, RoomState>,
-    ) -> HashMap<String, u16> {
+    ) -> HashMap<String, u32> {
         let card_to_owner = state
             .player_to_current_cards
             .iter()
@@ -1877,11 +1985,137 @@ impl Room {
                 let Some(owner) = card_to_owner.get(card) else {
                     continue;
                 };
-                *votes_for_owner.entry(owner.clone()).or_insert(0) += 1;
+                *votes_for_owner.entry(owner.clone()).or_insert(0) += 1u32;
             }
         }
 
         votes_for_owner
+    }
+
+    fn extend_cumulative_beauty_votes(
+        cumulative_votes: &mut HashMap<String, u32>,
+        round_vote_totals: HashMap<String, u32>,
+    ) {
+        for (player, votes) in round_vote_totals {
+            let entry = cumulative_votes.entry(player).or_insert(0);
+            *entry = entry.saturating_add(votes);
+        }
+    }
+
+    fn effective_beauty_vote_points_divisor_tenths(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+        cumulative_votes: &HashMap<String, u32>,
+        completed_rounds: u16,
+    ) -> Option<u16> {
+        match state.beauty_vote_points_divisor_mode {
+            BeautyVotePointsDivisorMode::Manual => Some(
+                state
+                    .beauty_vote_points_divisor_tenths
+                    .clamp(
+                        MIN_BEAUTY_VOTE_POINTS_DIVISOR_TENTHS,
+                        MAX_BEAUTY_VOTE_POINTS_DIVISOR_TENTHS,
+                    )
+                    .max(MIN_BEAUTY_VOTE_POINTS_DIVISOR_TENTHS),
+            ),
+            BeautyVotePointsDivisorMode::PlayerCountAuto => {
+                let player_count = state.player_order.len().max(1) as u64;
+                let base = u64::from(
+                    state
+                        .beauty_vote_points_divisor_player_count_base
+                        .clamp(
+                            MIN_BEAUTY_VOTE_POINTS_DIVISOR_PLAYER_COUNT_BASE,
+                            MAX_BEAUTY_VOTE_POINTS_DIVISOR_PLAYER_COUNT_BASE,
+                        )
+                        .max(MIN_BEAUTY_VOTE_POINTS_DIVISOR_PLAYER_COUNT_BASE),
+                );
+                Self::round_ratio_to_divisor_tenths(player_count, base).map(|tenths| {
+                    tenths
+                        .clamp(
+                            MIN_BEAUTY_VOTE_POINTS_DIVISOR_TENTHS,
+                            MAX_BEAUTY_VOTE_POINTS_DIVISOR_TENTHS,
+                        )
+                        .max(MIN_BEAUTY_VOTE_POINTS_DIVISOR_TENTHS)
+                })
+            }
+            BeautyVotePointsDivisorMode::MedianAuto => {
+                if completed_rounds == 0 || state.player_order.is_empty() {
+                    return None;
+                }
+
+                let votes = state
+                    .player_order
+                    .iter()
+                    .map(|player| cumulative_votes.get(player).copied().unwrap_or(0))
+                    .collect::<Vec<_>>();
+                let Some((median_numerator, median_denominator)) =
+                    Self::rounded_median_ratio_u32(&votes)
+                else {
+                    return None;
+                };
+                let total_denominator =
+                    median_denominator.saturating_mul(u64::from(completed_rounds));
+                Self::round_ratio_to_divisor_tenths(median_numerator, total_denominator).map(
+                    |tenths| {
+                        tenths
+                            .clamp(
+                                MIN_BEAUTY_VOTE_POINTS_DIVISOR_TENTHS,
+                                MAX_BEAUTY_VOTE_POINTS_DIVISOR_TENTHS,
+                            )
+                            .max(MIN_BEAUTY_VOTE_POINTS_DIVISOR_TENTHS)
+                    },
+                )
+            }
+        }
+    }
+
+    fn compute_vote_divisor_points_for_cumulative_votes(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+        cumulative_votes: &HashMap<String, u32>,
+        completed_rounds: u16,
+    ) -> HashMap<String, u16> {
+        let Some(divisor_tenths) = self.effective_beauty_vote_points_divisor_tenths(
+            state,
+            cumulative_votes,
+            completed_rounds,
+        ) else {
+            return HashMap::new();
+        };
+
+        let mut point_totals = HashMap::new();
+        for (player, votes) in cumulative_votes {
+            let points = u64::from(*votes)
+                .saturating_mul(u64::from(BEAUTY_VOTE_POINTS_DIVISOR_SCALE))
+                / u64::from(divisor_tenths);
+            let points = points.min(u64::from(u16::MAX)) as u16;
+            if points > 0 {
+                point_totals.insert(player.clone(), points);
+            }
+        }
+        point_totals
+    }
+
+    fn diff_vote_divisor_point_totals(
+        &self,
+        previous: &HashMap<String, u16>,
+        next: &HashMap<String, u16>,
+    ) -> HashMap<String, i32> {
+        let mut delta = HashMap::new();
+        let players = previous
+            .keys()
+            .chain(next.keys())
+            .cloned()
+            .collect::<HashSet<_>>();
+        for player in players {
+            let before = i32::from(previous.get(&player).copied().unwrap_or(0));
+            let after = i32::from(next.get(&player).copied().unwrap_or(0));
+            let diff = after - before;
+            if diff != 0 {
+                delta.insert(player, diff);
+            }
+        }
+        delta
     }
 
     fn compute_beauty_winning_cards(&self, state: &RwLockWriteGuard<'_, RoomState>) -> Vec<String> {
@@ -1902,7 +2136,7 @@ impl Room {
     fn compute_beauty_point_change(
         &self,
         state: &RwLockWriteGuard<'_, RoomState>,
-    ) -> HashMap<String, u16> {
+    ) -> HashMap<String, i32> {
         match state.beauty_scoring_mode {
             BeautyScoringMode::VoteDivisor => self.compute_beauty_point_change_vote_divisor(state),
             BeautyScoringMode::WinnerBonus => self.compute_beauty_point_change_winner_bonus(state),
@@ -1912,28 +2146,25 @@ impl Room {
     fn compute_beauty_point_change_vote_divisor(
         &self,
         state: &RwLockWriteGuard<'_, RoomState>,
-    ) -> HashMap<String, u16> {
-        let divisor = state
-            .beauty_vote_points_divisor
-            .clamp(
-                MIN_BEAUTY_VOTE_POINTS_DIVISOR,
-                MAX_BEAUTY_VOTE_POINTS_DIVISOR,
-            )
-            .max(1);
-        let mut point_change = HashMap::new();
-        for (player, votes) in self.compute_beauty_owner_vote_totals(state) {
-            let points = votes / divisor;
-            if points > 0 {
-                point_change.insert(player, points);
-            }
-        }
-        point_change
+    ) -> HashMap<String, i32> {
+        let mut cumulative_votes = state.vote_divisor_member_to_cumulative_beauty_votes.clone();
+        Self::extend_cumulative_beauty_votes(
+            &mut cumulative_votes,
+            self.compute_beauty_owner_vote_totals(state),
+        );
+        let completed_rounds = state.vote_divisor_completed_rounds.saturating_add(1);
+        let next_totals = self.compute_vote_divisor_points_for_cumulative_votes(
+            state,
+            &cumulative_votes,
+            completed_rounds,
+        );
+        self.diff_vote_divisor_point_totals(&state.vote_divisor_member_to_points, &next_totals)
     }
 
     fn compute_beauty_point_change_winner_bonus(
         &self,
         state: &RwLockWriteGuard<'_, RoomState>,
-    ) -> HashMap<String, u16> {
+    ) -> HashMap<String, i32> {
         let mut point_change = HashMap::new();
         let winning_cards = self.compute_beauty_winning_cards(state);
         if winning_cards.is_empty() {
@@ -1965,7 +2196,7 @@ impl Room {
         };
 
         for player in winning_owners {
-            point_change.insert(player, points_per_winner);
+            point_change.insert(player, i32::from(points_per_winner));
         }
 
         point_change
@@ -1974,15 +2205,61 @@ impl Room {
     fn apply_member_beauty_point_change(
         &self,
         state: &mut RwLockWriteGuard<'_, RoomState>,
-        point_change: &HashMap<String, u16>,
+        point_change: &HashMap<String, i32>,
     ) {
-        for (player, points) in point_change {
+        for (player, delta) in point_change {
             let entry = state
                 .member_to_beauty_points
                 .entry(player.clone())
                 .or_insert(0);
-            *entry = entry.saturating_add(*points);
+            *entry = Self::apply_signed_delta(*entry, *delta);
         }
+    }
+
+    fn commit_vote_divisor_round_scoring(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
+        if !matches!(state.beauty_scoring_mode, BeautyScoringMode::VoteDivisor) {
+            return;
+        }
+
+        let round_vote_totals = self.compute_beauty_owner_vote_totals(state);
+        Self::extend_cumulative_beauty_votes(
+            &mut state.vote_divisor_member_to_cumulative_beauty_votes,
+            round_vote_totals,
+        );
+        state.vote_divisor_completed_rounds = state.vote_divisor_completed_rounds.saturating_add(1);
+        state.vote_divisor_member_to_points = self
+            .compute_vote_divisor_points_for_cumulative_votes(
+                state,
+                &state.vote_divisor_member_to_cumulative_beauty_votes,
+                state.vote_divisor_completed_rounds,
+            );
+    }
+
+    fn rescore_vote_divisor_points(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
+        if !matches!(state.beauty_scoring_mode, BeautyScoringMode::VoteDivisor) {
+            return;
+        }
+
+        let next_totals = self.compute_vote_divisor_points_for_cumulative_votes(
+            state,
+            &state.vote_divisor_member_to_cumulative_beauty_votes,
+            state.vote_divisor_completed_rounds,
+        );
+        let point_change =
+            self.diff_vote_divisor_point_totals(&state.vote_divisor_member_to_points, &next_totals);
+        if point_change.is_empty() {
+            return;
+        }
+
+        self.apply_point_change(state, &point_change);
+        self.apply_member_beauty_point_change(state, &point_change);
+        state.vote_divisor_member_to_points = next_totals;
+    }
+
+    fn reset_vote_divisor_segment(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
+        state.vote_divisor_member_to_cumulative_beauty_votes.clear();
+        state.vote_divisor_member_to_points.clear();
+        state.vote_divisor_completed_rounds = 0;
     }
 
     fn record_most_beautiful_round_stats(
@@ -2220,7 +2497,8 @@ impl Room {
                 .get(&member_name)
                 .copied()
                 .unwrap_or(0);
-            let total_after = current_total.saturating_add(
+            let total_after = Self::apply_signed_delta(
+                current_total,
                 combined_point_change
                     .get(&member_name)
                     .copied()
@@ -2230,8 +2508,8 @@ impl Room {
                 .member_to_beauty_points
                 .get(&member_name)
                 .copied()
-                .unwrap_or(0)
-                .saturating_add(beauty_delta);
+                .unwrap_or(0);
+            let beauty_after = Self::apply_signed_delta(beauty_after, beauty_delta);
 
             total_after_round.insert(member_name.clone(), total_after);
             beauty_total_after_round.insert(member_name.clone(), beauty_after);
@@ -2290,6 +2568,7 @@ impl Room {
         state.current_dixit_game_started_at_s = Some(get_time_s());
         state.dixit_end_round_history.clear();
         state.previous_dixit_results = None;
+        self.reset_vote_divisor_segment(state);
     }
 
     fn finalize_current_dixit_game(
@@ -2315,14 +2594,21 @@ impl Room {
     fn merge_point_changes(
         &self,
         primary: &HashMap<String, u16>,
-        secondary: &HashMap<String, u16>,
-    ) -> HashMap<String, u16> {
-        let mut merged = primary.clone();
+        secondary: &HashMap<String, i32>,
+    ) -> HashMap<String, i32> {
+        let mut merged = Self::signed_point_change(primary);
         for (player, points) in secondary {
-            let entry = merged.entry(player.clone()).or_insert(0);
+            let entry = merged.entry(player.clone()).or_insert(0i32);
             *entry = entry.saturating_add(*points);
         }
         merged
+    }
+
+    fn signed_point_change(point_change: &HashMap<String, u16>) -> HashMap<String, i32> {
+        point_change
+            .iter()
+            .map(|(player, points)| (player.clone(), i32::from(*points)))
+            .collect()
     }
 
     fn previous_dixit_results_from_results(
@@ -2344,7 +2630,7 @@ impl Room {
             active_card,
             beauty_results_display_mode: state.beauty_results_display_mode,
             point_change: if self.uses_separate_beauty_results_stage(state) {
-                state.storyteller_point_change.clone()
+                Self::signed_point_change(&state.storyteller_point_change)
             } else {
                 self.merge_point_changes(
                     &state.storyteller_point_change,
@@ -2375,16 +2661,16 @@ impl Room {
     fn apply_point_change(
         &self,
         state: &mut RwLockWriteGuard<'_, RoomState>,
-        point_change: &HashMap<String, u16>,
+        point_change: &HashMap<String, i32>,
     ) {
         state.players.iter_mut().for_each(|(player, info)| {
             if let Some(points) = point_change.get(player) {
-                info.points = info.points.saturating_add(*points);
+                info.points = Self::apply_signed_delta(info.points, *points);
             }
         });
         state.observers.iter_mut().for_each(|(player, info)| {
             if let Some(points) = point_change.get(player) {
-                info.points = Some(info.points.unwrap_or(0).saturating_add(*points));
+                info.points = Some(Self::apply_signed_delta(info.points.unwrap_or(0), *points));
             }
         });
     }
@@ -3167,7 +3453,8 @@ impl Room {
         self.clamp_votes_per_guesser(state);
         self.clamp_beauty_votes_per_player(state);
         self.clamp_beauty_points_bonus(state);
-        self.clamp_beauty_vote_points_divisor(state);
+        self.clamp_beauty_vote_points_divisor_tenths(state);
+        self.clamp_beauty_vote_points_divisor_player_count_base(state);
         self.clamp_cards_per_hand(state);
         self.clamp_nominations_per_guesser(state);
         self.clamp_vote_submission_lengths(state);
@@ -3251,7 +3538,8 @@ impl Room {
         self.clamp_votes_per_guesser(state);
         self.clamp_beauty_votes_per_player(state);
         self.clamp_beauty_points_bonus(state);
-        self.clamp_beauty_vote_points_divisor(state);
+        self.clamp_beauty_vote_points_divisor_tenths(state);
+        self.clamp_beauty_vote_points_divisor_player_count_base(state);
         self.clamp_cards_per_hand(state);
         self.clamp_nominations_per_guesser(state);
         self.clamp_vote_submission_lengths(state);
@@ -3351,7 +3639,8 @@ impl Room {
         self.clamp_votes_per_guesser(state);
         self.clamp_beauty_votes_per_player(state);
         self.clamp_beauty_points_bonus(state);
-        self.clamp_beauty_vote_points_divisor(state);
+        self.clamp_beauty_vote_points_divisor_tenths(state);
+        self.clamp_beauty_vote_points_divisor_player_count_base(state);
         self.clamp_cards_per_hand(state);
         self.clamp_nominations_per_guesser(state);
         self.clamp_vote_submission_lengths(state);
@@ -3402,7 +3691,8 @@ impl Room {
         self.clamp_votes_per_guesser(state);
         self.clamp_beauty_votes_per_player(state);
         self.clamp_beauty_points_bonus(state);
-        self.clamp_beauty_vote_points_divisor(state);
+        self.clamp_beauty_vote_points_divisor_tenths(state);
+        self.clamp_beauty_vote_points_divisor_player_count_base(state);
         self.clamp_cards_per_hand(state);
         self.clamp_nominations_per_guesser(state);
         self.clamp_vote_submission_lengths(state);
@@ -3494,7 +3784,8 @@ impl Room {
         self.clamp_votes_per_guesser(state);
         self.clamp_beauty_votes_per_player(state);
         self.clamp_beauty_points_bonus(state);
-        self.clamp_beauty_vote_points_divisor(state);
+        self.clamp_beauty_vote_points_divisor_tenths(state);
+        self.clamp_beauty_vote_points_divisor_player_count_base(state);
         self.clamp_cards_per_hand(state);
         self.clamp_nominations_per_guesser(state);
         self.clamp_vote_submission_lengths(state);
@@ -3872,7 +4163,7 @@ impl Room {
                     .cloned()
                     .ok_or_else(|| anyhow!("Missing active card"))?,
                 point_change: if self.uses_separate_beauty_results_stage(state) {
-                    state.storyteller_point_change.clone()
+                    Self::signed_point_change(&state.storyteller_point_change)
                 } else {
                     self.merge_point_changes(
                         &state.storyteller_point_change,
@@ -4355,10 +4646,15 @@ impl Room {
             self.record_most_beautiful_round_stats(state)?;
         }
         self.record_current_dixit_round_audit_and_history(state)?;
+        if from_beauty_voting && matches!(state.beauty_scoring_mode, BeautyScoringMode::VoteDivisor)
+        {
+            self.commit_vote_divisor_round_scoring(state);
+        }
         state.previous_dixit_results = Some(self.previous_dixit_results_from_results(state)?);
 
         if self.uses_separate_beauty_results_stage(state) {
-            let storyteller_point_change = state.storyteller_point_change.clone();
+            let storyteller_point_change =
+                Self::signed_point_change(&state.storyteller_point_change);
             self.apply_point_change(state, &storyteller_point_change);
         } else {
             let combined_point_change = self
@@ -5043,7 +5339,8 @@ impl Room {
         self.clamp_votes_per_guesser(state);
         self.clamp_beauty_votes_per_player(state);
         self.clamp_beauty_points_bonus(state);
-        self.clamp_beauty_vote_points_divisor(state);
+        self.clamp_beauty_vote_points_divisor_tenths(state);
+        self.clamp_beauty_vote_points_divisor_player_count_base(state);
         self.clamp_cards_per_hand(state);
         self.clamp_nominations_per_guesser(state);
 
@@ -6322,7 +6619,13 @@ impl Room {
                     return Ok(());
                 }
 
+                let previous_mode = state.beauty_scoring_mode;
                 state.beauty_scoring_mode = mode;
+                if matches!(previous_mode, BeautyScoringMode::WinnerBonus)
+                    && matches!(mode, BeautyScoringMode::VoteDivisor)
+                {
+                    self.reset_vote_divisor_segment(&mut state);
+                }
                 self.broadcast_msg(self.room_state(&state))?;
             }
             ClientMsg::SetBeautyVotePointsDivisor { divisor } => {
@@ -6361,8 +6664,106 @@ impl Room {
                     return Ok(());
                 }
 
-                state.beauty_vote_points_divisor = divisor;
-                self.clamp_beauty_vote_points_divisor(&mut state);
+                let Some(divisor_tenths) =
+                    Self::beauty_vote_points_divisor_tenths_from_input(divisor)
+                else {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Most Beautiful vote divisor must be a finite number".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                };
+
+                state.beauty_vote_points_divisor_tenths = divisor_tenths;
+                self.clamp_beauty_vote_points_divisor_tenths(&mut state);
+                self.clamp_beauty_vote_points_divisor_player_count_base(&mut state);
+                self.rescore_vote_divisor_points(&mut state);
+                self.broadcast_msg(self.room_state(&state))?;
+            }
+            ClientMsg::SetBeautyVotePointsDivisorMode { mode } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change Most Beautiful settings".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if matches!(state.stage, RoomStage::End) {
+                    return Ok(());
+                }
+
+                if !matches!(state.game_mode, GameMode::DixitPlus) {
+                    return Ok(());
+                }
+
+                if !Self::is_joining_or_live_dixit_stage(state.stage) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Most Beautiful scoring can only be changed during live Dixit stages"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                state.beauty_vote_points_divisor_mode = mode;
+                self.rescore_vote_divisor_points(&mut state);
+                self.broadcast_msg(self.room_state(&state))?;
+            }
+            ClientMsg::SetBeautyVotePointsDivisorPlayerCountBase { base } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change Most Beautiful settings".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if matches!(state.stage, RoomStage::End) {
+                    return Ok(());
+                }
+
+                if !matches!(state.game_mode, GameMode::DixitPlus) {
+                    return Ok(());
+                }
+
+                if !Self::is_joining_or_live_dixit_stage(state.stage) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Most Beautiful scoring can only be changed during live Dixit stages"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                state.beauty_vote_points_divisor_player_count_base = base;
+                self.clamp_beauty_vote_points_divisor_player_count_base(&mut state);
+                self.rescore_vote_divisor_points(&mut state);
                 self.broadcast_msg(self.room_state(&state))?;
             }
             ClientMsg::SetBeautyResultsDisplayMode { mode } => {
@@ -7955,7 +8356,8 @@ impl Room {
         self.clamp_votes_per_guesser(&mut state);
         self.clamp_beauty_votes_per_player(&mut state);
         self.clamp_beauty_points_bonus(&mut state);
-        self.clamp_beauty_vote_points_divisor(&mut state);
+        self.clamp_beauty_vote_points_divisor_tenths(&mut state);
+        self.clamp_beauty_vote_points_divisor_player_count_base(&mut state);
         self.clamp_cards_per_hand(&mut state);
         self.clamp_nominations_per_guesser(&mut state);
         self.clamp_stella_settings(&mut state);
@@ -8137,10 +8539,20 @@ impl Room {
         let beauty_points_bonus = state
             .beauty_points_bonus
             .clamp(beauty_points_min, beauty_points_max);
-        let (beauty_divisor_min, beauty_divisor_max) = self.beauty_vote_points_divisor_bounds();
-        let beauty_vote_points_divisor = state
-            .beauty_vote_points_divisor
-            .clamp(beauty_divisor_min, beauty_divisor_max);
+        let (beauty_divisor_min, beauty_divisor_max) =
+            self.beauty_vote_points_divisor_tenths_bounds();
+        let beauty_vote_points_divisor = Room::beauty_vote_points_divisor_from_tenths(
+            state
+                .beauty_vote_points_divisor_tenths
+                .clamp(beauty_divisor_min, beauty_divisor_max),
+        );
+        let beauty_vote_points_divisor_effective = self
+            .effective_beauty_vote_points_divisor_tenths(
+                state,
+                &state.vote_divisor_member_to_cumulative_beauty_votes,
+                state.vote_divisor_completed_rounds,
+            )
+            .map(Self::beauty_vote_points_divisor_from_tenths);
         let (cards_min, cards_max) = self.cards_per_hand_bounds(state);
         let cards_per_hand = state.cards_per_hand.clamp(cards_min, cards_max);
         let (nominations_min, nominations_max) = self.nominations_per_guesser_bounds(state);
@@ -8208,7 +8620,11 @@ impl Room {
             beauty_split_points_on_tie: state.beauty_split_points_on_tie,
             beauty_points_bonus,
             beauty_scoring_mode: state.beauty_scoring_mode,
+            beauty_vote_points_divisor_mode: state.beauty_vote_points_divisor_mode,
             beauty_vote_points_divisor,
+            beauty_vote_points_divisor_effective,
+            beauty_vote_points_divisor_player_count_base: state
+                .beauty_vote_points_divisor_player_count_base,
             beauty_points_bonus_min: beauty_points_min,
             beauty_points_bonus_max: beauty_points_max,
             beauty_results_display_mode: state.beauty_results_display_mode,
@@ -9534,7 +9950,7 @@ mod tests {
         state.game_mode = GameMode::DixitPlus;
         state.beauty_enabled = true;
         state.beauty_scoring_mode = BeautyScoringMode::VoteDivisor;
-        state.beauty_vote_points_divisor = 2;
+        state.beauty_vote_points_divisor_tenths = 20;
         state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into()];
         state.active_player = 0;
         state.nominations_per_guesser = 2;
@@ -9577,6 +9993,156 @@ mod tests {
         assert!(
             point_change.get("a").is_none() && point_change.get("d").is_none(),
             "players without enough accumulated beauty votes should not receive points"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn beauty_point_change_vote_divisor_accumulates_prior_round_votes() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        for player in ["a", "b", "c", "d"] {
+            add_player(&mut state, player, 0);
+        }
+        state.game_mode = GameMode::DixitPlus;
+        state.beauty_enabled = true;
+        state.beauty_scoring_mode = BeautyScoringMode::VoteDivisor;
+        state.beauty_vote_points_divisor_mode = BeautyVotePointsDivisorMode::Manual;
+        state.beauty_vote_points_divisor_tenths = 20;
+        state.vote_divisor_member_to_cumulative_beauty_votes =
+            HashMap::from([("b".into(), 2), ("c".into(), 1)]);
+        state.vote_divisor_member_to_points = room
+            .compute_vote_divisor_points_for_cumulative_votes(
+                &state,
+                &state.vote_divisor_member_to_cumulative_beauty_votes,
+                1,
+            );
+        state.vote_divisor_completed_rounds = 1;
+        state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into()];
+        state.active_player = 0;
+        state.nominations_per_guesser = 2;
+        state
+            .player_to_current_cards
+            .insert("a".into(), vec!["ca".into()]);
+        state
+            .player_to_current_cards
+            .insert("b".into(), vec!["cb1".into(), "cb2".into()]);
+        state
+            .player_to_current_cards
+            .insert("c".into(), vec!["cc1".into(), "cc2".into()]);
+        state
+            .player_to_current_cards
+            .insert("d".into(), vec!["cd1".into(), "cd2".into()]);
+        state
+            .player_to_beauty_votes
+            .insert("a".into(), vec!["cb1".into()]);
+        state
+            .player_to_beauty_votes
+            .insert("b".into(), vec!["cc1".into()]);
+        state
+            .player_to_beauty_votes
+            .insert("c".into(), vec!["cc2".into()]);
+
+        let point_change = room.compute_beauty_point_change(&state);
+        assert!(
+            !point_change.contains_key("b"),
+            "owners should only gain new points when the cumulative current-game total crosses K"
+        );
+        assert_eq!(
+            point_change.get("c").copied(),
+            Some(1),
+            "vote-divisor scoring should use cumulative current-game votes instead of only the current round"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn beauty_vote_divisor_player_count_auto_rounds_to_one_decimal_and_clamps() -> Result<()>
+    {
+        let room = test_room();
+        let mut state = room.state.write().await;
+        state.beauty_vote_points_divisor_mode = BeautyVotePointsDivisorMode::PlayerCountAuto;
+        state.beauty_vote_points_divisor_player_count_base = 4;
+
+        state.player_order = vec!["a".into(), "b".into(), "c".into()];
+        assert_eq!(
+            room.effective_beauty_vote_points_divisor_tenths(&state, &HashMap::new(), 0),
+            Some(10),
+            "3 / 4 rounds to 0.8, then clamps up to the minimum 1.0"
+        );
+
+        state.player_order = (0..9).map(|index| format!("p{index}")).collect();
+        assert_eq!(
+            room.effective_beauty_vote_points_divisor_tenths(&state, &HashMap::new(), 0),
+            Some(23),
+            "9 / 4 should round to 2.3"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn beauty_vote_divisor_median_auto_uses_current_active_players_only() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+        state.beauty_vote_points_divisor_mode = BeautyVotePointsDivisorMode::MedianAuto;
+        state.player_order = vec!["a".into(), "b".into(), "c".into()];
+
+        let cumulative_votes = HashMap::from([
+            ("a".into(), 0),
+            ("b".into(), 4),
+            ("c".into(), 10),
+            ("zzz".into(), 100),
+        ]);
+
+        assert_eq!(
+            room.effective_beauty_vote_points_divisor_tenths(&state, &cumulative_votes, 2),
+            Some(20),
+            "median auto should ignore inactive players and use current actives only"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn rescore_vote_divisor_points_can_reduce_existing_beauty_totals() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+        add_player(&mut state, "b", 2);
+        add_player(&mut state, "c", 1);
+        state.game_mode = GameMode::DixitPlus;
+        state.beauty_scoring_mode = BeautyScoringMode::VoteDivisor;
+        state.beauty_vote_points_divisor_mode = BeautyVotePointsDivisorMode::Manual;
+        state.beauty_vote_points_divisor_tenths = 30;
+        state.vote_divisor_member_to_cumulative_beauty_votes =
+            HashMap::from([("b".into(), 4), ("c".into(), 2)]);
+        state.vote_divisor_member_to_points = HashMap::from([("b".into(), 2), ("c".into(), 1)]);
+        state.vote_divisor_completed_rounds = 2;
+        state.member_to_beauty_points = HashMap::from([("b".into(), 2), ("c".into(), 1)]);
+
+        room.rescore_vote_divisor_points(&mut state);
+
+        assert_eq!(
+            state.players.get("b").map(|player| player.points),
+            Some(1),
+            "raising K should be able to lower already-awarded cumulative beauty points"
+        );
+        assert_eq!(
+            state.players.get("c").map(|player| player.points),
+            Some(0),
+            "rescore should apply negative beauty deltas when the new K is harsher"
+        );
+        assert_eq!(
+            state.member_to_beauty_points.get("b").copied(),
+            Some(1),
+            "member beauty totals should stay in sync with the rescored leaderboard"
+        );
+        assert!(
+            !state.vote_divisor_member_to_points.contains_key("c"),
+            "players that fall back to zero rescored beauty points should be removed from the tracked map"
         );
 
         Ok(())
@@ -10838,8 +11404,11 @@ mod tests {
                     "Most Beautiful scoring should default to vote-divisor mode"
                 );
                 assert_eq!(
-                    beauty_vote_points_divisor, DEFAULT_BEAUTY_VOTE_POINTS_DIVISOR,
-                    "Most Beautiful vote divisor should default to 3"
+                    beauty_vote_points_divisor,
+                    Room::beauty_vote_points_divisor_from_tenths(
+                        DEFAULT_BEAUTY_VOTE_POINTS_DIVISOR_TENTHS
+                    ),
+                    "Most Beautiful vote divisor should default to 3.0"
                 );
                 assert_eq!(cards_per_hand, 12, "cards per hand should default to 12");
                 assert_eq!(
@@ -11112,7 +11681,7 @@ alpha
         room.handle_client_msg(
             "host",
             10_203,
-            to_ws(ClientMsg::SetBeautyVotePointsDivisor { divisor: 7 }),
+            to_ws(ClientMsg::SetBeautyVotePointsDivisor { divisor: 7.0 }),
         )
         .await?;
 
@@ -11122,7 +11691,7 @@ alpha
             "moderators should be able to switch Most Beautiful scoring mode in Results"
         );
         assert_eq!(
-            state.beauty_vote_points_divisor, 7,
+            state.beauty_vote_points_divisor_tenths, 70,
             "moderators should be able to update the Most Beautiful vote divisor in Results"
         );
 

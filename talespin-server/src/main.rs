@@ -649,7 +649,9 @@ fn collect_image_files_recursive(
 
             let resolved_entry = match fs::canonicalize(entry.path()) {
                 Ok(path) => path,
-                Err(err) if file_type.is_symlink() && err.kind() == std::io::ErrorKind::NotFound => {
+                Err(err)
+                    if file_type.is_symlink() && err.kind() == std::io::ErrorKind::NotFound =>
+                {
                     continue;
                 }
                 Err(err) => {

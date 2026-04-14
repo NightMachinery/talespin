@@ -5,7 +5,11 @@
 	import { CARD_IMAGE_ALT_TEXT } from '$lib/cardImageText';
 	import CardImage from '$lib/CardImage.svelte';
 	import { http_host } from '$lib/gameServer';
-	import { beautyScoringMode, beautyVotePointsDivisor } from '$lib/mostBeautiful';
+	import {
+		beautyScoringMode,
+		beautyVotePointsDivisorEffective,
+		beautyVotePointsDivisorMode
+	} from '$lib/mostBeautiful';
 	import { cardsFitToHeight } from '$lib/viewOptions';
 	import type GameServer from '$lib/gameServer';
 	import type { ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
@@ -105,6 +109,10 @@
 	let canForceStartNextRound = false;
 	let winningCardSet = new Set<string>();
 	let beautyBadges: ReturnType<typeof buildBeautyBadgeMetadata> = {};
+	$: formattedEffectiveBeautyDivisor =
+		$beautyVotePointsDivisorEffective === null
+			? 'pending first beauty results'
+			: $beautyVotePointsDivisorEffective.toFixed(1);
 	$: isObserver = !!observers[name];
 	$: isModerator = new Set(moderators).has(name);
 	$: canForceStartNextRound = stage === 'BeautyResults';
@@ -240,8 +248,9 @@
 			<h1 class="text-xl font-semibold">Beauty results</h1>
 			<p>
 				{#if $beautyScoringMode === 'vote_divisor'}
-					Review beauty scoring. Owners gain floor(total beauty votes on their submitted cards /
-					{$beautyVotePointsDivisor}), then continue to the next round.
+					Review beauty scoring. Owners gain floor(cumulative current-game beauty votes on their
+					submitted cards / K). K mode: {$beautyVotePointsDivisorMode}, effective K:
+					{formattedEffectiveBeautyDivisor}.
 				{:else}
 					Review beauty winners. Each top-voted owner gets +{beautyPointsBonus} once, then continue to
 					the next round.
@@ -278,8 +287,9 @@
 			<h1 class="text-xl font-semibold">Beauty results</h1>
 			<p>
 				{#if $beautyScoringMode === 'vote_divisor'}
-					Review beauty scoring. Owners gain floor(total beauty votes on their submitted cards /
-					{$beautyVotePointsDivisor}), then continue to the next round.
+					Review beauty scoring. Owners gain floor(cumulative current-game beauty votes on their
+					submitted cards / K). K mode: {$beautyVotePointsDivisorMode}, effective K:
+					{formattedEffectiveBeautyDivisor}.
 				{:else}
 					Review beauty winners. Each top-voted owner gets +{beautyPointsBonus} once, then continue to
 					the next round.

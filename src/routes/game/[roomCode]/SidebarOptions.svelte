@@ -3,10 +3,14 @@
 	import type GameServer from '$lib/gameServer';
 	import {
 		beautyScoringMode as beautyScoringModeStore,
-		beautyVotePointsDivisor as beautyVotePointsDivisorStore
+		beautyVotePointsDivisor as beautyVotePointsDivisorStore,
+		beautyVotePointsDivisorEffective as beautyVotePointsDivisorEffectiveStore,
+		beautyVotePointsDivisorMode as beautyVotePointsDivisorModeStore,
+		beautyVotePointsDivisorPlayerCountBase as beautyVotePointsDivisorPlayerCountBaseStore
 	} from '$lib/mostBeautiful';
 	import type {
 		BeautyScoringMode,
+		BeautyVotePointsDivisorMode,
 		BeautyResultsDisplayMode,
 		GameMode,
 		ObserverInfo,
@@ -45,8 +49,11 @@
 	const STAGE_TIMER_DURATION_MAX_S = 60 * 60;
 	const STELLA_SCOUT_TIMER_DURATION_MIN_S = 0;
 	const STELLA_WORD_PACK_UNSAVED_LABEL = 'Unsaved Wordpack';
-	const BEAUTY_VOTE_POINTS_DIVISOR_MIN = 1;
-	const BEAUTY_VOTE_POINTS_DIVISOR_MAX = 100;
+	const BEAUTY_VOTE_POINTS_DIVISOR_MIN = 1.0;
+	const BEAUTY_VOTE_POINTS_DIVISOR_MAX = 100.0;
+	const BEAUTY_VOTE_POINTS_DIVISOR_STEP = 0.1;
+	const BEAUTY_VOTE_POINTS_DIVISOR_PLAYER_COUNT_BASE_MIN = 1;
+	const BEAUTY_VOTE_POINTS_DIVISOR_PLAYER_COUNT_BASE_MAX = 100;
 
 	export let players: { [key: string]: PlayerInfo } = {};
 	export let observers: { [key: string]: ObserverInfo } = {};
@@ -207,6 +214,11 @@
 	$: activePlayerPoints = Object.fromEntries(
 		Object.entries(players).map(([playerName, info]) => [playerName, info.points])
 	);
+	$: formattedBeautyVotePointsDivisor = $beautyVotePointsDivisorStore.toFixed(1);
+	$: formattedEffectiveBeautyVotePointsDivisor =
+		$beautyVotePointsDivisorEffectiveStore === null
+			? 'pending first beauty results'
+			: $beautyVotePointsDivisorEffectiveStore.toFixed(1);
 	const supportsStageChangeAudio = isStageChangeAudioSupported();
 
 	function isPlayerModerator(playerName: string) {
@@ -412,19 +424,49 @@
 		const input = event.currentTarget as HTMLInputElement;
 		const parsed = Number(input.value);
 		if (!isModerator || !canChangeStorytellerScoringSettings) {
-			input.value = `${$beautyVotePointsDivisorStore}`;
+			input.value = formattedBeautyVotePointsDivisor;
+			return;
+		}
+		if (
+			!Number.isFinite(parsed) ||
+			parsed < BEAUTY_VOTE_POINTS_DIVISOR_MIN ||
+			parsed > BEAUTY_VOTE_POINTS_DIVISOR_MAX
+		) {
+			input.value = formattedBeautyVotePointsDivisor;
+			return;
+		}
+		const normalized = Math.round(parsed * 10) / 10;
+		if (normalized !== $beautyVotePointsDivisorStore) {
+			gameServer.setBeautyVotePointsDivisor(normalized);
+		}
+	}
+
+	function updateBeautyVotePointsDivisorMode(event: Event) {
+		const select = event.currentTarget as HTMLSelectElement;
+		if (!isModerator || !canChangeStorytellerScoringSettings) {
+			select.value = $beautyVotePointsDivisorModeStore;
+			return;
+		}
+		gameServer.setBeautyVotePointsDivisorMode(select.value as BeautyVotePointsDivisorMode);
+	}
+
+	function updateBeautyVotePointsDivisorPlayerCountBase(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const parsed = Number(input.value);
+		if (!isModerator || !canChangeStorytellerScoringSettings) {
+			input.value = `${$beautyVotePointsDivisorPlayerCountBaseStore}`;
 			return;
 		}
 		if (
 			!Number.isInteger(parsed) ||
-			parsed < BEAUTY_VOTE_POINTS_DIVISOR_MIN ||
-			parsed > BEAUTY_VOTE_POINTS_DIVISOR_MAX
+			parsed < BEAUTY_VOTE_POINTS_DIVISOR_PLAYER_COUNT_BASE_MIN ||
+			parsed > BEAUTY_VOTE_POINTS_DIVISOR_PLAYER_COUNT_BASE_MAX
 		) {
-			input.value = `${$beautyVotePointsDivisorStore}`;
+			input.value = `${$beautyVotePointsDivisorPlayerCountBaseStore}`;
 			return;
 		}
-		if (parsed !== $beautyVotePointsDivisorStore) {
-			gameServer.setBeautyVotePointsDivisor(parsed);
+		if (parsed !== $beautyVotePointsDivisorPlayerCountBaseStore) {
+			gameServer.setBeautyVotePointsDivisorPlayerCountBase(parsed);
 		}
 	}
 
@@ -1648,29 +1690,83 @@
 									<option value="winner_bonus">Winner bonus</option>
 								</select>
 								<p class="mt-1 text-xs opacity-75">
-									Vote divisor awards floor(owner total beauty votes / K). Winner bonus keeps the
-									legacy top-card bonus flow.
+									Vote divisor awards floor(cumulative current-game beauty votes / K). Winner bonus
+									keeps the legacy top-card bonus flow.
 								</p>
 							</div>
 						</div>
 						{#if $beautyScoringModeStore === 'vote_divisor'}
-							<div class="mt-3">
-								<label class="text-sm font-medium" for="beauty-vote-points-divisor">
-									Beauty vote divisor K
-								</label>
-								<input
-									id="beauty-vote-points-divisor"
-									type="number"
-									class="mt-1 w-full rounded border px-2 py-1 text-gray-700 shadow"
-									min={BEAUTY_VOTE_POINTS_DIVISOR_MIN}
-									max={BEAUTY_VOTE_POINTS_DIVISOR_MAX}
-									step="1"
-									value={$beautyVotePointsDivisorStore}
-									on:change={updateBeautyVotePointsDivisor}
-									disabled={!isModerator || !canChangeStorytellerScoringSettings}
-								/>
-								<p class="mt-1 text-xs opacity-75">
-									Range: {BEAUTY_VOTE_POINTS_DIVISOR_MIN}–{BEAUTY_VOTE_POINTS_DIVISOR_MAX}
+							<div class="mt-3 space-y-3">
+								<div>
+									<label class="text-sm font-medium" for="beauty-vote-points-divisor-mode">
+										Beauty vote divisor K mode
+									</label>
+									<select
+										id="beauty-vote-points-divisor-mode"
+										class="mt-1 w-full rounded border px-3 py-2 text-gray-700 shadow"
+										value={$beautyVotePointsDivisorModeStore}
+										on:change={updateBeautyVotePointsDivisorMode}
+										disabled={!isModerator || !canChangeStorytellerScoringSettings}
+									>
+										<option value="manual">Manual</option>
+										<option value="player_count_auto">Auto: player count</option>
+										<option value="median_auto">Auto: median beauty votes / round</option>
+									</select>
+								</div>
+								{#if $beautyVotePointsDivisorModeStore === 'manual'}
+									<div>
+										<label class="text-sm font-medium" for="beauty-vote-points-divisor">
+											Manual beauty vote divisor K
+										</label>
+										<input
+											id="beauty-vote-points-divisor"
+											type="number"
+											class="mt-1 w-full rounded border px-2 py-1 text-gray-700 shadow"
+											min={BEAUTY_VOTE_POINTS_DIVISOR_MIN}
+											max={BEAUTY_VOTE_POINTS_DIVISOR_MAX}
+											step={BEAUTY_VOTE_POINTS_DIVISOR_STEP}
+											value={formattedBeautyVotePointsDivisor}
+											on:change={updateBeautyVotePointsDivisor}
+											disabled={!isModerator || !canChangeStorytellerScoringSettings}
+										/>
+										<p class="mt-1 text-xs opacity-75">
+											Range: {BEAUTY_VOTE_POINTS_DIVISOR_MIN.toFixed(
+												1
+											)}–{BEAUTY_VOTE_POINTS_DIVISOR_MAX.toFixed(1)}
+										</p>
+									</div>
+								{:else if $beautyVotePointsDivisorModeStore === 'player_count_auto'}
+									<div>
+										<label
+											class="text-sm font-medium"
+											for="beauty-vote-points-divisor-player-count-base"
+										>
+											Player-count auto base
+										</label>
+										<input
+											id="beauty-vote-points-divisor-player-count-base"
+											type="number"
+											class="mt-1 w-full rounded border px-2 py-1 text-gray-700 shadow"
+											min={BEAUTY_VOTE_POINTS_DIVISOR_PLAYER_COUNT_BASE_MIN}
+											max={BEAUTY_VOTE_POINTS_DIVISOR_PLAYER_COUNT_BASE_MAX}
+											step="1"
+											value={$beautyVotePointsDivisorPlayerCountBaseStore}
+											on:change={updateBeautyVotePointsDivisorPlayerCountBase}
+											disabled={!isModerator || !canChangeStorytellerScoringSettings}
+										/>
+										<p class="mt-1 text-xs opacity-75">
+											K = round((players / {$beautyVotePointsDivisorPlayerCountBaseStore}) to 1
+											decimal), then clamp to at least 1.0.
+										</p>
+									</div>
+								{:else}
+									<p class="text-xs opacity-75">
+										K = median(cumulative beauty votes received by current active players) /
+										completed vote-divisor rounds, rounded to 1 decimal and clamped to at least 1.0.
+									</p>
+								{/if}
+								<p class="text-xs opacity-75">
+									Effective K: {formattedEffectiveBeautyVotePointsDivisor}.
 								</p>
 							</div>
 						{:else}

@@ -62,7 +62,7 @@
 		</p>
 		<p>
 			• Optional Most Beautiful: rooms may award beauty points either by top-voted winner bonus or
-			by floor(total beauty votes / K), depending on room settings.
+			by floor(cumulative current-game beauty votes / K), depending on room settings.
 		</p>
 		<br />
 		<strong class="text-xl underline">Strategies</strong>

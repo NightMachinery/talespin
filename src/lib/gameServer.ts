@@ -249,6 +249,22 @@ class GameServer {
 		});
 	}
 
+	setBeautyVotePointsDivisorMode(mode: 'manual' | 'player_count_auto' | 'median_auto') {
+		this.send({
+			SetBeautyVotePointsDivisorMode: {
+				mode
+			}
+		});
+	}
+
+	setBeautyVotePointsDivisorPlayerCountBase(base: number) {
+		this.send({
+			SetBeautyVotePointsDivisorPlayerCountBase: {
+				base
+			}
+		});
+	}
+
 	setBeautySplitPointsOnTie(enabled: boolean) {
 		this.send({
 			SetBeautySplitPointsOnTie: {

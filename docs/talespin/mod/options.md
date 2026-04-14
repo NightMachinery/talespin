@@ -6,32 +6,32 @@ Lobby / Joining-stage setup remains available where the room already exposes it.
 
 ## Lock matrix
 
-| Setting                                           | Live editable through | Lock point                  | Why                                                                                                 |
-| ------------------------------------------------- | --------------------- | --------------------------- | --------------------------------------------------------------------------------------------------- |
-| Refresh active player hands                       | `ActiveChooses`       | storyteller locks clue/card | Redrawing after clue lock would invalidate the storyteller hand and the current round setup.        |
-| Cards per hand                                    | `ActiveChooses`       | storyteller locks clue/card | Changing hand size after clue lock can remove already-committed cards from active hands.            |
-| Votes per guesser                                 | `PlayersChoose`       | voting starts               | Voting card disables and existing / future ballots depend on this count.                            |
-| Nominations per guesser                           | `PlayersChoose`       | voting starts               | The current card-submission requirements depend on it, but it is still safe before voting begins.   |
-| Random wrong-card disabling                       | `PlayersChoose`       | voting starts               | Disabled-card sets are sampled when voting starts and are not rebuilt mid-vote.                     |
-| Enable Most Beautiful                             | `Voting`              | beauty voting starts        | Safe while deciding whether the beauty round should happen; unsafe once beauty voting is underway.  |
-| Beauty votes per player                           | `Voting`              | beauty voting starts        | Beauty ballots depend on this count, so it must lock before any beauty ballots can be cast.         |
-| Allow duplicate beauty votes                      | `Voting`              | beauty voting starts        | Beauty ballot validation depends on this rule.                                                      |
-| Beauty results display mode                       | `BeautyVoting`        | results start               | The storyteller results / separate beauty-results flow is chosen when results begin.                |
-| Storyteller win condition `W` / auto-tune         | `BeautyResults`       | end of live round flow      | Safe to change until scoring has already been shown; later changes only affect future rounds.       |
-| Threshold-loss bonus toggles                      | `BeautyResults`       | end of live round flow      | Same as `W`: safe until live scoring is already complete.                                           |
-| Threshold-loss bonus scope toggle                 | `BeautyResults`       | end of live round flow      | Same scoring rationale as the other storyteller-loss controls.                                      |
-| Show previous results during storyteller choosing | `BeautyResults`       | end of live round flow      | Affects the next storyteller-choosing screen and the following nominations stage.                   |
-| Show card numbers in voting/results stages        | `BeautyResults`       | end of live round flow      | Pure presentation.                                                                                  |
-| Randomize voting card order per player            | `BeautyResults`       | end of live round flow      | Safe throughout the live Dixit round; voting uses a stable per-round seed.                          |
-| Round-start random discards                       | `BeautyResults`       | end of live round flow      | Only affects the next round start.                                                                  |
-| Beauty scoring mode                               | `BeautyResults`       | end of live round flow      | Safe until results are being computed; later edits are for future rounds only.                      |
-| Beauty vote divisor `K`                           | `BeautyResults`       | end of live round flow      | Same as beauty scoring mode.                                                                        |
-| Beauty winner bonus                               | `BeautyResults`       | end of live round flow      | Same as beauty scoring mode.                                                                        |
-| Split beauty bonus among ties                     | `BeautyResults`       | end of live round flow      | Same as beauty scoring mode.                                                                        |
-| Hint / storyteller timer settings                 | `BeautyResults`       | end of live round flow      | Current-stage deadlines can be recomputed when relevant; otherwise the change affects later stages. |
-| Card-choosing timer settings                      | `BeautyResults`       | end of live round flow      | Safe for the current or next relevant stage.                                                        |
-| Voting timer settings                             | `BeautyResults`       | end of live round flow      | Safe for the current or next relevant stage.                                                        |
-| Beauty timer settings                             | `BeautyResults`       | end of live round flow      | Safe for the current or next relevant stage.                                                        |
+| Setting                                           | Live editable through | Lock point                  | Why                                                                                                    |
+| ------------------------------------------------- | --------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Refresh active player hands                       | `ActiveChooses`       | storyteller locks clue/card | Redrawing after clue lock would invalidate the storyteller hand and the current round setup.           |
+| Cards per hand                                    | `ActiveChooses`       | storyteller locks clue/card | Changing hand size after clue lock can remove already-committed cards from active hands.               |
+| Votes per guesser                                 | `PlayersChoose`       | voting starts               | Voting card disables and existing / future ballots depend on this count.                               |
+| Nominations per guesser                           | `PlayersChoose`       | voting starts               | The current card-submission requirements depend on it, but it is still safe before voting begins.      |
+| Random wrong-card disabling                       | `PlayersChoose`       | voting starts               | Disabled-card sets are sampled when voting starts and are not rebuilt mid-vote.                        |
+| Enable Most Beautiful                             | `Voting`              | beauty voting starts        | Safe while deciding whether the beauty round should happen; unsafe once beauty voting is underway.     |
+| Beauty votes per player                           | `Voting`              | beauty voting starts        | Beauty ballots depend on this count, so it must lock before any beauty ballots can be cast.            |
+| Allow duplicate beauty votes                      | `Voting`              | beauty voting starts        | Beauty ballot validation depends on this rule.                                                         |
+| Beauty results display mode                       | `BeautyVoting`        | results start               | The storyteller results / separate beauty-results flow is chosen when results begin.                   |
+| Storyteller win condition `W` / auto-tune         | `BeautyResults`       | end of live round flow      | Safe to change until scoring has already been shown; later changes only affect future rounds.          |
+| Threshold-loss bonus toggles                      | `BeautyResults`       | end of live round flow      | Same as `W`: safe until live scoring is already complete.                                              |
+| Threshold-loss bonus scope toggle                 | `BeautyResults`       | end of live round flow      | Same scoring rationale as the other storyteller-loss controls.                                         |
+| Show previous results during storyteller choosing | `BeautyResults`       | end of live round flow      | Affects the next storyteller-choosing screen and the following nominations stage.                      |
+| Show card numbers in voting/results stages        | `BeautyResults`       | end of live round flow      | Pure presentation.                                                                                     |
+| Randomize voting card order per player            | `BeautyResults`       | end of live round flow      | Safe throughout the live Dixit round; voting uses a stable per-round seed.                             |
+| Round-start random discards                       | `BeautyResults`       | end of live round flow      | Only affects the next round start.                                                                     |
+| Beauty scoring mode                               | `BeautyResults`       | end of live round flow      | Safe until results are being computed; later edits are for future rounds only.                         |
+| Beauty vote divisor `K` / auto mode / player base | `BeautyResults`       | end of live round flow      | Same as beauty scoring mode; live edits can immediately rescale cumulative vote-divisor beauty totals. |
+| Beauty winner bonus                               | `BeautyResults`       | end of live round flow      | Same as beauty scoring mode.                                                                           |
+| Split beauty bonus among ties                     | `BeautyResults`       | end of live round flow      | Same as beauty scoring mode.                                                                           |
+| Hint / storyteller timer settings                 | `BeautyResults`       | end of live round flow      | Current-stage deadlines can be recomputed when relevant; otherwise the change affects later stages.    |
+| Card-choosing timer settings                      | `BeautyResults`       | end of live round flow      | Safe for the current or next relevant stage.                                                           |
+| Voting timer settings                             | `BeautyResults`       | end of live round flow      | Safe for the current or next relevant stage.                                                           |
+| Beauty timer settings                             | `BeautyResults`       | end of live round flow      | Safe for the current or next relevant stage.                                                           |
 
 ## Practical grouping
 

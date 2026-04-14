@@ -1,5 +1,9 @@
 <script lang="ts">
-	import { beautyScoringMode, beautyVotePointsDivisor } from '$lib/mostBeautiful';
+	import {
+		beautyScoringMode,
+		beautyVotePointsDivisorEffective,
+		beautyVotePointsDivisorMode
+	} from '$lib/mostBeautiful';
 	import type { BeautyResultsDisplayMode, GameMode } from '$lib/types';
 
 	export let gameMode: GameMode = 'dixit_plus';
@@ -28,6 +32,10 @@
 		1,
 		Math.min(beautyVotesPerPlayer, Math.max(beautyVotesPerPlayerMax, 1))
 	);
+	$: formattedEffectiveBeautyDivisor =
+		$beautyVotePointsDivisorEffective === null
+			? 'pending'
+			: $beautyVotePointsDivisorEffective.toFixed(1);
 </script>
 
 <div class="card light p-4">
@@ -97,8 +105,14 @@
 				</li>
 				{#if $beautyScoringMode === 'vote_divisor'}
 					<li>
-						Beauty scoring: each owner gets floor(total beauty votes on their submitted cards /
-						{$beautyVotePointsDivisor}).
+						Beauty scoring: each owner gets floor(cumulative current-game beauty votes on their
+						submitted cards / K).
+					</li>
+					<li>
+						K mode: {$beautyVotePointsDivisorMode}. Effective K:
+						{formattedEffectiveBeautyDivisor === 'pending'
+							? 'pending first beauty results.'
+							: formattedEffectiveBeautyDivisor + '.'}
 					</li>
 				{:else}
 					<li>

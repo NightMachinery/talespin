@@ -1,6 +1,10 @@
 import { browser } from '$app/environment';
 import { writable } from 'svelte/store';
-import type { BeautyScoringMode, LeaderboardViewMode } from '$lib/types';
+import type {
+	BeautyScoringMode,
+	BeautyVotePointsDivisorMode,
+	LeaderboardViewMode
+} from '$lib/types';
 
 export interface MostBeautifulVoterStats {
 	player_hash: string;
@@ -115,7 +119,10 @@ export const roomLeaderboardViewModeDefault = writable<LeaderboardViewMode>(
 	DEFAULT_LEADERBOARD_VIEW_MODE
 );
 export const beautyScoringMode = writable<BeautyScoringMode>('vote_divisor');
+export const beautyVotePointsDivisorMode = writable<BeautyVotePointsDivisorMode>('manual');
 export const beautyVotePointsDivisor = writable(3);
+export const beautyVotePointsDivisorPlayerCountBase = writable(4);
+export const beautyVotePointsDivisorEffective = writable<number | null>(3);
 export const mostBeautifulStatsGamesLimit = writable(1);
 export const memberBeautyPoints = writable<Record<string, number>>({});
 export const storytellerLeaderboardPointChange = writable<Record<string, number>>({});
@@ -137,9 +144,20 @@ export function setMostBeautifulRoom(roomCode: string) {
 	leaderboardViewMode.set(preference.mode);
 }
 
-export function setBeautyScoringConfig(mode: BeautyScoringMode, divisor: number) {
+export function setBeautyScoringConfig(
+	mode: BeautyScoringMode,
+	divisor: number,
+	divisorMode: BeautyVotePointsDivisorMode = 'manual',
+	playerCountBase = 4,
+	effectiveDivisor: number | null = divisor
+) {
 	beautyScoringMode.set(mode);
-	beautyVotePointsDivisor.set(Math.max(1, Math.floor(divisor)));
+	beautyVotePointsDivisorMode.set(divisorMode);
+	beautyVotePointsDivisor.set(Math.max(1, Math.round(divisor * 10) / 10));
+	beautyVotePointsDivisorPlayerCountBase.set(Math.max(1, Math.floor(playerCountBase)));
+	beautyVotePointsDivisorEffective.set(
+		effectiveDivisor === null ? null : Math.max(1, Math.round(effectiveDivisor * 10) / 10)
+	);
 }
 
 export function setMostBeautifulStatsGamesLimit(limit: number) {
@@ -215,7 +233,10 @@ export function resetMostBeautifulClientState() {
 	leaderboardViewMode.set(DEFAULT_LEADERBOARD_VIEW_MODE);
 	roomLeaderboardViewModeDefault.set(DEFAULT_LEADERBOARD_VIEW_MODE);
 	beautyScoringMode.set('vote_divisor');
+	beautyVotePointsDivisorMode.set('manual');
 	beautyVotePointsDivisor.set(3);
+	beautyVotePointsDivisorPlayerCountBase.set(4);
+	beautyVotePointsDivisorEffective.set(3);
 	mostBeautifulStatsGamesLimit.set(1);
 	memberBeautyPoints.set({});
 	storytellerLeaderboardPointChange.set({});

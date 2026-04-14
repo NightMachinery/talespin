@@ -79,7 +79,7 @@ pub struct MostBeautifulGameAuditScoreRecord {
     pub player_hash: String,
     pub player_display_name: String,
     pub story_delta: u16,
-    pub beauty_delta: u16,
+    pub beauty_delta: i32,
     pub total_after_round: u16,
     pub beauty_total_after_round: u16,
 }
@@ -1227,7 +1227,7 @@ mod tests {
         player_hash: &str,
         player_display_name: &str,
         story_delta: u16,
-        beauty_delta: u16,
+        beauty_delta: i32,
         total_after_round: u16,
         beauty_total_after_round: u16,
     ) -> MostBeautifulGameAuditScoreRecord {

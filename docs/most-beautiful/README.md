@@ -10,13 +10,20 @@ Most Beautiful is the optional Dixit/Talespin post-voting beauty round.
 - **Split beauty bonus among ties**: when enabled, tied winning owners split the beauty bonus and each gets `ceil(bonus / tied_owner_count)`.
 - **Beauty winner bonus**: the per-round beauty bonus before any tie split.
 - **Beauty scoring**:
-  - `vote_divisor` (default): each owner gets `floor(total beauty votes on their submitted cards / K)`
+  - `vote_divisor`: each owner gets `floor(cumulative current-game beauty votes on their submitted cards / K)`
   - `winner_bonus`: legacy top-card winner bonus flow
-- **Beauty vote divisor `K`**: configurable divisor used by `vote_divisor`. Default: `3`.
+- **Beauty vote divisor `K`**:
+  - default mode: `manual`
+  - manual default: `3.0`
+  - manual K uses `0.1` steps
+  - `player_count_auto`: `K = round(players / base, 1 decimal)`, with configurable base defaulting to `4`
+  - `median_auto`: `K = round(median(cumulative beauty votes received by current active players) / completed vote-divisor rounds, 1 decimal)`
+  - all auto modes clamp the effective `K` to at least `1.0`
 - **Beauty results display**:
   - `summary`: storyteller results include beauty totals only
   - `separate`: storyteller results and beauty results are separate stages
   - `combined`: storyteller and beauty chooser overlays appear together in results
+- Vote-divisor beauty scores can go **down** later in the same game if the effective auto-`K` rises and the room rescales cumulative beauty totals.
 - Beauty result badges show rank plus total beauty votes per card, such as `1st Beauty: 3`.
 - Beauty ranks use competition ranking for ties (`1st`, `1st`, `3rd`).
 - Top-three beauty badges use distinct gold/silver/bronze styling, and there is no separate winner pill.

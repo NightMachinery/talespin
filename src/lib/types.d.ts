@@ -19,6 +19,8 @@ export type BeautyResultsDisplayMode = 'summary' | 'separate' | 'combined';
 
 export type BeautyScoringMode = 'vote_divisor' | 'winner_bonus';
 
+export type BeautyVotePointsDivisorMode = 'manual' | 'player_count_auto' | 'median_auto';
+
 export type LeaderboardViewMode = 'total' | 'story_only' | 'beauty_only' | 'combined';
 
 export type PreviousDixitResultsView =

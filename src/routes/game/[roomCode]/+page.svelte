@@ -38,6 +38,7 @@
 	import type {
 		BeautyResultsDisplayMode,
 		BeautyScoringMode,
+		BeautyVotePointsDivisorMode,
 		DixitEndRoundHistoryEntry,
 		GameMode,
 		LeaderboardViewMode,
@@ -99,7 +100,10 @@
 	let beautySplitPointsOnTie = true;
 	let beautyPointsBonus = 2;
 	let beautyScoringMode: BeautyScoringMode = 'vote_divisor';
+	let beautyVotePointsDivisorMode: BeautyVotePointsDivisorMode = 'manual';
 	let beautyVotePointsDivisor = 3;
+	let beautyVotePointsDivisorPlayerCountBase = 4;
+	let beautyVotePointsDivisorEffective: number | null = 3;
 	let beautyPointsBonusMin = 0;
 	let beautyPointsBonusMax = 10;
 	let beautyResultsDisplayMode: BeautyResultsDisplayMode = 'combined';
@@ -377,8 +381,21 @@
 				beautySplitPointsOnTie = data.RoomState.beauty_split_points_on_tie ?? true;
 				beautyPointsBonus = data.RoomState.beauty_points_bonus ?? 2;
 				beautyScoringMode = data.RoomState.beauty_scoring_mode ?? 'vote_divisor';
+				beautyVotePointsDivisorMode = data.RoomState.beauty_vote_points_divisor_mode ?? 'manual';
 				beautyVotePointsDivisor = data.RoomState.beauty_vote_points_divisor ?? 3;
-				setBeautyScoringConfig(beautyScoringMode, beautyVotePointsDivisor);
+				beautyVotePointsDivisorPlayerCountBase =
+					data.RoomState.beauty_vote_points_divisor_player_count_base ?? 4;
+				beautyVotePointsDivisorEffective =
+					data.RoomState.beauty_vote_points_divisor_effective === undefined
+						? beautyVotePointsDivisor
+						: data.RoomState.beauty_vote_points_divisor_effective;
+				setBeautyScoringConfig(
+					beautyScoringMode,
+					beautyVotePointsDivisor,
+					beautyVotePointsDivisorMode,
+					beautyVotePointsDivisorPlayerCountBase,
+					beautyVotePointsDivisorEffective
+				);
 				beautyPointsBonusMin = data.RoomState.beauty_points_bonus_min ?? 0;
 				beautyPointsBonusMax = data.RoomState.beauty_points_bonus_max ?? 10;
 				beautyResultsDisplayMode = data.RoomState.beauty_results_display_mode ?? 'combined';
