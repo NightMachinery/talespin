@@ -26,6 +26,8 @@ next storyteller is choosing.
 - If Most Beautiful uses **separate** results, the next `ActiveChooses` preview mirrors the prior
   `BeautyResults` board instead.
 - The data is sent in room state so reconnecting players can still see the same preview.
+- Preview card highlights mirror live Dixit results states: correct card = animated green sweep,
+  beauty winner = silver border, overlap = green sweep with a moving silver glint.
 
 ## Next-round auto-advance
 

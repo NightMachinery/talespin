@@ -32,6 +32,81 @@
 	}
 }
 
+@property --result-border-angle {
+	inherits: false;
+	initial-value: 0deg;
+	syntax: '<angle>';
+}
+
+.result-highlight-story,
+.result-highlight-beauty,
+.result-highlight-story-beauty {
+	border: 5px solid transparent;
+}
+
+.result-highlight-story {
+	animation: result-border-spin 4.5s linear infinite;
+	background:
+		linear-gradient(rgb(18 24 38 / 0.96), rgb(18 24 38 / 0.96)) padding-box,
+		conic-gradient(
+				from var(--result-border-angle) in oklch longer hue,
+				rgb(34 197 94) 0deg,
+				rgb(74 222 128) 70deg,
+				rgb(220 252 231) 100deg,
+				rgb(16 185 129) 145deg,
+				rgb(34 197 94) 220deg,
+				rgb(110 231 183) 285deg,
+				rgb(34 197 94) 360deg
+			)
+			border-box;
+	box-shadow:
+		0 0 0 1px rgb(187 247 208 / 0.28),
+		0 14px 30px rgb(0 0 0 / 0.28),
+		0 0 32px rgb(34 197 94 / 0.22);
+}
+
+.result-highlight-beauty {
+	background:
+		linear-gradient(rgb(18 24 38 / 0.96), rgb(18 24 38 / 0.96)) padding-box,
+		linear-gradient(145deg, rgb(248 250 252), rgb(148 163 184), rgb(226 232 240)) border-box;
+	box-shadow:
+		0 0 0 1px rgb(255 255 255 / 0.34),
+		0 14px 30px rgb(0 0 0 / 0.24),
+		0 0 26px rgb(226 232 240 / 0.18);
+}
+
+.result-highlight-story-beauty {
+	animation: result-border-spin 4.5s linear infinite;
+	background:
+		linear-gradient(rgb(18 24 38 / 0.96), rgb(18 24 38 / 0.96)) padding-box,
+		conic-gradient(
+				from var(--result-border-angle) in oklch longer hue,
+				rgb(34 197 94) 0deg,
+				rgb(74 222 128) 66deg,
+				rgb(220 252 231) 96deg,
+				rgb(148 163 184) 122deg,
+				rgb(248 250 252) 132deg,
+				rgb(148 163 184) 142deg,
+				rgb(16 185 129) 176deg,
+				rgb(34 197 94) 232deg,
+				rgb(110 231 183) 292deg,
+				rgb(34 197 94) 360deg
+			)
+			border-box;
+	box-shadow:
+		inset 0 0 0 1px rgb(226 232 240 / 0.42),
+		0 0 0 1px rgb(255 255 255 / 0.2),
+		0 14px 30px rgb(0 0 0 / 0.3),
+		0 0 32px rgb(34 197 94 / 0.18),
+		0 0 24px rgb(226 232 240 / 0.14);
+}
+
+@keyframes result-border-spin {
+	to {
+		--result-border-angle: 360deg;
+	}
+}
+
 /* Card hover effects should follow pointer capability, not viewport size. */
 @media (any-hover: hover) and (any-pointer: fine) {
 	.card-hover-source:hover .card-hover-target {

@@ -20,6 +20,9 @@ Most Beautiful is the optional Dixit/Talespin post-voting beauty round.
 - Beauty result badges show rank plus total beauty votes per card, such as `1st Beauty: 3`.
 - Beauty ranks use competition ranking for ties (`1st`, `1st`, `3rd`).
 - Top-three beauty badges use distinct gold/silver/bronze styling, and there is no separate winner pill.
+- On Dixit results boards, the storyteller's correct card uses an animated green sweep border, beauty
+  winners use a distinct silver border, and a card that is both correct and a beauty winner uses
+  the green sweep with a moving silver glint.
 
 ## Leaderboards
 

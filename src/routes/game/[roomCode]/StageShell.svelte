@@ -216,6 +216,10 @@
 				<div
 					class="flex flex-col gap-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto lg:pr-1"
 				>
+					<div class="hidden lg:block">
+						<slot name="leftRail" />
+					</div>
+
 					<Leaderboard
 						{players}
 						{observers}
@@ -232,10 +236,6 @@
 						{winCondition}
 						{gameMode}
 					/>
-
-					<div class="hidden lg:block">
-						<slot name="leftRail" />
-					</div>
 
 					{#if hasMobileBottom}
 						<div class="lg:hidden">

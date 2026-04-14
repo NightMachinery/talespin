@@ -21,6 +21,8 @@ Cards were still stretching to container height on desktop even when the toggle 
 - Derive desktop fit row counts from the actual number of cards (`ceil(cardCount / 3)`, min `2`) instead of hardcoding two rows.
 - In non-fit mode, prefer `auto-rows-max` + `content-start` so cards keep natural size and scroll.
 - Keep hand, voting, and results on the same row-count helper/pattern so one screen cannot drift from the others.
+- In the shared desktop stage shell, keep the stage/clue/action rail above the leaderboard so the
+  current clue/instructions stay visible without sidebar scrolling.
 - Keep mobile behavior unchanged (always scroll-oriented).
 
 ## Ops note

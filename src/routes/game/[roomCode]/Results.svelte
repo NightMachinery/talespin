@@ -117,9 +117,16 @@
 	$: resultsDesktopFitStyle = resultsDesktopFitEnabled
 		? `--results-desktop-rows: ${resultsDesktopRowCount};`
 		: '';
-	$: resultsCardClass = (isActiveCard: boolean) =>
-		`${isActiveCard ? 'boujee-border' : ''} relative overflow-hidden rounded-lg bg-slate-900/35 ${resultsDesktopFitClass}`;
+	$: resultsCardClass = (image: string) =>
+		`${resultHighlightClass(activeCard === image, beautyWinningCardSet.has(image))} relative overflow-hidden rounded-lg bg-slate-900/35 ${resultsDesktopFitClass}`;
 	$: resultsImageClass = `relative w-full object-cover object-center aspect-[2/3] ${resultsDesktopFitClass}`;
+
+	function resultHighlightClass(isStoryCard: boolean, isBeautyWinner: boolean) {
+		if (isStoryCard && isBeautyWinner) return 'result-highlight-story-beauty';
+		if (isStoryCard) return 'result-highlight-story';
+		if (isBeautyWinner) return 'result-highlight-beauty';
+		return '';
+	}
 
 	$: {
 		cardToPlayer = {};
@@ -345,7 +352,7 @@
 		<h2 class="mb-2 hidden text-lg font-semibold lg:block">Round cards</h2>
 		<section class={resultsSectionClass} style={resultsDesktopFitStyle}>
 			{#each displayImages as image, cardIndex}
-				<div class={resultsCardClass(activeCard == image || beautyWinningCardSet.has(image))}>
+				<div class={resultsCardClass(image)}>
 					<CardImage
 						src={`${http_host}/cards/${image}`}
 						alt={CARD_IMAGE_ALT_TEXT}
@@ -395,28 +402,6 @@
 </StageShell>
 
 <style>
-	@property --bg-angle {
-		inherits: false;
-		initial-value: 0deg;
-		syntax: '<angle>';
-	}
-	.boujee-border {
-		animation: spin 2.5s infinite linear;
-		background:
-			linear-gradient(to bottom, rgb(var(--color-primary-500)), rgb(var(--color-primary-500)))
-				padding-box,
-			conic-gradient(from var(--bg-angle) in oklch longer hue, rgb(var(--color-success-500)) 0 0)
-				border-box;
-		border: 5px solid transparent;
-		box-shadow: 0.125rem 0.25rem 0.25rem 0.5rem oklch(0.1 0.37 315 / 0.25);
-	}
-
-	@keyframes spin {
-		to {
-			--bg-angle: 360deg;
-		}
-	}
-
 	@media (min-width: 1024px) {
 		.results-fit-grid {
 			grid-template-rows: repeat(var(--results-desktop-rows, 2), minmax(0, 1fr));
