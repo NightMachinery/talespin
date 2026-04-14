@@ -30,3 +30,9 @@ voting while keeping the canonical number badges.
   **canonical/original** order for everyone.
 - Toggling the setting during results updates the room setting immediately, but results themselves
   stay canonical.
+
+## Local navigation aid
+
+- Players can also enable the local **Sticky card navigator** view option.
+- That navigator stays client-side, shows the same canonical numbers, and can jump to any card in
+  `Voting`, `BeautyVoting`, `Results`, and `BeautyResults`.

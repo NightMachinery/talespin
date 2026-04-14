@@ -123,7 +123,7 @@ export async function playStageChangeCue(stage: StageCueStage) {
 	if (context.state !== 'running') return;
 
 	const notes = STAGE_CUES[stage];
-	let startTime = context.currentTime + 0.01;
+	const startTime = context.currentTime + 0.01;
 
 	playCueNotes(
 		context,
@@ -147,7 +147,7 @@ export async function playScoutTurnCue() {
 
 	if (context.state !== 'running') return;
 
-	let startTime = context.currentTime + 0.01;
+	const startTime = context.currentTime + 0.01;
 	playCueNotes(context, SCOUT_TURN_CUE, 'triangle', startTime);
 }
 

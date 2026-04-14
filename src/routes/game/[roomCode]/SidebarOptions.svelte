@@ -18,6 +18,7 @@
 	import {
 		cardsFitToHeight,
 		hideNonSelectedStellaRevealCards,
+		stickyVotingCardNavigatorEnabled,
 		stageChangeSoundCuesEnabled,
 		transparentCardNameOverlays
 	} from '$lib/viewOptions';
@@ -914,6 +915,22 @@
 			</p>
 		</div>
 	</label>
+	{#if isDixitMode && stage !== 'Joining' && stage !== 'End'}
+		<label class="flex items-start gap-3">
+			<input
+				type="checkbox"
+				class="mt-1 h-4 w-4 cursor-pointer accent-primary-500"
+				bind:checked={$stickyVotingCardNavigatorEnabled}
+			/>
+			<div>
+				<span class="block font-medium">Sticky card navigator</span>
+				<p class="text-xs opacity-70">
+					Local view option for Dixit voting and results. Shows a small sticky row of canonical card
+					numbers for quick jumping, even if card badges are hidden.
+				</p>
+			</div>
+		</label>
+	{/if}
 	{#if isStellaMode && stage !== 'Joining' && stage !== 'End'}
 		<label class="flex items-start gap-3">
 			<input

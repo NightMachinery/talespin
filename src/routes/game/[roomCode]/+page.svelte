@@ -1164,6 +1164,7 @@
 	{:else if stage === 'Results'}
 		<Results
 			{displayImages}
+			cardNumberLabels={displayImageBadgeLabels}
 			{name}
 			{creator}
 			{moderators}
@@ -1248,6 +1249,7 @@
 	{:else if stage === 'BeautyResults'}
 		<BeautyResults
 			{displayImages}
+			cardNumberLabels={displayImageBadgeLabels}
 			{name}
 			{creator}
 			{moderators}

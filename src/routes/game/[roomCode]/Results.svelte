@@ -1,16 +1,19 @@
 <script lang="ts">
 	import { getDesktopFitRowCount } from '$lib/cardGrid';
 	import { buildBeautyBadgeMetadata } from '$lib/beautyResults';
+	import { buildCardNumberNavigatorTargetId } from '$lib/cardNumberNavigator';
 	import { CARD_IMAGE_ALT_TEXT } from '$lib/cardImageText';
 	import CardImage from '$lib/CardImage.svelte';
 	import { http_host } from '$lib/gameServer';
 	import { cardsFitToHeight } from '$lib/viewOptions';
 	import type GameServer from '$lib/gameServer';
 	import type { ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
+	import CardNumberNavigator from './CardNumberNavigator.svelte';
 	import ChooserNameOverlay from './ChooserNameOverlay.svelte';
 	import StageShell from './StageShell.svelte';
 
 	export let displayImages: string[] = [];
+	export let cardNumberLabels: number[] = [];
 	export let name = '';
 	export let creator = '';
 	export let moderators: string[] = [];
@@ -350,9 +353,20 @@
 
 	<div class="flex h-full min-h-0 flex-col">
 		<h2 class="mb-2 hidden text-lg font-semibold lg:block">Round cards</h2>
+		<CardNumberNavigator
+			{cardNumberLabels}
+			targetIdScope="results"
+			title="Jump to round card"
+			collapsedLabel="round card navigator"
+		/>
 		<section class={resultsSectionClass} style={resultsDesktopFitStyle}>
 			{#each displayImages as image, cardIndex}
-				<div class={resultsCardClass(image)}>
+				{@const cardNumberLabel = cardNumberLabels[cardIndex] ?? cardIndex + 1}
+				<div
+					id={buildCardNumberNavigatorTargetId('results', cardNumberLabel)}
+					class={resultsCardClass(image)}
+					style:scroll-margin-top="7rem"
+				>
 					<CardImage
 						src={`${http_host}/cards/${image}`}
 						alt={CARD_IMAGE_ALT_TEXT}
@@ -362,7 +376,7 @@
 						<div
 							class="absolute left-2 top-2 z-20 rounded bg-black/70 px-2 py-0.5 text-xs font-bold text-white shadow"
 						>
-							#{cardIndex + 1}
+							#{cardNumberLabel}
 						</div>
 					{/if}
 					{#if cardToVoterCounts[image]}

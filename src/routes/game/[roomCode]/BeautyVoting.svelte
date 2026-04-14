@@ -2,12 +2,14 @@
 	import { getToastStore } from '@skeletonlabs/skeleton';
 
 	import { getDesktopFitRowCount } from '$lib/cardGrid';
+	import { buildCardNumberNavigatorTargetId } from '$lib/cardNumberNavigator';
 	import { CARD_IMAGE_ALT_TEXT } from '$lib/cardImageText';
 	import CardImage from '$lib/CardImage.svelte';
 	import { http_host } from '$lib/gameServer';
 	import type GameServer from '$lib/gameServer';
 	import type { ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
 	import { cardsFitToHeight } from '$lib/viewOptions';
+	import CardNumberNavigator from './CardNumberNavigator.svelte';
 	import StageActionButtons from './StageActionButtons.svelte';
 	import StageShell from './StageShell.svelte';
 
@@ -95,6 +97,7 @@
 
 	let selectedVotes: string[] = [];
 	let selectedVoteCounts: Record<string, number> = {};
+	let cardNumberLabelByImage: Record<string, number> = {};
 	let toastStore = getToastStore();
 	let isObserver = false;
 	let isModerator = false;
@@ -122,6 +125,17 @@
 		!isObserver &&
 		effectiveBeautyVotesPerPlayer > 0 &&
 		selectedVotes.length === effectiveBeautyVotesPerPlayer;
+	$: {
+		cardNumberLabelByImage = Object.fromEntries(
+			displayImages.map((image, index) => [image, cardNumberLabels[index] ?? index + 1])
+		);
+	}
+	$: selectedCardNumberLabels = selectedVotes
+		.map((card) => cardNumberLabelByImage[card])
+		.filter((label): label is number => typeof label === 'number');
+	$: mutedCardNumberLabels = disabledCards
+		.map((card) => cardNumberLabelByImage[card])
+		.filter((label): label is number => typeof label === 'number');
 	$: {
 		const disabled = new Set(disabledCards);
 		const allowed = new Set(displayImages.filter((image) => !disabled.has(image)));
@@ -366,6 +380,14 @@
 
 	<div class="flex h-full min-h-0 flex-col">
 		<h2 class="mb-2 hidden text-lg font-semibold lg:block">Cards on table</h2>
+		<CardNumberNavigator
+			{cardNumberLabels}
+			targetIdScope="beauty-voting"
+			selectedLabels={selectedCardNumberLabels}
+			mutedLabels={mutedCardNumberLabels}
+			title="Jump to beauty card"
+			collapsedLabel="beauty card navigator"
+		/>
 		<section class={tableSectionClass} style={tableDesktopFitStyle}>
 			{#each displayImages as image, cardIndex}
 				{@const cardNumberLabel = cardNumberLabels[cardIndex] ?? cardIndex + 1}
@@ -373,7 +395,9 @@
 				{@const isDisabled = disabledCards.includes(image)}
 				<button
 					type="button"
+					id={buildCardNumberNavigatorTargetId('beauty-voting', cardNumberLabel)}
 					class={`${tableButtonClass} ${isDisabled || isObserver ? 'cursor-default' : ''}`}
+					style:scroll-margin-top="7rem"
 					disabled={isObserver || isDisabled}
 					on:click={() => cycleCardVote(image)}
 				>

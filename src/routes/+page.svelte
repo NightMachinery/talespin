@@ -8,6 +8,12 @@
 	import { get } from 'svelte/store';
 	import { http_host } from '$lib/gameServer';
 
+	interface CreateRoomResponse {
+		RoomState?: {
+			room_id?: string;
+		};
+	}
+
 	let name = get(nameStore) || '';
 	let roomCode = '';
 	let roomPassword = '';
@@ -37,7 +43,7 @@
 		}
 
 		const trimmedPassword = roomPassword.trim();
-		let res = await fetch(`${http_host}/create`, {
+		const createResponse = await fetch(`${http_host}/create`, {
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/json'
@@ -47,10 +53,10 @@
 				...(trimmedPassword !== '' ? { password: trimmedPassword } : {})
 			})
 		});
-		res = await res.json();
+		const payload = (await createResponse.json()) as CreateRoomResponse;
 
-		if ((<any>res).RoomState) {
-			const createdRoomId = (<any>res).RoomState.room_id;
+		if (payload.RoomState?.room_id) {
+			const createdRoomId = payload.RoomState.room_id;
 			if (trimmedPassword !== '' && typeof window !== 'undefined') {
 				window.sessionStorage.setItem(`room_password_${createdRoomId}`, trimmedPassword);
 			}
