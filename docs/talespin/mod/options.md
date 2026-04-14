@@ -20,7 +20,7 @@ Lobby / Joining-stage setup remains available where the room already exposes it.
 | Storyteller win condition `W` / auto-tune         | `BeautyResults`       | end of live round flow      | Safe to change until scoring has already been shown; later changes only affect future rounds.       |
 | Threshold-loss bonus toggles                      | `BeautyResults`       | end of live round flow      | Same as `W`: safe until live scoring is already complete.                                           |
 | Threshold-loss bonus scope toggle                 | `BeautyResults`       | end of live round flow      | Same scoring rationale as the other storyteller-loss controls.                                      |
-| Show previous results during storyteller choosing | `BeautyResults`       | end of live round flow      | Only affects the next storyteller-choosing screen.                                                  |
+| Show previous results during storyteller choosing | `BeautyResults`       | end of live round flow      | Affects the next storyteller-choosing screen and the following nominations stage.                   |
 | Show card numbers in voting/results stages        | `BeautyResults`       | end of live round flow      | Pure presentation.                                                                                  |
 | Randomize voting card order per player            | `BeautyResults`       | end of live round flow      | Safe throughout the live Dixit round; voting uses a stable per-round seed.                          |
 | Round-start random discards                       | `BeautyResults`       | end of live round flow      | Only affects the next round start.                                                                  |

@@ -1,7 +1,7 @@
 # Dixit storyteller-choosing previous-results preview
 
 This note covers the Dixit-only moderator toggle that keeps the previous results visible while the
-next storyteller is choosing.
+next storyteller is choosing and while nominations are happening.
 
 ## Room setting
 
@@ -13,11 +13,20 @@ next storyteller is choosing.
 
 ## ActiveChooses behavior
 
-- **Current storyteller** keeps the normal hand + clue UI.
+- **Current storyteller** defaults to the normal hand + clue UI and can switch to **Previous
+  Results**.
 - **Waiting active players** default to a local **Previous Results** view and can switch to **My
   Cards**.
 - **Observers** keep the previous-results view only.
-- The local view choice resets to **Previous Results** each new round.
+- The local view choice resets each round: storytellers default to **My Cards**, while waiting
+  active players default to **Previous Results**.
+
+## PlayersChoose behavior
+
+- **Storyteller** and **guessers** default to **My Cards** and can switch to **Previous Results**.
+- **Observers** keep the previous-results view only.
+- Switching views is local-only and does not clear current nominations or the storyteller card
+  highlight.
 
 ## What is shown
 

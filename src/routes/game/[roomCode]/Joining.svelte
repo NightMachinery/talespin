@@ -657,11 +657,11 @@
 									/>
 									<div>
 										<span class="block font-semibold">
-											Show previous results while storyteller is choosing
+											Show previous results while storyteller is choosing and during nominations
 										</span>
 										<p class="text-xs opacity-70">
-											Waiting players can locally switch between Previous Results and My Cards
-											during the next storyteller's turn.
+											Active players can locally switch between Previous Results and My Cards;
+											observers see the preview-only version.
 										</p>
 									</div>
 								</label>

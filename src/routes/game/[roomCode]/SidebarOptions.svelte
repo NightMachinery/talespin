@@ -1712,8 +1712,8 @@
 								disabled={!isModerator || !canChangeLiveDixitSettings}
 							/>
 							<span>
-								Show previous results while the next storyteller is choosing, with a local Previous
-								Results / My Cards switch for waiting players
+								Show previous results while the next storyteller is choosing and during nominations,
+								with a local Previous Results / My Cards switch for active players
 							</span>
 						</label>
 						{#if !canChangeBeforeBeautyVotingSettings}

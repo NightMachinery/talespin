@@ -928,6 +928,7 @@
 			{activePlayer}
 			{gameServer}
 			{description}
+			{previousDixitResults}
 			{players}
 			{allowNewPlayersMidgame}
 			{storytellerLossComplement}

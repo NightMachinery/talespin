@@ -102,7 +102,7 @@
 	let isActivePlayer = false;
 	let isModerator = false;
 	let canForceSwitchStoryteller = false;
-	let canToggleWaitingView = false;
+	let canToggleResultsView = false;
 	let shouldShowPreviousResults = false;
 	let lastViewResetKey = '';
 	let lastActivePlayer = '';
@@ -113,13 +113,13 @@
 	$: canForceSwitchStoryteller = isModerator && Object.keys(players).length >= 2;
 	$: hasPreviousResultsPreview =
 		showPreviousResultsDuringStorytellerChoosing && previousDixitResults !== null;
-	$: canToggleWaitingView = !isObserver && !isActivePlayer && hasPreviousResultsPreview;
+	$: canToggleResultsView = !isObserver && hasPreviousResultsPreview;
 	$: shouldShowPreviousResults =
-		hasPreviousResultsPreview && !isActivePlayer && (isObserver || waitingViewMode === 'results');
+		hasPreviousResultsPreview && (isObserver || waitingViewMode === 'results');
 	$: viewResetKey = `${roundNum}:${activePlayer}:${previousDixitResults?.kind ?? 'none'}`;
 	$: if (viewResetKey !== lastViewResetKey) {
 		lastViewResetKey = viewResetKey;
-		waitingViewMode = 'results';
+		waitingViewMode = activePlayer === name && !isObserver ? 'hand' : 'results';
 	}
 	$: if (activePlayer !== lastActivePlayer) {
 		lastActivePlayer = activePlayer;
@@ -219,7 +219,7 @@
 	{cardsRemaining}
 	{deckRefillFlashToken}
 	{winCondition}
-	showMobileActions={isActivePlayer || isModerator || canToggleWaitingView}
+	showMobileActions={isActivePlayer || isModerator || canToggleResultsView}
 >
 	<svelte:fragment slot="leftRail">
 		{#if isActivePlayer}
@@ -242,6 +242,25 @@
 					on:click={activePlayerChoose}>Choose</button
 				>
 			</div>
+			{#if canToggleResultsView}
+				<div class="card light space-y-3 p-4">
+					<p class="text-sm font-semibold">Your view</p>
+					<div class="grid grid-cols-2 gap-2">
+						<button
+							class={`btn w-full ${
+								waitingViewMode === 'results' ? 'variant-filled' : 'variant-ghost'
+							}`}
+							on:click={() => (waitingViewMode = 'results')}>Previous Results</button
+						>
+						<button
+							class={`btn w-full ${
+								waitingViewMode === 'hand' ? 'variant-filled' : 'variant-ghost'
+							}`}
+							on:click={() => (waitingViewMode = 'hand')}>My Cards</button
+						>
+					</div>
+				</div>
+			{/if}
 		{:else}
 			<div class="card light space-y-2 p-4">
 				<h1 class="text-2xl">Sit tight!</h1>
@@ -249,14 +268,20 @@
 					Waiting for <span class="boujee-text">{activePlayer}</span> to choose a card and description
 				</p>
 				{#if isObserver}
-					<p class="opacity-70">You are observing this round.</p>
-				{:else if canToggleWaitingView}
+					<p class="opacity-70">
+						{#if hasPreviousResultsPreview}
+							Review the previous results while you observe.
+						{:else}
+							You are observing this round.
+						{/if}
+					</p>
+				{:else if canToggleResultsView}
 					<p class="opacity-70">
 						Review the previous results or switch to your cards while you wait.
 					</p>
 				{/if}
 			</div>
-			{#if canToggleWaitingView}
+			{#if canToggleResultsView}
 				<div class="card light space-y-3 p-4">
 					<p class="text-sm font-semibold">Your view</p>
 					<div class="grid grid-cols-2 gap-2">
@@ -304,8 +329,14 @@
 					Waiting for <span class="boujee-text">{activePlayer}</span> to choose a card and description
 				</p>
 				{#if isObserver}
-					<p class="opacity-70">You are observing this round.</p>
-				{:else if canToggleWaitingView}
+					<p class="opacity-70">
+						{#if hasPreviousResultsPreview}
+							Review the previous results while you observe.
+						{:else}
+							You are observing this round.
+						{/if}
+					</p>
+				{:else if canToggleResultsView}
 					<p class="opacity-70">
 						Switch between the previous results and your cards while you wait.
 					</p>
@@ -317,6 +348,22 @@
 	<svelte:fragment slot="mobileActions">
 		<div class="space-y-3">
 			{#if isActivePlayer}
+				{#if canToggleResultsView}
+					<div class="grid grid-cols-2 gap-2">
+						<button
+							class={`btn w-full ${
+								waitingViewMode === 'results' ? 'variant-filled' : 'variant-ghost'
+							}`}
+							on:click={() => (waitingViewMode = 'results')}>Previous Results</button
+						>
+						<button
+							class={`btn w-full ${
+								waitingViewMode === 'hand' ? 'variant-filled' : 'variant-ghost'
+							}`}
+							on:click={() => (waitingViewMode = 'hand')}>My Cards</button
+						>
+					</div>
+				{/if}
 				<input
 					id="description-mobile"
 					type="text"
@@ -329,7 +376,7 @@
 					disabled={selectedImage === '' || descriptionBox === ''}
 					on:click={activePlayerChoose}>Choose</button
 				>
-			{:else if canToggleWaitingView}
+			{:else if canToggleResultsView}
 				<div class="grid grid-cols-2 gap-2">
 					<button
 						class={`btn w-full ${

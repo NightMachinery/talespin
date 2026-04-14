@@ -1,7 +1,13 @@
 <script lang="ts">
 	import type GameServer from '$lib/gameServer';
-	import type { ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
+	import type {
+		ObserverInfo,
+		PlayerInfo,
+		PreviousDixitResultsView,
+		WinCondition
+	} from '$lib/types';
 	import Images from './Images.svelte';
+	import PreviousDixitResultsPreview from './PreviousDixitResultsPreview.svelte';
 	import StageActionButtons from './StageActionButtons.svelte';
 	import StageShell from './StageShell.svelte';
 	import { getToastStore } from '@skeletonlabs/skeleton';
@@ -14,6 +20,7 @@
 	export let activePlayer = '';
 	export let gameServer: GameServer;
 	export let description = '';
+	export let previousDixitResults: PreviousDixitResultsView | null = null;
 	export let chosenCard = '';
 	export let players: { [key: string]: PlayerInfo } = {};
 	export let allowNewPlayersMidgame = true;
@@ -87,17 +94,31 @@
 		target_points: 10
 	};
 
+	type PlayersChooseViewMode = 'results' | 'hand';
+
 	let toastStore = getToastStore();
 	let selectedCards: string[] = [];
+	let viewMode: PlayersChooseViewMode = 'hand';
 	let isObserver = false;
 	let isChooser = false;
 	let isStoryteller = false;
 	let isModerator = false;
 	let highlightedImages: string[] = [];
+	let lastViewResetKey = '';
 	$: isObserver = !!observers[name];
 	$: isChooser = activePlayer !== name && !isObserver;
 	$: isStoryteller = activePlayer === name && !isObserver;
 	$: isModerator = new Set(moderators).has(name);
+	$: hasPreviousResultsPreview =
+		showPreviousResultsDuringStorytellerChoosing && previousDixitResults !== null;
+	$: canToggleResultsView = !isObserver && hasPreviousResultsPreview;
+	$: shouldShowPreviousResults =
+		hasPreviousResultsPreview && (isObserver || viewMode === 'results');
+	$: viewResetKey = `${roundNum}:${activePlayer}:${previousDixitResults?.kind ?? 'none'}`;
+	$: if (viewResetKey !== lastViewResetKey) {
+		lastViewResetKey = viewResetKey;
+		viewMode = 'hand';
+	}
 	$: effectiveNominationsPerGuesser = Math.max(
 		1,
 		Math.min(nominationsPerGuesser, Math.max(nominationsPerGuesserMax, 1))
@@ -230,7 +251,7 @@
 	{cardsRemaining}
 	{deckRefillFlashToken}
 	{winCondition}
-	showMobileActions={isChooser || isModerator}
+	showMobileActions={isChooser || isModerator || canToggleResultsView}
 >
 	<svelte:fragment slot="leftRail">
 		{#if isChooser}
@@ -250,6 +271,21 @@
 					>Choose</button
 				>
 			</div>
+			{#if canToggleResultsView}
+				<div class="card light space-y-3 p-4">
+					<p class="text-sm font-semibold">Your view</p>
+					<div class="grid grid-cols-2 gap-2">
+						<button
+							class={`btn w-full ${viewMode === 'results' ? 'variant-filled' : 'variant-ghost'}`}
+							on:click={() => (viewMode = 'results')}>Previous Results</button
+						>
+						<button
+							class={`btn w-full ${viewMode === 'hand' ? 'variant-filled' : 'variant-ghost'}`}
+							on:click={() => (viewMode = 'hand')}>My Cards</button
+						>
+					</div>
+				</div>
+			{/if}
 		{:else}
 			<div class="card light space-y-2 p-4">
 				<h1 class="text-2xl">Sit tight!</h1>
@@ -258,9 +294,34 @@
 					<p class="opacity-80">Your chosen card is highlighted below.</p>
 				{/if}
 				{#if isObserver}
-					<p class="opacity-70">You are observing this round.</p>
+					<p class="opacity-70">
+						{#if hasPreviousResultsPreview}
+							Review the previous results while you observe.
+						{:else}
+							You are observing this round.
+						{/if}
+					</p>
+				{:else if canToggleResultsView}
+					<p class="opacity-70">
+						Review the previous results or switch back to your cards while nominations happen.
+					</p>
 				{/if}
 			</div>
+			{#if canToggleResultsView}
+				<div class="card light space-y-3 p-4">
+					<p class="text-sm font-semibold">Your view</p>
+					<div class="grid grid-cols-2 gap-2">
+						<button
+							class={`btn w-full ${viewMode === 'results' ? 'variant-filled' : 'variant-ghost'}`}
+							on:click={() => (viewMode = 'results')}>Previous Results</button
+						>
+						<button
+							class={`btn w-full ${viewMode === 'hand' ? 'variant-filled' : 'variant-ghost'}`}
+							on:click={() => (viewMode = 'hand')}>My Cards</button
+						>
+					</div>
+				</div>
+			{/if}
 		{/if}
 		{#if isModerator}
 			<div class="card light p-4">
@@ -284,15 +345,35 @@
 					Selected: {selectedCards.length}/{effectiveNominationsPerGuesser}
 				</p>
 			</div>
-		{:else}
+		{:else if !isObserver && canToggleResultsView}
 			<div class="card light space-y-2 p-4">
 				<h1 class="text-2xl">Sit tight!</h1>
 				<p>Players are choosing cards that match "{description}"</p>
 				{#if isStoryteller && chosenCard}
 					<p class="opacity-80">Your chosen card is highlighted below.</p>
 				{/if}
+				<p class="opacity-70">
+					Review the previous results or switch back to your cards while nominations happen.
+				</p>
+			</div>
+		{:else}
+			<div class="card light space-y-2 p-4">
+				<h1 class="text-2xl">{isObserver ? 'Observing nominations' : 'Sit tight!'}</h1>
+				<p>
+					{#if isObserver}
+						Players are choosing cards that match "{description}".
+					{:else}
+						Players are choosing cards that match "{description}".
+					{/if}
+				</p>
 				{#if isObserver}
-					<p class="opacity-70">You are observing this round.</p>
+					<p class="opacity-70">
+						{#if hasPreviousResultsPreview}
+							Review the previous results while you observe.
+						{:else}
+							You are observing this round.
+						{/if}
+					</p>
 				{/if}
 			</div>
 		{/if}
@@ -304,6 +385,18 @@
 				>Choose</button
 			>
 		{/if}
+		{#if canToggleResultsView}
+			<div class="grid grid-cols-2 gap-2">
+				<button
+					class={`btn w-full ${viewMode === 'results' ? 'variant-filled' : 'variant-ghost'}`}
+					on:click={() => (viewMode = 'results')}>Previous Results</button
+				>
+				<button
+					class={`btn w-full ${viewMode === 'hand' ? 'variant-filled' : 'variant-ghost'}`}
+					on:click={() => (viewMode = 'hand')}>My Cards</button
+				>
+			</div>
+		{/if}
 		{#if isModerator}
 			<StageActionButtons
 				actions={[{ label: 'Force Random', onClick: () => gameServer.forceCurrentStage() }]}
@@ -311,16 +404,29 @@
 		{/if}
 	</svelte:fragment>
 
-	<div class="flex h-full flex-col">
-		<h2 class="mb-2 hidden text-lg font-semibold lg:block">Your hand</h2>
-		<div class="min-h-0 flex-1 overflow-y-auto">
-			<Images
-				{displayImages}
-				selectedImages={highlightedImages}
-				selectable={isChooser}
-				mode="hand"
-				on:select={handleCardSelect}
-			/>
+	{#if shouldShowPreviousResults && previousDixitResults}
+		<PreviousDixitResultsPreview snapshot={previousDixitResults} {showVotingCardNumbers} />
+	{:else if !isObserver}
+		<div class="flex h-full flex-col">
+			<h2 class="mb-2 hidden text-lg font-semibold lg:block">Your hand</h2>
+			<div class="min-h-0 flex-1 overflow-y-auto">
+				<Images
+					{displayImages}
+					selectedImages={highlightedImages}
+					selectable={isChooser}
+					mode="hand"
+					on:select={handleCardSelect}
+				/>
+			</div>
 		</div>
-	</div>
+	{:else}
+		<div class="flex h-full items-center justify-center">
+			<div class="card light max-w-md space-y-2 p-4 text-center">
+				<h2 class="text-lg font-semibold">Observing card choosing</h2>
+				<p class="opacity-80">
+					You will see the table once everyone finishes choosing cards for "{description}".
+				</p>
+			</div>
+		</div>
+	{/if}
 </StageShell>

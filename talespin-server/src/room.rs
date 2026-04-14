@@ -8216,8 +8216,10 @@ impl Room {
                 .show_previous_results_during_storyteller_choosing,
             randomize_voting_card_order_per_viewer: state.randomize_voting_card_order_per_viewer,
             voting_layout_seed: self.voting_layout_seed(state),
-            previous_dixit_results: if matches!(state.stage, RoomStage::ActiveChooses)
-                && matches!(state.game_mode, GameMode::DixitPlus)
+            previous_dixit_results: if matches!(
+                state.stage,
+                RoomStage::ActiveChooses | RoomStage::PlayersChoose
+            ) && matches!(state.game_mode, GameMode::DixitPlus)
             {
                 state.previous_dixit_results.clone()
             } else {
@@ -13101,6 +13103,56 @@ alpha
                     ))
                     }
                 }
+            }
+            other => return Err(anyhow!("Expected RoomState, got {:?}", other)),
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn players_choose_room_state_exposes_previous_results_preview() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "storyteller", 0);
+            add_player(&mut state, "guesser", 0);
+            add_player(&mut state, "guesser2", 0);
+            state.stage = RoomStage::PlayersChoose;
+            state.previous_dixit_results = Some(PreviousDixitResultsView::Results {
+                center_cards: vec!["a".into(), "b".into(), "c".into()],
+                player_to_votes: HashMap::new(),
+                player_to_beauty_votes: HashMap::new(),
+                player_to_current_cards: HashMap::from([
+                    ("storyteller".into(), vec!["a".into()]),
+                    ("guesser".into(), vec!["b".into()]),
+                    ("guesser2".into(), vec!["c".into()]),
+                ]),
+                active_card: "a".into(),
+                beauty_results_display_mode: BeautyResultsDisplayMode::Combined,
+                point_change: HashMap::new(),
+                storyteller_point_change: HashMap::new(),
+                beauty_point_change: HashMap::new(),
+                beauty_vote_totals: HashMap::new(),
+                beauty_winning_cards: Vec::new(),
+            });
+        }
+
+        let state = room.state.write().await;
+        match room.room_state(&state) {
+            ServerMsg::RoomState {
+                stage,
+                previous_dixit_results,
+                ..
+            } => {
+                assert!(
+                    matches!(stage, RoomStage::PlayersChoose),
+                    "room state should stay in PlayersChoose"
+                );
+                assert!(
+                    previous_dixit_results.is_some(),
+                    "players choose room state should expose previous Dixit results preview"
+                );
             }
             other => return Err(anyhow!("Expected RoomState, got {:?}", other)),
         }
