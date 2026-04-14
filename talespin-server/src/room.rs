@@ -774,6 +774,10 @@ struct RoomState {
     vote_divisor_member_to_points: HashMap<String, u16>,
     // number of completed vote-divisor rounds in the current vote-divisor segment
     vote_divisor_completed_rounds: u16,
+    // first history entry index that belongs to the current vote-divisor segment
+    vote_divisor_segment_start_history_index: Option<usize>,
+    // per-round owner vote totals keyed by the history entry they came from
+    vote_divisor_round_vote_totals_by_history_index: HashMap<usize, HashMap<String, u32>>,
     // in-progress/current Dixit game id for persisted audit history
     current_dixit_game_id: Option<String>,
     // timestamp when the current Dixit game began
@@ -984,6 +988,8 @@ impl Room {
             vote_divisor_member_to_cumulative_beauty_votes: HashMap::new(),
             vote_divisor_member_to_points: HashMap::new(),
             vote_divisor_completed_rounds: 0,
+            vote_divisor_segment_start_history_index: None,
+            vote_divisor_round_vote_totals_by_history_index: HashMap::new(),
             current_dixit_game_id: None,
             current_dixit_game_started_at_s: None,
             dixit_end_round_history: Vec::new(),
@@ -2216,12 +2222,65 @@ impl Room {
         }
     }
 
+    fn refresh_previous_dixit_results_after_vote_divisor_rescore(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+    ) {
+        let Some(latest_beauty_deltas) = state
+            .dixit_end_round_history
+            .last()
+            .map(|entry| entry.beauty_deltas.clone())
+        else {
+            return;
+        };
+
+        if matches!(state.stage, RoomStage::Results | RoomStage::BeautyResults) {
+            state.beauty_point_change = latest_beauty_deltas.clone();
+        }
+
+        let Some(previous_dixit_results) = state.previous_dixit_results.as_mut() else {
+            return;
+        };
+
+        match previous_dixit_results {
+            PreviousDixitResultsView::Results {
+                point_change,
+                storyteller_point_change,
+                beauty_point_change,
+                beauty_results_display_mode,
+                ..
+            } => {
+                *beauty_point_change = latest_beauty_deltas.clone();
+                *point_change = match *beauty_results_display_mode {
+                    BeautyResultsDisplayMode::Separate => {
+                        Self::signed_point_change(storyteller_point_change)
+                    }
+                    BeautyResultsDisplayMode::Summary | BeautyResultsDisplayMode::Combined => {
+                        self.merge_point_changes(storyteller_point_change, &latest_beauty_deltas)
+                    }
+                };
+            }
+            PreviousDixitResultsView::BeautyResults { point_change, .. } => {
+                *point_change = latest_beauty_deltas;
+            }
+        }
+    }
+
     fn commit_vote_divisor_round_scoring(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
         if !matches!(state.beauty_scoring_mode, BeautyScoringMode::VoteDivisor) {
             return;
         }
 
         let round_vote_totals = self.compute_beauty_owner_vote_totals(state);
+        if state.vote_divisor_segment_start_history_index.is_none() {
+            state.vote_divisor_segment_start_history_index =
+                state.dixit_end_round_history.len().checked_sub(1);
+        }
+        if let Some(history_index) = state.dixit_end_round_history.len().checked_sub(1) {
+            state
+                .vote_divisor_round_vote_totals_by_history_index
+                .insert(history_index, round_vote_totals.clone());
+        }
         Self::extend_cumulative_beauty_votes(
             &mut state.vote_divisor_member_to_cumulative_beauty_votes,
             round_vote_totals,
@@ -2240,26 +2299,175 @@ impl Room {
             return;
         }
 
-        let next_totals = self.compute_vote_divisor_points_for_cumulative_votes(
-            state,
-            &state.vote_divisor_member_to_cumulative_beauty_votes,
-            state.vote_divisor_completed_rounds,
-        );
-        let point_change =
-            self.diff_vote_divisor_point_totals(&state.vote_divisor_member_to_points, &next_totals);
-        if point_change.is_empty() {
+        let previous_point_totals = state.vote_divisor_member_to_points.clone();
+        let Some(segment_start_history_index) = state.vote_divisor_segment_start_history_index
+        else {
+            let next_totals = self.compute_vote_divisor_points_for_cumulative_votes(
+                state,
+                &state.vote_divisor_member_to_cumulative_beauty_votes,
+                state.vote_divisor_completed_rounds,
+            );
+            let point_change = self
+                .diff_vote_divisor_point_totals(&state.vote_divisor_member_to_points, &next_totals);
+            if point_change.is_empty() {
+                return;
+            }
+
+            self.apply_point_change(state, &point_change);
+            self.apply_member_beauty_point_change(state, &point_change);
+            state.vote_divisor_member_to_points = next_totals;
             return;
+        };
+
+        let mut cumulative_votes = HashMap::new();
+        let mut point_totals = HashMap::new();
+        let mut completed_rounds = 0u16;
+        let mut previous_total_after_round = if segment_start_history_index > 0 {
+            state
+                .dixit_end_round_history
+                .get(segment_start_history_index - 1)
+                .map(|entry| entry.total_after_round.clone())
+                .unwrap_or_default()
+        } else {
+            HashMap::new()
+        };
+        let mut previous_beauty_total_after_round = if segment_start_history_index > 0 {
+            state
+                .dixit_end_round_history
+                .get(segment_start_history_index - 1)
+                .map(|entry| entry.beauty_total_after_round.clone())
+                .unwrap_or_default()
+        } else {
+            HashMap::new()
+        };
+
+        for history_index in segment_start_history_index..state.dixit_end_round_history.len() {
+            let existing_story_deltas = state.dixit_end_round_history[history_index]
+                .story_deltas
+                .clone();
+            let existing_beauty_deltas = state.dixit_end_round_history[history_index]
+                .beauty_deltas
+                .clone();
+            let existing_total_after_round = state.dixit_end_round_history[history_index]
+                .total_after_round
+                .clone();
+            let existing_beauty_total_after_round = state.dixit_end_round_history[history_index]
+                .beauty_total_after_round
+                .clone();
+
+            let rescored_beauty_deltas = if let Some(round_vote_totals) = state
+                .vote_divisor_round_vote_totals_by_history_index
+                .get(&history_index)
+                .cloned()
+            {
+                Self::extend_cumulative_beauty_votes(&mut cumulative_votes, round_vote_totals);
+                completed_rounds = completed_rounds.saturating_add(1);
+                let next_totals = self.compute_vote_divisor_points_for_cumulative_votes(
+                    state,
+                    &cumulative_votes,
+                    completed_rounds,
+                );
+                let point_change = self.diff_vote_divisor_point_totals(&point_totals, &next_totals);
+                point_totals = next_totals;
+                point_change
+            } else {
+                existing_beauty_deltas.clone()
+            };
+
+            let member_names = previous_total_after_round
+                .keys()
+                .chain(previous_beauty_total_after_round.keys())
+                .chain(existing_story_deltas.keys())
+                .chain(existing_beauty_deltas.keys())
+                .chain(existing_total_after_round.keys())
+                .chain(existing_beauty_total_after_round.keys())
+                .chain(rescored_beauty_deltas.keys())
+                .cloned()
+                .collect::<HashSet<_>>();
+
+            let mut total_after_round = HashMap::new();
+            let mut beauty_total_after_round = HashMap::new();
+
+            for member_name in member_names {
+                let story_delta = existing_story_deltas
+                    .get(&member_name)
+                    .copied()
+                    .unwrap_or(0);
+                let previous_beauty_delta = existing_beauty_deltas
+                    .get(&member_name)
+                    .copied()
+                    .unwrap_or(0);
+                let rescored_beauty_delta = rescored_beauty_deltas
+                    .get(&member_name)
+                    .copied()
+                    .unwrap_or(0);
+
+                let total_before_round = previous_total_after_round
+                    .get(&member_name)
+                    .copied()
+                    .unwrap_or_else(|| {
+                        let prior_total = existing_total_after_round
+                            .get(&member_name)
+                            .copied()
+                            .unwrap_or(0)
+                            .saturating_sub(story_delta);
+                        Self::apply_signed_delta(prior_total, -previous_beauty_delta)
+                    });
+                let beauty_before_round = previous_beauty_total_after_round
+                    .get(&member_name)
+                    .copied()
+                    .unwrap_or_else(|| {
+                        let prior_beauty = existing_beauty_total_after_round
+                            .get(&member_name)
+                            .copied()
+                            .unwrap_or(0);
+                        Self::apply_signed_delta(prior_beauty, -previous_beauty_delta)
+                    });
+
+                let total_after = Self::apply_signed_delta(
+                    Self::apply_signed_delta(total_before_round, i32::from(story_delta)),
+                    rescored_beauty_delta,
+                );
+                let beauty_after =
+                    Self::apply_signed_delta(beauty_before_round, rescored_beauty_delta);
+
+                total_after_round.insert(member_name.clone(), total_after);
+                beauty_total_after_round.insert(member_name, beauty_after);
+            }
+
+            let history_entry = &mut state.dixit_end_round_history[history_index];
+            history_entry.beauty_deltas = rescored_beauty_deltas;
+            history_entry.total_after_round = total_after_round.clone();
+            history_entry.beauty_total_after_round = beauty_total_after_round.clone();
+
+            previous_total_after_round = total_after_round;
+            previous_beauty_total_after_round = beauty_total_after_round;
         }
 
-        self.apply_point_change(state, &point_change);
-        self.apply_member_beauty_point_change(state, &point_change);
-        state.vote_divisor_member_to_points = next_totals;
+        state.vote_divisor_member_to_cumulative_beauty_votes = cumulative_votes;
+        state.vote_divisor_completed_rounds = completed_rounds;
+        state.vote_divisor_member_to_points = point_totals.clone();
+
+        let point_change = self.diff_vote_divisor_point_totals(
+            &previous_point_totals,
+            &state.vote_divisor_member_to_points,
+        );
+        if !point_change.is_empty() {
+            self.apply_point_change(state, &point_change);
+            self.apply_member_beauty_point_change(state, &point_change);
+        }
+
+        self.refresh_previous_dixit_results_after_vote_divisor_rescore(state);
     }
 
     fn reset_vote_divisor_segment(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
         state.vote_divisor_member_to_cumulative_beauty_votes.clear();
         state.vote_divisor_member_to_points.clear();
         state.vote_divisor_completed_rounds = 0;
+        state.vote_divisor_segment_start_history_index = None;
+        state
+            .vote_divisor_round_vote_totals_by_history_index
+            .clear();
     }
 
     fn record_most_beautiful_round_stats(
@@ -2809,6 +3017,8 @@ impl Room {
         state: &mut RwLockWriteGuard<'_, RoomState>,
         name: &str,
     ) -> Result<()> {
+        let previous_player_order = state.player_order.clone();
+
         match state.stage {
             RoomStage::Joining => {
                 if state.creator.is_none() {
@@ -2888,6 +3098,11 @@ impl Room {
                 return Err(anyhow!("Game has already ended"));
             }
         }
+
+        self.maybe_rescore_vote_divisor_for_player_order_change(
+            state,
+            state.player_order != previous_player_order,
+        );
 
         Ok(())
     }
@@ -2990,6 +3205,26 @@ impl Room {
         state.stage_started_at_s = None;
         state.current_stage_deadline_s = None;
         self.clear_ready(state);
+    }
+
+    fn maybe_rescore_vote_divisor_for_player_order_change(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+        changed: bool,
+    ) {
+        if !changed {
+            return;
+        }
+        if !matches!(state.beauty_scoring_mode, BeautyScoringMode::VoteDivisor) {
+            return;
+        }
+        if matches!(
+            state.beauty_vote_points_divisor_mode,
+            BeautyVotePointsDivisorMode::Manual
+        ) {
+            return;
+        }
+        self.rescore_vote_divisor_points(state);
     }
 
     fn target_cards_per_hand(&self, state: &RwLockWriteGuard<'_, RoomState>) -> usize {
@@ -3268,6 +3503,7 @@ impl Room {
     }
 
     fn sync_player_order_with_players(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
+        let previous_player_order = state.player_order.clone();
         let existing = state.players.keys().cloned().collect::<HashSet<_>>();
         state.player_order.retain(|name| existing.contains(name));
 
@@ -3286,6 +3522,11 @@ impl Room {
         } else if state.active_player >= state.player_order.len() {
             state.active_player = 0;
         }
+
+        self.maybe_rescore_vote_divisor_for_player_order_change(
+            state,
+            state.player_order != previous_player_order,
+        );
     }
 
     fn choose_random_lowest_storyteller_index(
@@ -6683,7 +6924,7 @@ impl Room {
                 self.clamp_beauty_vote_points_divisor_tenths(&mut state);
                 self.clamp_beauty_vote_points_divisor_player_count_base(&mut state);
                 self.rescore_vote_divisor_points(&mut state);
-                self.broadcast_msg(self.room_state(&state))?;
+                self.broadcast_stage_payload_after_vote_divisor_rescore(&state)?;
             }
             ClientMsg::SetBeautyVotePointsDivisorMode { mode } => {
                 if !self.is_moderator(&state, name) {
@@ -6723,7 +6964,7 @@ impl Room {
 
                 state.beauty_vote_points_divisor_mode = mode;
                 self.rescore_vote_divisor_points(&mut state);
-                self.broadcast_msg(self.room_state(&state))?;
+                self.broadcast_stage_payload_after_vote_divisor_rescore(&state)?;
             }
             ClientMsg::SetBeautyVotePointsDivisorPlayerCountBase { base } => {
                 if !self.is_moderator(&state, name) {
@@ -6764,7 +7005,7 @@ impl Room {
                 state.beauty_vote_points_divisor_player_count_base = base;
                 self.clamp_beauty_vote_points_divisor_player_count_base(&mut state);
                 self.rescore_vote_divisor_points(&mut state);
-                self.broadcast_msg(self.room_state(&state))?;
+                self.broadcast_stage_payload_after_vote_divisor_rescore(&state)?;
             }
             ClientMsg::SetBeautyResultsDisplayMode { mode } => {
                 if !self.is_moderator(&state, name) {
@@ -8707,6 +8948,19 @@ impl Room {
             stella_dark_player: state.stella_dark_player.clone(),
         }
     }
+
+    fn broadcast_stage_payload_after_vote_divisor_rescore(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+    ) -> Result<()> {
+        if matches!(state.stage, RoomStage::Results | RoomStage::BeautyResults) {
+            if let Ok(msg) = self.get_msg(None, state) {
+                self.broadcast_msg(msg)?;
+            }
+        }
+        self.broadcast_msg(self.room_state(state))?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -10143,6 +10397,189 @@ mod tests {
         assert!(
             !state.vote_divisor_member_to_points.contains_key("c"),
             "players that fall back to zero rescored beauty points should be removed from the tracked map"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn sync_player_order_with_players_rescores_auto_vote_divisor_points() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        for player in ["a", "b", "c", "d"] {
+            add_player(&mut state, player, 0);
+        }
+        state.game_mode = GameMode::DixitPlus;
+        state.beauty_scoring_mode = BeautyScoringMode::VoteDivisor;
+        state.beauty_vote_points_divisor_mode = BeautyVotePointsDivisorMode::PlayerCountAuto;
+        state.beauty_vote_points_divisor_player_count_base = 4;
+        state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into()];
+        state.vote_divisor_member_to_cumulative_beauty_votes = HashMap::from([("b".into(), 8)]);
+        state.vote_divisor_completed_rounds = 1;
+        state.vote_divisor_member_to_points = room
+            .compute_vote_divisor_points_for_cumulative_votes(
+                &state,
+                &state.vote_divisor_member_to_cumulative_beauty_votes,
+                state.vote_divisor_completed_rounds,
+            );
+        state.member_to_beauty_points = HashMap::from([("b".into(), 8)]);
+        state.players.get_mut("b").unwrap().points = 8;
+
+        state.players.insert(
+            "e".into(),
+            PlayerInfo {
+                connected: true,
+                points: 0,
+                ready: false,
+            },
+        );
+
+        room.sync_player_order_with_players(&mut state);
+
+        assert!(
+            state.player_order.iter().any(|player| player == "e"),
+            "sync should add newly active players into the player order"
+        );
+        assert_eq!(
+            state.players.get("b").map(|player| player.points),
+            Some(6),
+            "changing the active player count should immediately rescore auto-K vote-divisor totals"
+        );
+        assert_eq!(
+            state.member_to_beauty_points.get("b").copied(),
+            Some(6),
+            "member beauty totals should track the rescored auto-K total after the player count changes"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn rescore_vote_divisor_points_refreshes_previous_results_and_history() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        for player in ["a", "b", "c", "d"] {
+            add_player(&mut state, player, 0);
+        }
+        state.game_mode = GameMode::DixitPlus;
+        state.stage = RoomStage::ActiveChooses;
+        state.beauty_scoring_mode = BeautyScoringMode::VoteDivisor;
+        state.beauty_vote_points_divisor_mode = BeautyVotePointsDivisorMode::Manual;
+        state.beauty_vote_points_divisor_tenths = 20;
+        state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into()];
+        state.vote_divisor_member_to_cumulative_beauty_votes = HashMap::from([("b".into(), 4)]);
+        state.vote_divisor_completed_rounds = 1;
+        state.vote_divisor_member_to_points = HashMap::from([("b".into(), 2)]);
+        state.member_to_beauty_points = HashMap::from([("b".into(), 2)]);
+        state.players.get_mut("b").unwrap().points = 2;
+        state.players.get_mut("c").unwrap().points = 3;
+        state.vote_divisor_segment_start_history_index = Some(0);
+        let active_players = state.player_order.clone();
+        state.vote_divisor_round_vote_totals_by_history_index =
+            HashMap::from([(0usize, HashMap::from([("b".into(), 4)]))]);
+        state
+            .dixit_end_round_history
+            .push(DixitEndRoundHistoryEntry {
+                round_num: 1,
+                storyteller: "a".into(),
+                clue: "clue".into(),
+                active_players,
+                story_deltas: HashMap::from([("c".into(), 3)]),
+                beauty_deltas: HashMap::from([("b".into(), 2)]),
+                total_after_round: HashMap::from([
+                    ("a".into(), 0),
+                    ("b".into(), 2),
+                    ("c".into(), 3),
+                    ("d".into(), 0),
+                ]),
+                beauty_total_after_round: HashMap::from([
+                    ("a".into(), 0),
+                    ("b".into(), 2),
+                    ("c".into(), 0),
+                    ("d".into(), 0),
+                ]),
+                results_display_mode: BeautyResultsDisplayMode::Combined,
+            });
+        state.previous_dixit_results = Some(PreviousDixitResultsView::Results {
+            center_cards: vec!["ca".into(), "cb".into(), "cc".into(), "cd".into()],
+            player_to_votes: HashMap::new(),
+            player_to_beauty_votes: HashMap::new(),
+            player_to_current_cards: HashMap::from([
+                ("a".into(), vec!["ca".into()]),
+                ("b".into(), vec!["cb".into()]),
+                ("c".into(), vec!["cc".into()]),
+                ("d".into(), vec!["cd".into()]),
+            ]),
+            active_card: "ca".into(),
+            beauty_results_display_mode: BeautyResultsDisplayMode::Combined,
+            point_change: HashMap::from([("b".into(), 2), ("c".into(), 3)]),
+            storyteller_point_change: HashMap::from([("c".into(), 3)]),
+            beauty_point_change: HashMap::from([("b".into(), 2)]),
+            beauty_vote_totals: HashMap::from([("cb".into(), 4)]),
+            beauty_winning_cards: vec!["cb".into()],
+        });
+
+        state.beauty_vote_points_divisor_tenths = 30;
+        room.rescore_vote_divisor_points(&mut state);
+
+        assert_eq!(
+            state.players.get("b").map(|player| player.points),
+            Some(1),
+            "rescoring should immediately update the live leaderboard total"
+        );
+        assert_eq!(
+            state.member_to_beauty_points.get("b").copied(),
+            Some(1),
+            "rescoring should also update the cached beauty subtotal"
+        );
+
+        match state.previous_dixit_results.as_ref() {
+            Some(PreviousDixitResultsView::Results {
+                point_change,
+                beauty_point_change,
+                ..
+            }) => {
+                assert_eq!(
+                    beauty_point_change.get("b").copied(),
+                    Some(1),
+                    "previous results should refresh to show the rescored beauty delta"
+                );
+                assert_eq!(
+                    point_change.get("b").copied(),
+                    Some(1),
+                    "previous combined results should reflect the rescored beauty total"
+                );
+                assert_eq!(
+                    point_change.get("c").copied(),
+                    Some(3),
+                    "storyteller deltas should stay unchanged while the beauty delta is rescored"
+                );
+            }
+            other => panic!("expected refreshed previous results, got {other:?}"),
+        }
+
+        let history_entry = state.dixit_end_round_history.last().unwrap();
+        assert_eq!(
+            history_entry.beauty_deltas.get("b").copied(),
+            Some(1),
+            "end-round history should refresh to the rescored beauty delta"
+        );
+        assert_eq!(
+            history_entry.total_after_round.get("b").copied(),
+            Some(1),
+            "history total-after-round should stay aligned with the rescored leaderboard"
+        );
+        assert_eq!(
+            history_entry.total_after_round.get("c").copied(),
+            Some(3),
+            "history story totals should stay unchanged when only beauty scoring is rescored"
+        );
+        assert_eq!(
+            history_entry.beauty_total_after_round.get("b").copied(),
+            Some(1),
+            "history beauty subtotals should refresh alongside the rescored delta"
         );
 
         Ok(())
