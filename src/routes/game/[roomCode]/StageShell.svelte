@@ -239,6 +239,7 @@
 						{darkPlayer}
 						{winCondition}
 						{gameMode}
+						{beautyEnabled}
 						{leaderboardPointChangeStageOverride}
 						{leaderboardPointChangeOverride}
 						{leaderboardStoryPointChangeOverride}
@@ -425,7 +426,7 @@
 						/>
 					</div>
 
-					{#if gameMode === 'dixit_plus'}
+					{#if gameMode === 'dixit_plus' && beautyEnabled}
 						<MostBeautifulStatsPanel title="Most Beautiful ranking" compact />
 					{/if}
 				</div>

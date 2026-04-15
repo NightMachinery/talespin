@@ -48,6 +48,7 @@
 	export let deckRefillFlashToken = 0;
 	export let darkPlayer = '';
 	export let gameMode: GameMode = 'dixit_plus';
+	export let beautyEnabled = false;
 	export let leaderboardPointChangeStageOverride = '';
 	export let leaderboardPointChangeOverride: { [key: string]: number } | null = null;
 	export let leaderboardStoryPointChangeOverride: { [key: string]: number } | null = null;
@@ -73,7 +74,7 @@
 	let combinedDeltaWidths = { total: 2, story: 2, beauty: 2 };
 
 	$: isModerator = new Set(moderators).has(name);
-	$: supportsBeautyModes = gameMode === 'dixit_plus';
+	$: supportsBeautyModes = gameMode === 'dixit_plus' && beautyEnabled;
 	$: activeLeaderboardViewMode = supportsBeautyModes ? $leaderboardViewMode : 'total';
 	$: pointChangeStage = leaderboardPointChangeStageOverride || stage;
 	$: effectivePointChange = leaderboardPointChangeOverride ?? pointChange;

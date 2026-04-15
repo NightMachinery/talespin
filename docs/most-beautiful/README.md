@@ -46,9 +46,10 @@ Dixit leaderboards expose four view modes:
 - **Combined**: aligned `T / S / B` columns for total, story, and beauty
 
 The default Dixit leaderboard view is **Combined** for fresh clients / rooms, while existing saved
-per-room client preferences keep their previous choice.
+per-room client preferences keep their previous choice. If **Enable Most Beautiful** is off, the
+leaderboard falls back to **Total** only and the view picker is hidden.
 
-Moderators can force-push the current leaderboard view to everyone in the room. In Resonance/Stella mode, Most Beautiful leaderboard controls are hidden and ignored.
+Moderators can force-push the current leaderboard view to everyone in the room. In Resonance/Stella mode, or whenever **Enable Most Beautiful** is off, Most Beautiful leaderboard controls are hidden and ignored.
 
 ## End-game history
 
@@ -56,7 +57,7 @@ The end-game Dixit leaderboard can be filtered to start from the first round whe
 
 ## Ranking panel
 
-The **Most Beautiful ranking** panel is shown only during **mid-game** and on the **End** screen. It is hidden in the lobby / joining view.
+The **Most Beautiful ranking** panel is shown only during **mid-game** and on the **End** screen while **Enable Most Beautiful** is on. It is hidden in the lobby / joining view and whenever the feature is disabled.
 
 - The mid-game sidebar shows it **after** the score cheatsheet.
 - The panel supports **Last N games** filtering:

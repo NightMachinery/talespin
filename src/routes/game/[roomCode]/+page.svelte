@@ -1542,7 +1542,15 @@
 		/>
 	{:else if stage === 'End'}
 		<div class="pt-10">
-			<End {players} {observers} {gameMode} {name} {roundNum} {dixitEndRoundHistory} />
+			<End
+				{players}
+				{observers}
+				{gameMode}
+				{beautyEnabled}
+				{name}
+				{roundNum}
+				{dixitEndRoundHistory}
+			/>
 		</div>
 	{/if}
 	{#if stage === 'Joining' || stage === 'End'}

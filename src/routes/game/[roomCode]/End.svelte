@@ -31,6 +31,7 @@
 	export let players: { [key: string]: PlayerInfo } = {};
 	export let observers: { [key: string]: ObserverInfo } = {};
 	export let gameMode: GameMode = 'dixit_plus';
+	export let beautyEnabled = false;
 	export let name = '';
 	export let roundNum = 0;
 	export let dixitEndRoundHistory: DixitEndRoundHistoryEntry[] = [];
@@ -43,7 +44,7 @@
 	let digitWidths = { total: 1, story: 1, beauty: 1 };
 	let showSinceJoined = false;
 
-	$: supportsBeautyModes = gameMode === 'dixit_plus';
+	$: supportsBeautyModes = gameMode === 'dixit_plus' && beautyEnabled;
 	$: activeLeaderboardViewMode = supportsBeautyModes ? $leaderboardViewMode : 'total';
 	$: viewerJoinedRound = firstActiveRoundForPlayer(name);
 	$: canShowSinceJoined = supportsBeautyModes && viewerJoinedRound !== null;
@@ -293,7 +294,7 @@
 			{/if}
 		</div>
 
-		{#if gameMode === 'dixit_plus'}
+		{#if gameMode === 'dixit_plus' && beautyEnabled}
 			<div class="w-full max-w-2xl">
 				<MostBeautifulStatsPanel title="Most Beautiful ranking" />
 			</div>
