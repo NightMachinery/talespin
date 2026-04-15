@@ -21,6 +21,7 @@ class GameServer {
 	onmessage_handler: ((data: Record<string, unknown>) => void)[] = [];
 	message_queue: string[] = [];
 	onclosehandler = () => {};
+	shouldReconnect = true;
 
 	constructor() {
 		this._ws = new WebSocket(ws_url);
@@ -57,9 +58,10 @@ class GameServer {
 		};
 		this._ws.onclose = () => {
 			console.log('disconnected');
-			this._ws = new WebSocket(ws_url);
-
-			this.setupSocket();
+			if (this.shouldReconnect) {
+				this._ws = new WebSocket(ws_url);
+				this.setupSocket();
+			}
 			this.onclosehandler();
 		};
 	}
@@ -629,6 +631,7 @@ class GameServer {
 	}
 
 	close() {
+		this.shouldReconnect = false;
 		this._ws.close();
 	}
 

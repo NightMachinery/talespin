@@ -10,6 +10,7 @@
 		scoreBreakdown,
 		type RankedLeaderboardEntry
 	} from '$lib/leaderboard';
+	import MigrateDeviceButton from '$lib/MigrateDeviceButton.svelte';
 	import type {
 		DixitEndRoundHistoryEntry,
 		GameMode,
@@ -211,6 +212,9 @@
 					{/if}
 				{/if}
 				<p class="text-sm opacity-80">Rounds played: {roundNum}</p>
+				<div class="flex justify-center">
+					<MigrateDeviceButton />
+				</div>
 			</div>
 
 			{#if activeLeaderboardViewMode === 'combined'}

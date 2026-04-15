@@ -16,6 +16,13 @@
 		setMostBeautifulRoom,
 		storytellerLeaderboardPointChange
 	} from '$lib/mostBeautiful';
+	import {
+		readRoomMigrationOverride,
+		resetCurrentRoomMigration,
+		setCurrentRoomAuthId,
+		setCurrentRoomMigrationRoom,
+		setCurrentRoomPassword
+	} from '$lib/deviceMigration';
 	import { derivePerViewerVotingLayout } from '$lib/dixitVotingLayout';
 	import {
 		clearAssignedRoomName,
@@ -74,7 +81,9 @@
 	let gameServer: GameServer;
 	let rejoin = false;
 	let roomPassword = '';
+	let roomAuthIdOverride = '';
 	let lastJoinAttemptName = '';
+	let migrationJoinError = '';
 
 	// game state
 	let players: { [key: string]: PlayerInfo } = {};
@@ -273,7 +282,16 @@
 			displayImageBadgeLabels = stageImages.map((_, index) => index + 1);
 		}
 	}
+
+	function usingRoomAuthOverride() {
+		return roomAuthIdOverride !== '';
+	}
+
 	function clearStoredAssignedName() {
+		if (usingRoomAuthOverride()) {
+			return;
+		}
+
 		if (roomCode !== '') {
 			clearAssignedRoomName(roomCode);
 		}
@@ -281,6 +299,10 @@
 
 	function persistAssignedName(assignedName: string) {
 		name = assignedName;
+		if (usingRoomAuthOverride()) {
+			return;
+		}
+
 		if (roomCode === '') {
 			return;
 		}
@@ -293,10 +315,14 @@
 	}
 
 	function joinCurrentRoom(includePassword = false) {
-		const joinName = getJoinNameForRoom(roomCode, preferredName, token);
+		const joinToken = usingRoomAuthOverride() ? roomAuthIdOverride : token;
+		const joinName = usingRoomAuthOverride()
+			? ''
+			: getJoinNameForRoom(roomCode, preferredName, token);
 		lastJoinAttemptName = joinName;
 		name = joinName;
-		gameServer.joinRoom(roomCode, joinName, token, includePassword ? roomPassword : undefined);
+		migrationJoinError = '';
+		gameServer.joinRoom(roomCode, joinName, joinToken, includePassword ? roomPassword : undefined);
 	}
 
 	onDestroy(() => {
@@ -304,6 +330,7 @@
 			clearTimeout(stageVisualCueTimeout);
 		}
 		resetMostBeautifulClientState();
+		resetCurrentRoomMigration();
 		if (gameServer) {
 			rejoin = false;
 			gameServer.close();
@@ -312,13 +339,23 @@
 
 	onMount(() => {
 		roomCode = $page.params.roomCode;
+		resetCurrentRoomMigration();
+		setCurrentRoomMigrationRoom(roomCode);
 		if (typeof window !== 'undefined') {
-			roomPassword = window.sessionStorage.getItem(`room_password_${roomCode}`) || '';
+			const url = new URL(window.location.href);
+			const roomMigrationOverride = readRoomMigrationOverride(url);
+			roomAuthIdOverride = roomMigrationOverride.roomAuthId;
+			roomPassword =
+				roomMigrationOverride.roomPassword ||
+				window.sessionStorage.getItem(`room_password_${roomCode}`) ||
+				'';
 		}
+		setCurrentRoomPassword(roomPassword);
+		setCurrentRoomAuthId('');
 
 		setMostBeautifulRoom(roomCode);
-		name = getJoinNameForRoom(roomCode, preferredName, token);
-		if (name === '') {
+		name = usingRoomAuthOverride() ? '' : getJoinNameForRoom(roomCode, preferredName, token);
+		if (!usingRoomAuthOverride() && name === '') {
 			goto(`/?room=${roomCode}`);
 			return;
 		}
@@ -340,7 +377,12 @@
 			console.log(data);
 
 			if (data.JoinedAs) {
+				migrationJoinError = '';
 				const assignedName = (data.JoinedAs.name || '').trim();
+				const joinedRoomAuthId = (data.JoinedAs.room_auth_id || '').trim();
+				if (joinedRoomAuthId !== '') {
+					setCurrentRoomAuthId(joinedRoomAuthId);
+				}
 				if (assignedName !== '') {
 					const previousAttemptName = lastJoinAttemptName;
 					persistAssignedName(assignedName);
@@ -353,9 +395,9 @@
 					}
 				}
 			} else if (data.RoomState) {
+				migrationJoinError = '';
 				if (!hasReceivedRoomState && roomPassword !== '' && typeof window !== 'undefined') {
 					window.sessionStorage.removeItem(`room_password_${roomCode}`);
-					roomPassword = '';
 				}
 				const previousDeckRefillCount = deckRefillCount;
 				players = data.RoomState.players;
@@ -622,6 +664,11 @@
 				beautyLeaderboardPointChange.set({});
 				stellaDarkPlayer = data.StellaResults.dark_player || stellaDarkPlayer;
 			} else if (data.ErrorMsg) {
+				if (!hasReceivedRoomState && usingRoomAuthOverride()) {
+					rejoin = false;
+					migrationJoinError = data.ErrorMsg;
+					gameServer.close();
+				}
 				toastStore.trigger({
 					message: '😭 ' + data.ErrorMsg,
 					autohide: true,
@@ -685,7 +732,21 @@
 			></div>
 		{/key}
 	{/if}
-	{#if stage === 'Joining'}
+	{#if migrationJoinError !== '' && !hasReceivedRoomState}
+		<div class="pt-10">
+			<div class="mx-auto max-w-xl px-4">
+				<div class="card light space-y-4 p-6 text-center">
+					<h1 class="text-2xl font-semibold">Device migration link failed</h1>
+					<p class="opacity-80">{migrationJoinError}</p>
+					<div class="flex justify-center">
+						<button class="btn variant-filled" on:click={() => goto(`/?room=${roomCode}`)}>
+							Back to home
+						</button>
+					</div>
+				</div>
+			</div>
+		</div>
+	{:else if stage === 'Joining'}
 		<div class="pt-10">
 			<Joining
 				{name}
@@ -1553,7 +1614,7 @@
 			/>
 		</div>
 	{/if}
-	{#if stage === 'Joining' || stage === 'End'}
+	{#if (stage === 'Joining' || stage === 'End') && !(migrationJoinError !== '' && !hasReceivedRoomState)}
 		<div class="mx-auto mt-4 max-w-[680px] px-3 pb-6 lg:px-6">
 			<ScoreCheatsheet
 				{gameMode}

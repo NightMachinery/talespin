@@ -186,6 +186,7 @@ pub(crate) fn win_condition_supported_by_game_mode(
 pub enum ServerMsg {
     JoinedAs {
         name: String,
+        room_auth_id: String,
     },
     RoomState {
         room_id: String,
@@ -644,6 +645,10 @@ struct RoomState {
     storyteller_counts: HashMap<String, u16>,
     // stable per-name token for reconnect/auth
     name_tokens: HashMap<String, String>,
+    // stable opaque per-room auth id for device migration
+    member_room_auth_ids: HashMap<String, String>,
+    // reverse lookup for room-scoped auth ids
+    room_auth_id_members: HashMap<String, String>,
     // active connection generation for each member
     connection_generation: HashMap<String, u64>,
     next_generation: u64,
@@ -923,6 +928,8 @@ impl Room {
             observer_since_round: HashMap::new(),
             storyteller_counts: HashMap::new(),
             name_tokens: HashMap::new(),
+            member_room_auth_ids: HashMap::new(),
+            room_auth_id_members: HashMap::new(),
             connection_generation: HashMap::new(),
             next_generation: 0,
             room_password_hash,
@@ -3290,6 +3297,88 @@ impl Room {
         })
     }
 
+    fn member_name_for_room_auth_id(
+        &self,
+        state: &RwLockWriteGuard<RoomState>,
+        room_auth_id: &str,
+    ) -> Option<String> {
+        state
+            .room_auth_id_members
+            .get(room_auth_id)
+            .and_then(|name| self.member_exists(state, name).then(|| name.to_string()))
+    }
+
+    fn canonical_token_for_room_auth_id(
+        &self,
+        state: &RwLockWriteGuard<RoomState>,
+        room_auth_id: &str,
+    ) -> Option<(String, String)> {
+        let member_name = self.member_name_for_room_auth_id(state, room_auth_id)?;
+        let token = state.name_tokens.get(&member_name)?.clone();
+        Some((member_name, token))
+    }
+
+    fn generate_room_auth_id(state: &RwLockWriteGuard<RoomState>) -> String {
+        let mut rng = rand::thread_rng();
+        loop {
+            let candidate = format!("{:032x}", rng.gen::<u128>());
+            if !state.room_auth_id_members.contains_key(&candidate) {
+                return candidate;
+            }
+        }
+    }
+
+    fn room_auth_id_for_member(
+        &self,
+        state: &mut RwLockWriteGuard<RoomState>,
+        member_name: &str,
+    ) -> Option<String> {
+        if !self.member_exists(state, member_name) {
+            return None;
+        }
+
+        if let Some(existing) = state.member_room_auth_ids.get(member_name) {
+            return Some(existing.clone());
+        }
+
+        let room_auth_id = Self::generate_room_auth_id(state);
+        state
+            .member_room_auth_ids
+            .insert(member_name.to_string(), room_auth_id.clone());
+        state
+            .room_auth_id_members
+            .insert(room_auth_id.clone(), member_name.to_string());
+        Some(room_auth_id)
+    }
+
+    fn remove_room_auth_id_for_member(
+        &self,
+        state: &mut RwLockWriteGuard<RoomState>,
+        member_name: &str,
+    ) {
+        if let Some(room_auth_id) = state.member_room_auth_ids.remove(member_name) {
+            state.room_auth_id_members.remove(&room_auth_id);
+        }
+    }
+
+    fn resolve_join_credentials(
+        &self,
+        state: &RwLockWriteGuard<RoomState>,
+        requested_name: &str,
+        token: &str,
+    ) -> Result<(String, String)> {
+        if requested_name.is_empty() {
+            return self
+                .canonical_token_for_room_auth_id(state, token)
+                .ok_or_else(|| anyhow!("Invalid device migration link"));
+        }
+
+        Ok((
+            self.resolve_join_name(state, requested_name, token),
+            token.to_string(),
+        ))
+    }
+
     fn truncate_name_to_byte_len(name: &str, max_bytes: usize) -> String {
         if name.len() <= max_bytes {
             return name.to_string();
@@ -4083,6 +4172,7 @@ impl Room {
             state.creator = None;
         }
         state.name_tokens.remove(name);
+        self.remove_room_auth_id_for_member(state, name);
         state.connection_generation.remove(name);
         state.removed_players.insert(name.to_string());
 
@@ -4172,6 +4262,7 @@ impl Room {
             state.creator = None;
         }
         state.name_tokens.remove(player_name);
+        self.remove_room_auth_id_for_member(state, player_name);
         state.connection_generation.remove(player_name);
         state.removed_players.insert(player_name.to_string());
 
@@ -8724,23 +8815,34 @@ impl Room {
         room_password: Option<&str>,
     ) -> Result<(String, u64)> {
         let name = canonical_member_name(name);
-        if name.is_empty() {
-            socket
-                .send(ServerMsg::ErrorMsg("Name cannot be empty".to_string()).into())
-                .await?;
-            return Err(anyhow!("Name cannot be empty"));
-        }
-        if token.trim().is_empty() {
+        let token = token.trim();
+        if token.is_empty() {
             socket
                 .send(ServerMsg::ErrorMsg("Token cannot be empty".to_string()).into())
                 .await?;
             return Err(anyhow!("Token cannot be empty"));
         }
 
-        println!("Handling join for {}", name);
+        println!(
+            "Handling join for {}",
+            if name.is_empty() {
+                "<device migration link>"
+            } else {
+                name
+            }
+        );
 
         let mut state = self.state.write().await;
-        let resolved_name = self.resolve_join_name(&state, name, token);
+        let (resolved_name, canonical_token) =
+            match self.resolve_join_credentials(&state, name, token) {
+                Ok(value) => value,
+                Err(err) => {
+                    socket
+                        .send(ServerMsg::ErrorMsg(err.to_string()).into())
+                        .await?;
+                    return Err(err);
+                }
+            };
 
         let is_known_member = self.member_exists(&state, &resolved_name);
 
@@ -8792,7 +8894,10 @@ impl Room {
 
         state
             .name_tokens
-            .insert(resolved_name.clone(), token.to_string());
+            .insert(resolved_name.clone(), canonical_token);
+        let room_auth_id = self
+            .room_auth_id_for_member(&mut state, &resolved_name)
+            .ok_or_else(|| anyhow!("Failed to allocate room auth id for {}", resolved_name))?;
         let generation = self.next_connection_generation(&mut state);
         state
             .connection_generation
@@ -8826,6 +8931,7 @@ impl Room {
             .send(
                 ServerMsg::JoinedAs {
                     name: resolved_name.clone(),
+                    room_auth_id,
                 }
                 .into(),
             )
@@ -16883,6 +16989,135 @@ alpha
         assert!(
             room.has_valid_token_for_name(&state, "bob", "token-any"),
             "new name should accept any token"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn room_auth_id_for_member_is_stable_and_opaque() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        add_player(&mut state, "alice", 0);
+        setup_connected_member(&mut state, "alice", "token-a", 1);
+
+        let room_auth_id = room
+            .room_auth_id_for_member(&mut state, "alice")
+            .expect("existing member should get room auth id");
+        let repeated = room
+            .room_auth_id_for_member(&mut state, "alice")
+            .expect("existing member should keep room auth id");
+
+        assert_eq!(
+            room_auth_id, repeated,
+            "room auth id should stay stable for the same room member"
+        );
+        assert_ne!(
+            room_auth_id, "token-a",
+            "room auth id must not reuse the canonical member token"
+        );
+        assert_eq!(
+            room_auth_id.len(),
+            32,
+            "room auth ids should be 128-bit hex"
+        );
+        assert!(
+            room_auth_id.chars().all(|ch| ch.is_ascii_hexdigit()),
+            "room auth id should stay opaque hex"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn resolve_join_credentials_uses_room_auth_id_when_name_is_blank() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        add_player(&mut state, "alice", 0);
+        setup_connected_member(&mut state, "alice", "token-a", 1);
+        let room_auth_id = room
+            .room_auth_id_for_member(&mut state, "alice")
+            .expect("existing member should get room auth id");
+
+        assert_eq!(
+            room.resolve_join_credentials(&state, "", &room_auth_id)?,
+            ("alice".to_string(), "token-a".to_string()),
+            "blank-name joins should resolve through the room auth id"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn resolve_join_credentials_rejects_invalid_room_auth_link_when_name_blank() -> Result<()>
+    {
+        let room = test_room();
+        let state = room.state.write().await;
+
+        let err = room
+            .resolve_join_credentials(&state, "", "not-a-valid-room-auth-id")
+            .expect_err("blank-name room-auth joins must fail when the auth id is unknown");
+
+        assert_eq!(
+            err.to_string(),
+            "Invalid device migration link",
+            "invalid room auth ids should hard-fail without falling back to local identity"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn room_auth_id_is_room_scoped() -> Result<()> {
+        let room_a = test_room();
+        let room_b = test_room();
+
+        let room_auth_id = {
+            let mut state = room_a.state.write().await;
+            add_player(&mut state, "alice", 0);
+            setup_connected_member(&mut state, "alice", "token-a", 1);
+            room_a
+                .room_auth_id_for_member(&mut state, "alice")
+                .expect("existing member should get room auth id")
+        };
+
+        let state = room_b.state.write().await;
+        let err = room_b
+            .resolve_join_credentials(&state, "", &room_auth_id)
+            .expect_err("room auth id from another room should be rejected");
+
+        assert_eq!(
+            err.to_string(),
+            "Invalid device migration link",
+            "room auth ids must not work outside their original room"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn removing_member_invalidates_room_auth_id() -> Result<()> {
+        let room = test_room();
+
+        let room_auth_id = {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "alice", 0);
+            setup_connected_member(&mut state, "alice", "token-a", 1);
+            let room_auth_id = room
+                .room_auth_id_for_member(&mut state, "alice")
+                .expect("existing member should get room auth id");
+            let removed = room.remove_player(&mut state, "alice", None).await?;
+            assert!(removed, "expected alice to be removed from the room");
+            room_auth_id
+        };
+
+        let state = room.state.write().await;
+        assert!(
+            room.member_name_for_room_auth_id(&state, &room_auth_id)
+                .is_none(),
+            "room auth ids should be invalidated once the member leaves the room"
         );
 
         Ok(())

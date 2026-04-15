@@ -8,7 +8,7 @@ Deploy note: routine Talespin redeploys now keep benign Browserslist/Caddy noise
 - `docs/self-hosting.md`: deployment layout, tmux scripts, ports, and checks
 - `docs/images.md`: where card images live and what constraints apply
 - `docs/win_condition.md`: supported win modes, defaults, and deck-finish behavior
-- `docs/user_auth.md`: player identity persistence across refresh
+- `docs/user_auth.md`: player identity persistence, room-scoped device migration links, and password-carrying migrate URLs
 - `docs/fit_to_height_cards.md`: fit-to-height option notes and caveats
 - `docs/talespin/dixit_previous_results_preview.md`: Dixit storyteller-stage previous-results preview and next-round auto-advance
 - `docs/talespin/mod/options.md`: Dixit moderator option lock windows after storyteller clue lock

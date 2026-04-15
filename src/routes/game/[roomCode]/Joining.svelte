@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
+	import MigrateDeviceButton from '$lib/MigrateDeviceButton.svelte';
+	import { copyTextToClipboard } from '$lib/deviceMigration';
 	import type GameServer from '$lib/gameServer';
 	import {
 		BUILTIN_STELLA_WORD_PACK_PRESETS,
@@ -138,19 +140,7 @@
 	async function copyInviteLink() {
 		const inviteLink = getInviteLink();
 		if (!inviteLink) return;
-		try {
-			await navigator.clipboard.writeText(inviteLink);
-		} catch {
-			const textArea = document.createElement('textarea');
-			textArea.value = inviteLink;
-			textArea.style.position = 'fixed';
-			textArea.style.opacity = '0';
-			document.body.appendChild(textArea);
-			textArea.focus();
-			textArea.select();
-			document.execCommand('copy');
-			document.body.removeChild(textArea);
-		}
+		await copyTextToClipboard(inviteLink);
 		toastStore.trigger({ message: '🔗 Invite link copied', autohide: true, timeout: 2000 });
 	}
 
@@ -423,10 +413,11 @@
 				<p class="mt-1 text-center text-sm opacity-70 lg:text-left">
 					Players in lobby: {playerEntries.length}
 				</p>
-				<div class="flex justify-center mt-4 lg:justify-start">
+				<div class="mt-4 flex flex-wrap justify-center gap-2 lg:justify-start">
 					<button class="btn variant-filled" disabled={!roomStateLoaded} on:click={copyInviteLink}
 						>Copy Invite Link</button
 					>
+					<MigrateDeviceButton />
 				</div>
 			</div>
 

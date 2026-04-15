@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
+	import MigrateDeviceButton from '$lib/MigrateDeviceButton.svelte';
 	import type GameServer from '$lib/gameServer';
 	import {
 		beautyScoringMode as beautyScoringModeStore,
@@ -919,6 +920,13 @@
 
 <div class="card light space-y-3 p-4">
 	<h2 class="text-lg font-semibold">Options</h2>
+	<div class="space-y-2">
+		<MigrateDeviceButton fullWidth={true} />
+		<p class="text-xs opacity-70">
+			Copy a room-specific link that moves this room identity, plus the room password when set, to
+			another device.
+		</p>
+	</div>
 	<label class="flex items-start gap-3">
 		<input
 			type="checkbox"
