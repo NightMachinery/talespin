@@ -98,6 +98,12 @@
 	let storytellerLossComplementMin = 0;
 	let storytellerLossComplementMax = 0;
 	let storytellerLossComplementAuto = true;
+	let storytellerPoolEnabled = false;
+	let storytellerPoolActive = false;
+	let storytellerPoolPlayers: string[] = [];
+	let storytellerSuccessPoints = 3;
+	let storytellerSuccessPointsMin = 0;
+	let storytellerSuccessPointsMax = 10;
 	let votesPerGuesser = 1;
 	let votesPerGuesserMin = 1;
 	let votesPerGuesserMax = 1;
@@ -412,6 +418,12 @@
 				storytellerLossComplementMin = data.RoomState.storyteller_loss_complement_min ?? 0;
 				storytellerLossComplementMax = data.RoomState.storyteller_loss_complement_max ?? 0;
 				storytellerLossComplementAuto = data.RoomState.storyteller_loss_complement_auto ?? true;
+				storytellerPoolEnabled = data.RoomState.storyteller_pool_enabled ?? false;
+				storytellerPoolActive = data.RoomState.storyteller_pool_active ?? false;
+				storytellerPoolPlayers = data.RoomState.storyteller_pool_players ?? [];
+				storytellerSuccessPoints = data.RoomState.storyteller_success_points ?? 3;
+				storytellerSuccessPointsMin = data.RoomState.storyteller_success_points_min ?? 0;
+				storytellerSuccessPointsMax = data.RoomState.storyteller_success_points_max ?? 10;
 				votesPerGuesser = data.RoomState.votes_per_guesser ?? 1;
 				votesPerGuesserMin = data.RoomState.votes_per_guesser_min ?? 1;
 				votesPerGuesserMax = data.RoomState.votes_per_guesser_max ?? 1;
@@ -756,6 +768,12 @@
 				{stage}
 				{gameMode}
 				{winCondition}
+				{storytellerPoolEnabled}
+				{storytellerPoolActive}
+				{storytellerPoolPlayers}
+				{storytellerSuccessPoints}
+				{storytellerSuccessPointsMin}
+				{storytellerSuccessPointsMax}
 				{creator}
 				{moderators}
 				{cardsPerHand}
@@ -801,6 +819,12 @@
 			{storytellerLossComplementMin}
 			{storytellerLossComplementMax}
 			{storytellerLossComplementAuto}
+			{storytellerPoolEnabled}
+			{storytellerPoolActive}
+			{storytellerPoolPlayers}
+			{storytellerSuccessPoints}
+			{storytellerSuccessPointsMin}
+			{storytellerSuccessPointsMax}
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}
@@ -882,6 +906,12 @@
 			{storytellerLossComplementMin}
 			{storytellerLossComplementMax}
 			{storytellerLossComplementAuto}
+			{storytellerPoolEnabled}
+			{storytellerPoolActive}
+			{storytellerPoolPlayers}
+			{storytellerSuccessPoints}
+			{storytellerSuccessPointsMin}
+			{storytellerSuccessPointsMax}
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}
@@ -968,6 +998,12 @@
 			{storytellerLossComplementMin}
 			{storytellerLossComplementMax}
 			{storytellerLossComplementAuto}
+			{storytellerPoolEnabled}
+			{storytellerPoolActive}
+			{storytellerPoolPlayers}
+			{storytellerSuccessPoints}
+			{storytellerSuccessPointsMin}
+			{storytellerSuccessPointsMax}
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}
@@ -1048,6 +1084,12 @@
 			{storytellerLossComplementMin}
 			{storytellerLossComplementMax}
 			{storytellerLossComplementAuto}
+			{storytellerPoolEnabled}
+			{storytellerPoolActive}
+			{storytellerPoolPlayers}
+			{storytellerSuccessPoints}
+			{storytellerSuccessPointsMin}
+			{storytellerSuccessPointsMax}
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}
@@ -1128,6 +1170,12 @@
 			{storytellerLossComplementMin}
 			{storytellerLossComplementMax}
 			{storytellerLossComplementAuto}
+			{storytellerPoolEnabled}
+			{storytellerPoolActive}
+			{storytellerPoolPlayers}
+			{storytellerSuccessPoints}
+			{storytellerSuccessPointsMin}
+			{storytellerSuccessPointsMax}
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}
@@ -1209,6 +1257,12 @@
 			{storytellerLossComplementMin}
 			{storytellerLossComplementMax}
 			{storytellerLossComplementAuto}
+			{storytellerPoolEnabled}
+			{storytellerPoolActive}
+			{storytellerPoolPlayers}
+			{storytellerSuccessPoints}
+			{storytellerSuccessPointsMin}
+			{storytellerSuccessPointsMax}
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}
@@ -1294,6 +1348,12 @@
 			{storytellerLossComplementMin}
 			{storytellerLossComplementMax}
 			{storytellerLossComplementAuto}
+			{storytellerPoolEnabled}
+			{storytellerPoolActive}
+			{storytellerPoolPlayers}
+			{storytellerSuccessPoints}
+			{storytellerSuccessPointsMin}
+			{storytellerSuccessPointsMax}
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}
@@ -1377,6 +1437,12 @@
 			{storytellerLossComplementMin}
 			{storytellerLossComplementMax}
 			{storytellerLossComplementAuto}
+			{storytellerPoolEnabled}
+			{storytellerPoolActive}
+			{storytellerPoolPlayers}
+			{storytellerSuccessPoints}
+			{storytellerSuccessPointsMin}
+			{storytellerSuccessPointsMax}
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}
@@ -1457,6 +1523,12 @@
 			{storytellerLossComplementMin}
 			{storytellerLossComplementMax}
 			{storytellerLossComplementAuto}
+			{storytellerPoolEnabled}
+			{storytellerPoolActive}
+			{storytellerPoolPlayers}
+			{storytellerSuccessPoints}
+			{storytellerSuccessPointsMin}
+			{storytellerSuccessPointsMax}
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}
@@ -1538,6 +1610,12 @@
 			{storytellerLossComplementMin}
 			{storytellerLossComplementMax}
 			{storytellerLossComplementAuto}
+			{storytellerPoolEnabled}
+			{storytellerPoolActive}
+			{storytellerPoolPlayers}
+			{storytellerSuccessPoints}
+			{storytellerSuccessPointsMin}
+			{storytellerSuccessPointsMax}
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}
@@ -1611,6 +1689,8 @@
 				{name}
 				{roundNum}
 				{dixitEndRoundHistory}
+				{storytellerPoolActive}
+				{storytellerPoolPlayers}
 			/>
 		</div>
 	{/if}
@@ -1620,6 +1700,7 @@
 				{gameMode}
 				{activePlayer}
 				{storytellerLossComplement}
+				{storytellerSuccessPoints}
 				{votesPerGuesser}
 				{votesPerGuesserMax}
 				{beautyEnabled}

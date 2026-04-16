@@ -36,6 +36,8 @@
 	export let name = '';
 	export let roundNum = 0;
 	export let dixitEndRoundHistory: DixitEndRoundHistoryEntry[] = [];
+	export let storytellerPoolActive = false;
+	export let storytellerPoolPlayers: string[] = [];
 
 	let rankedPlayers: RankedLeaderboardEntry[] = [];
 	let sortedObserverEntries: Array<{
@@ -46,6 +48,7 @@
 	let showSinceJoined = false;
 
 	$: supportsBeautyModes = gameMode === 'dixit_plus' && beautyEnabled;
+	$: storytellerPoolPlayerSet = new Set(storytellerPoolPlayers);
 	$: activeLeaderboardViewMode = supportsBeautyModes ? $leaderboardViewMode : 'total';
 	$: viewerJoinedRound = firstActiveRoundForPlayer(name);
 	$: canShowSinceJoined = supportsBeautyModes && viewerJoinedRound !== null;
@@ -174,6 +177,10 @@
 	function widthStyle(digits: number) {
 		return `min-width: ${digits}ch;`;
 	}
+
+	function isStorytellerPoolPlayer(playerName: string) {
+		return storytellerPoolActive && storytellerPoolPlayerSet.has(playerName);
+	}
 </script>
 
 <div class="px-3">
@@ -239,6 +246,9 @@
 						<div class="flex-auto text-left">
 							{entry.rank}.
 							<span class={`${entry.isTopScore ? 'boujee-text' : ''}`}>{entry.name}</span>
+							{#if isStorytellerPoolPlayer(entry.name)}
+								<span class="storyteller-pool-badge" title="In storyteller pool">✦</span>
+							{/if}
 						</div>
 						<div class="shrink-0 text-right font-mono tabular-nums">
 							{#if activeLeaderboardViewMode === 'combined'}
@@ -269,7 +279,12 @@
 					<div class="space-y-1 text-xl opacity-85">
 						{#each sortedObserverEntries as observerEntry}
 							<div class="flex items-center justify-between gap-3">
-								<div class="flex-auto">{observerEntry.name}</div>
+								<div class="flex-auto">
+									{observerEntry.name}
+									{#if isStorytellerPoolPlayer(observerEntry.name)}
+										<span class="storyteller-pool-badge" title="In storyteller pool">✦</span>
+									{/if}
+								</div>
 								<div class="shrink-0 text-right font-mono tabular-nums">
 									{#if observerEntry.breakdown === null}
 										NA
@@ -328,5 +343,18 @@
 		margin-left: 0.55rem;
 		padding-left: 0.55rem;
 		border-left: 1px solid rgb(255 255 255 / 0.18);
+	}
+
+	.storyteller-pool-badge {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		margin-left: 0.35rem;
+		padding: 0 0.35rem;
+		border: 1px solid rgb(255 255 255 / 0.28);
+		border-radius: 9999px;
+		font-size: 0.72rem;
+		line-height: 1.2;
+		opacity: 0.78;
 	}
 </style>

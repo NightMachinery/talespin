@@ -69,6 +69,12 @@
 	export let storytellerLossComplementMin = 0;
 	export let storytellerLossComplementMax = 0;
 	export let storytellerLossComplementAuto = true;
+	export let storytellerPoolEnabled = false;
+	export let storytellerPoolActive = false;
+	export let storytellerPoolPlayers: string[] = [];
+	export let storytellerSuccessPoints = 3;
+	export let storytellerSuccessPointsMin = 0;
+	export let storytellerSuccessPointsMax = 10;
 	export let votesPerGuesser = 1;
 	export let votesPerGuesserMin = 1;
 	export let votesPerGuesserMax = 1;
@@ -185,6 +191,13 @@
 	$: storytellerWinCondition = storytellerLossComplement + 1;
 	$: storytellerWinConditionMin = storytellerLossComplementMin + 1;
 	$: storytellerWinConditionMax = storytellerLossComplementMax + 1;
+	$: storytellerPoolStatusLabel = !storytellerPoolEnabled
+		? 'Disabled'
+		: storytellerPoolActive
+			? 'Active'
+			: 'Inactive';
+	$: storytellerPoolSummary =
+		storytellerPoolPlayers.length > 0 ? storytellerPoolPlayers.join(', ') : 'No selected players.';
 	$: roundStartDiscardCountMax = Math.max(0, cardsPerHand - 1);
 	$: stellaWordPackSelectOptions = [
 		...stellaWordPackPresetNames,
@@ -327,6 +340,26 @@
 			return;
 		}
 		gameServer.setStorytellerLossComplementAuto(input.checked);
+	}
+
+	function updateStorytellerSuccessPoints(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const parsed = Number(input.value);
+		if (!isModerator || !canChangeStorytellerScoringSettings) {
+			input.value = `${storytellerSuccessPoints}`;
+			return;
+		}
+		if (
+			!Number.isInteger(parsed) ||
+			parsed < storytellerSuccessPointsMin ||
+			parsed > storytellerSuccessPointsMax
+		) {
+			input.value = `${storytellerSuccessPoints}`;
+			return;
+		}
+		if (parsed !== storytellerSuccessPoints) {
+			gameServer.setStorytellerSuccessPoints(parsed);
+		}
 	}
 
 	function updateVotesPerGuesser(event: Event) {
@@ -1623,6 +1656,57 @@
 						{#if !canChangeStorytellerScoringSettings}
 							<p class="mt-1 text-xs opacity-70">{LIVE_DIXIT_STAGE_HINT}</p>
 						{/if}
+					</div>
+					<div class="mt-3 rounded border border-white/20 px-2 py-2">
+						<p class="block text-sm font-semibold">Storyteller success score</p>
+						<p class="mt-1 text-xs opacity-75">
+							Points awarded to the storyteller in a normal successful round.
+						</p>
+						<div class="mt-2 flex items-center gap-2">
+							<input
+								type="number"
+								class="w-24 rounded border px-2 py-1 text-gray-700 shadow"
+								min={storytellerSuccessPointsMin}
+								max={storytellerSuccessPointsMax}
+								step="1"
+								value={storytellerSuccessPoints}
+								on:change={updateStorytellerSuccessPoints}
+								disabled={!isModerator || !canChangeStorytellerScoringSettings}
+							/>
+							<span class="text-xs opacity-75">
+								Range: {storytellerSuccessPointsMin}–{storytellerSuccessPointsMax}
+							</span>
+						</div>
+						{#if !canChangeStorytellerScoringSettings}
+							<p class="mt-1 text-xs opacity-70">{LIVE_DIXIT_STAGE_HINT}</p>
+						{/if}
+					</div>
+					<div class="mt-3 rounded border border-white/20 px-2 py-2">
+						<div class="flex items-start justify-between gap-3">
+							<div>
+								<p class="block text-sm font-semibold">Storyteller pool</p>
+								<p class="mt-1 text-xs opacity-75">
+									Lobby-only moderator option that restricts storyteller selection to a saved subset
+									of players.
+								</p>
+							</div>
+							<span class="rounded border border-white/20 px-2 py-0.5 text-xs opacity-80">
+								{storytellerPoolStatusLabel}
+							</span>
+						</div>
+						<p class="mt-2 text-xs opacity-75">
+							{#if storytellerPoolEnabled && !storytellerPoolActive}
+								Falls back to unrestricted storyteller selection until one of the selected players
+								is active again.
+							{:else if !storytellerPoolEnabled}
+								Restricted storyteller selection is off.
+							{:else}
+								Only the selected active players can be chosen as storyteller.
+							{/if}
+						</p>
+						<p class="mt-2 text-xs opacity-75">
+							Selected: {storytellerPoolSummary}
+						</p>
 					</div>
 					<div class="mt-3 rounded border border-white/20 px-2 py-2">
 						<p class="block text-sm font-semibold">Votes per guesser</p>

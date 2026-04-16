@@ -42,6 +42,8 @@
 	export let gameServer: GameServer;
 	export let stage = '';
 	export let activePlayer = '';
+	export let storytellerPoolActive = false;
+	export let storytellerPoolPlayers: string[] = [];
 	export let pointChange: { [key: string]: number } = {};
 	export let roundNum: number;
 	export let cardsRemaining = 0;
@@ -74,6 +76,7 @@
 	let combinedDeltaWidths = { total: 2, story: 2, beauty: 2 };
 
 	$: isModerator = new Set(moderators).has(name);
+	$: storytellerPoolPlayerSet = new Set(storytellerPoolPlayers);
 	$: supportsBeautyModes = gameMode === 'dixit_plus' && beautyEnabled;
 	$: activeLeaderboardViewMode = supportsBeautyModes ? $leaderboardViewMode : 'total';
 	$: pointChangeStage = leaderboardPointChangeStageOverride || stage;
@@ -262,6 +265,10 @@
 		gameServer.setLeaderboardViewModeDefault($leaderboardViewMode);
 	}
 
+	function isStorytellerPoolPlayer(playerName: string) {
+		return storytellerPoolActive && storytellerPoolPlayerSet.has(playerName);
+	}
+
 	function widthStyle(digits: number) {
 		return `min-width: ${digits}ch;`;
 	}
@@ -332,6 +339,9 @@
 							>
 								{entry.name}
 							</span>
+							{#if isStorytellerPoolPlayer(entry.name)}
+								<span class="storyteller-pool-badge" title="In storyteller pool">✦</span>
+							{/if}
 							{#if darkPlayer !== '' && entry.name === darkPlayer}
 								<span title="In the Dark">🌑</span>
 							{/if}
@@ -421,6 +431,9 @@
 						>
 							<div class="min-w-0 flex-auto break-words">
 								{observerEntry.name}
+								{#if isStorytellerPoolPlayer(observerEntry.name)}
+									<span class="storyteller-pool-badge" title="In storyteller pool">✦</span>
+								{/if}
 								{#if observerEntry.info.join_requested || observerEntry.info.auto_join_on_next_round}
 									<span class="opacity-70"> (joining next round)</span>
 								{/if}
@@ -509,6 +522,19 @@
 
 	.combined-delta-placeholder {
 		visibility: hidden;
+	}
+
+	.storyteller-pool-badge {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		margin-left: 0.35rem;
+		padding: 0 0.35rem;
+		border: 1px solid rgb(255 255 255 / 0.28);
+		border-radius: 9999px;
+		font-size: 0.72rem;
+		line-height: 1.2;
+		opacity: 0.78;
 	}
 
 	@keyframes cards-refilled-pulse {

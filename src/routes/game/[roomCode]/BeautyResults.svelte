@@ -36,6 +36,12 @@
 	export let storytellerLossComplementMin = 0;
 	export let storytellerLossComplementMax = 0;
 	export let storytellerLossComplementAuto = true;
+	export let storytellerPoolEnabled = false;
+	export let storytellerPoolActive = false;
+	export let storytellerPoolPlayers: string[] = [];
+	export let storytellerSuccessPoints = 3;
+	export let storytellerSuccessPointsMin = 0;
+	export let storytellerSuccessPointsMax = 10;
 	export let votesPerGuesser = 1;
 	export let votesPerGuesserMin = 1;
 	export let votesPerGuesserMax = 1;
@@ -183,6 +189,12 @@
 	{storytellerLossComplementMin}
 	{storytellerLossComplementMax}
 	{storytellerLossComplementAuto}
+	{storytellerPoolEnabled}
+	{storytellerPoolActive}
+	{storytellerPoolPlayers}
+	{storytellerSuccessPoints}
+	{storytellerSuccessPointsMin}
+	{storytellerSuccessPointsMax}
 	{votesPerGuesser}
 	{votesPerGuesserMin}
 	{votesPerGuesserMax}

@@ -195,6 +195,30 @@ class GameServer {
 		});
 	}
 
+	setStorytellerPoolEnabled(enabled: boolean) {
+		this.send({
+			SetStorytellerPoolEnabled: {
+				enabled
+			}
+		});
+	}
+
+	setStorytellerPoolPlayers(players: string[]) {
+		this.send({
+			SetStorytellerPoolPlayers: {
+				players
+			}
+		});
+	}
+
+	setStorytellerSuccessPoints(points: number) {
+		this.send({
+			SetStorytellerSuccessPoints: {
+				points
+			}
+		});
+	}
+
 	setVotesPerGuesser(votes: number) {
 		this.send({
 			SetVotesPerGuesser: {

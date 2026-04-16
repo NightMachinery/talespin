@@ -9,6 +9,7 @@
 	export let gameMode: GameMode = 'dixit_plus';
 	export let activePlayer = '';
 	export let storytellerLossComplement = 0;
+	export let storytellerSuccessPoints = 3;
 	export let votesPerGuesser = 1;
 	export let votesPerGuesserMax = 1;
 	export let bonusCorrectGuessOnThresholdCorrectLoss = true;
@@ -82,8 +83,8 @@
 				<li>Correct-guess bonus: off in covered storyteller-loss rounds.</li>
 			{/if}
 			<li>
-				Normal round: <span class="font-semibold">{storytellerLabel}</span> +3, each guesser with at
-				least one correct vote +3.
+				Normal round: <span class="font-semibold">{storytellerLabel}</span>
+				+{storytellerSuccessPoints}, each guesser with at least one correct vote +3.
 			</li>
 			{#if bonusDoubleVoteOnThresholdCorrectLoss}
 				<li>

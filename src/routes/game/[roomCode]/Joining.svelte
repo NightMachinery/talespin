@@ -36,6 +36,12 @@
 	export let stage = 'Joining';
 	export let gameMode: GameMode = 'dixit_plus';
 	export let winCondition: WinCondition = { mode: 'cards_finish' };
+	export let storytellerPoolEnabled = false;
+	export let storytellerPoolActive = false;
+	export let storytellerPoolPlayers: string[] = [];
+	export let storytellerSuccessPoints = 3;
+	export let storytellerSuccessPointsMin = 0;
+	export let storytellerSuccessPointsMax = 10;
 	export let cardsPerHand = 12;
 	export let cardsPerHandMin = 1;
 	export let cardsPerHandMax = 100;
@@ -67,6 +73,7 @@
 	const toastStore = getToastStore();
 	const WORD_PACK_APPLY_DEBOUNCE_MS = 350;
 	$: playerEntries = Object.entries(players);
+	$: storytellerPoolPlayerSet = new Set(storytellerPoolPlayers);
 	$: moderatorSet = new Set(moderators);
 	$: isCreator = creator !== '' && creator === name;
 	$: isModerator = moderatorSet.has(name);
@@ -219,6 +226,31 @@
 		const value = Number(input.value);
 		if (!canEditSettings || !Number.isInteger(value)) return;
 		gameServer.setCardsPerHand(value);
+	}
+
+	function updateStorytellerPoolEnabled(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		if (!canEditSettings || gameMode !== 'dixit_plus') return;
+		gameServer.setStorytellerPoolEnabled(input.checked);
+	}
+
+	function updateStorytellerPoolPlayer(playerName: string, enabled: boolean) {
+		if (!canEditSettings || gameMode !== 'dixit_plus') return;
+		const nextPlayers = enabled
+			? [...storytellerPoolPlayers, playerName]
+			: storytellerPoolPlayers.filter((entryName) => entryName !== playerName);
+		gameServer.setStorytellerPoolPlayers(nextPlayers);
+	}
+
+	function updateStorytellerPoolPlayerFromEvent(playerName: string, event: Event) {
+		updateStorytellerPoolPlayer(playerName, (event.currentTarget as HTMLInputElement).checked);
+	}
+
+	function updateStorytellerSuccessPoints(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const value = Number(input.value);
+		if (!canEditSettings || !Number.isInteger(value)) return;
+		gameServer.setStorytellerSuccessPoints(value);
 	}
 
 	function updateBeautyEnabled(event: Event) {
@@ -546,6 +578,66 @@
 								/>
 								<p class="mt-1 text-xs opacity-70">
 									Range: {cardsPerHandMin}–{cardsPerHandMax}
+								</p>
+							</div>
+							<div class="rounded border border-white/20 p-3 space-y-3">
+								<label class="flex items-start gap-3 text-sm">
+									<input
+										type="checkbox"
+										class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
+										checked={storytellerPoolEnabled}
+										on:change={updateStorytellerPoolEnabled}
+										disabled={!canEditSettings}
+									/>
+									<div>
+										<span class="block font-semibold">Restrict storyteller pool</span>
+										<p class="text-xs opacity-70">
+											Only selected lobby players can be chosen as storyteller while at least one of
+											them is active.
+										</p>
+									</div>
+								</label>
+								<div>
+									<p class="text-sm font-semibold">Storyteller players</p>
+									<div class="mt-2 space-y-2">
+										{#each playerEntries as [playerName]}
+											<label class="flex items-center gap-3 text-sm">
+												<input
+													type="checkbox"
+													class="h-4 w-4 cursor-pointer accent-primary-500"
+													checked={storytellerPoolPlayerSet.has(playerName)}
+													on:change={(event) =>
+														updateStorytellerPoolPlayerFromEvent(playerName, event)}
+													disabled={!canEditSettings}
+												/>
+												<span>{playerName}</span>
+											</label>
+										{/each}
+									</div>
+									{#if storytellerPoolEnabled && !storytellerPoolActive}
+										<p class="mt-2 text-xs opacity-70">
+											Currently inactive. If all selected players become observers or are removed,
+											the restriction pauses until one of them is active again.
+										</p>
+									{/if}
+								</div>
+							</div>
+							<div>
+								<label class="text-sm font-semibold" for="storytellerSuccessPoints">
+									Storyteller success score
+								</label>
+								<input
+									id="storytellerSuccessPoints"
+									class="mt-1 w-full rounded border px-3 py-2 text-gray-700"
+									type="number"
+									min={storytellerSuccessPointsMin}
+									max={storytellerSuccessPointsMax}
+									value={storytellerSuccessPoints}
+									on:change={updateStorytellerSuccessPoints}
+									disabled={!canEditSettings}
+								/>
+								<p class="mt-1 text-xs opacity-70">
+									Range: {storytellerSuccessPointsMin}–{storytellerSuccessPointsMax}
 								</p>
 							</div>
 							<div class="rounded border border-white/20 p-3 space-y-3">

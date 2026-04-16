@@ -47,6 +47,9 @@ const DEFAULT_BEAUTY_SPLIT_POINTS_ON_TIE: bool = true;
 const DEFAULT_BEAUTY_POINTS_BONUS: u16 = 2;
 const MIN_BEAUTY_POINTS_BONUS: u16 = 0;
 const MAX_BEAUTY_POINTS_BONUS: u16 = 10;
+const DEFAULT_STORYTELLER_SUCCESS_POINTS: u16 = 3;
+const MIN_STORYTELLER_SUCCESS_POINTS: u16 = 0;
+const MAX_STORYTELLER_SUCCESS_POINTS: u16 = 10;
 const BEAUTY_VOTE_POINTS_DIVISOR_SCALE: u16 = 10;
 const DEFAULT_BEAUTY_VOTE_POINTS_DIVISOR_TENTHS: u16 = 30;
 const MIN_BEAUTY_VOTE_POINTS_DIVISOR_TENTHS: u16 = 10;
@@ -208,6 +211,12 @@ pub enum ServerMsg {
         storyteller_loss_complement_min: u16,
         storyteller_loss_complement_max: u16,
         storyteller_loss_complement_auto: bool,
+        storyteller_pool_enabled: bool,
+        storyteller_pool_active: bool,
+        storyteller_pool_players: Vec<String>,
+        storyteller_success_points: u16,
+        storyteller_success_points_min: u16,
+        storyteller_success_points_max: u16,
         votes_per_guesser: u16,
         votes_per_guesser_min: u16,
         votes_per_guesser_max: u16,
@@ -402,6 +411,15 @@ pub enum ClientMsg {
     },
     SetStorytellerLossComplementAuto {
         enabled: bool,
+    },
+    SetStorytellerPoolEnabled {
+        enabled: bool,
+    },
+    SetStorytellerPoolPlayers {
+        players: Vec<String>,
+    },
+    SetStorytellerSuccessPoints {
+        points: u16,
     },
     SetVotesPerGuesser {
         votes: u16,
@@ -664,6 +682,12 @@ struct RoomState {
     storyteller_loss_complement: u16,
     // auto-derive complement from current/actual guesser count instead of using manual value
     storyteller_loss_complement_auto: bool,
+    // whether storyteller selection is restricted to a saved subset of room members
+    storyteller_pool_enabled: bool,
+    // saved storyteller subset, keyed by stable room member auth ids
+    storyteller_pool_member_auth_ids: HashSet<String>,
+    // storyteller reward in successful rounds
+    storyteller_success_points: u16,
     // number of vote tokens each guesser can cast in Voting
     votes_per_guesser: u16,
     // whether Dixit uses the optional Most Beautiful stage
@@ -938,6 +962,9 @@ impl Room {
             paused_needs_storyteller_selection: false,
             storyteller_loss_complement: 0,
             storyteller_loss_complement_auto: true,
+            storyteller_pool_enabled: false,
+            storyteller_pool_member_auth_ids: HashSet::new(),
+            storyteller_success_points: DEFAULT_STORYTELLER_SUCCESS_POINTS,
             votes_per_guesser: 1,
             beauty_enabled: DEFAULT_BEAUTY_ENABLED,
             beauty_votes_per_player: DEFAULT_BEAUTY_VOTES_PER_PLAYER,
@@ -1231,6 +1258,13 @@ impl Room {
 
     fn beauty_points_bonus_bounds(&self) -> (u16, u16) {
         (MIN_BEAUTY_POINTS_BONUS, MAX_BEAUTY_POINTS_BONUS)
+    }
+
+    fn storyteller_success_points_bounds(&self) -> (u16, u16) {
+        (
+            MIN_STORYTELLER_SUCCESS_POINTS,
+            MAX_STORYTELLER_SUCCESS_POINTS,
+        )
     }
 
     fn beauty_vote_points_divisor_tenths_bounds(&self) -> (u16, u16) {
@@ -1736,6 +1770,13 @@ impl Room {
         state.storyteller_loss_complement = state
             .storyteller_loss_complement
             .clamp(min_complement, max_complement);
+    }
+
+    fn clamp_storyteller_success_points(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
+        let (min_points, max_points) = self.storyteller_success_points_bounds();
+        state.storyteller_success_points = state
+            .storyteller_success_points
+            .clamp(min_points, max_points);
     }
 
     fn clamp_votes_per_guesser(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
@@ -3361,6 +3402,16 @@ impl Room {
         }
     }
 
+    fn remove_member_from_storyteller_pool(
+        &self,
+        state: &mut RwLockWriteGuard<RoomState>,
+        member_name: &str,
+    ) {
+        if let Some(room_auth_id) = state.member_room_auth_ids.get(member_name).cloned() {
+            state.storyteller_pool_member_auth_ids.remove(&room_auth_id);
+        }
+    }
+
     fn resolve_join_credentials(
         &self,
         state: &RwLockWriteGuard<RoomState>,
@@ -3779,6 +3830,60 @@ impl Room {
         );
     }
 
+    fn storyteller_pool_is_active(&self, state: &RwLockWriteGuard<'_, RoomState>) -> bool {
+        state.storyteller_pool_enabled
+            && state.player_order.iter().any(|player_name| {
+                state
+                    .member_room_auth_ids
+                    .get(player_name)
+                    .map(|room_auth_id| {
+                        state
+                            .storyteller_pool_member_auth_ids
+                            .contains(room_auth_id)
+                    })
+                    .unwrap_or(false)
+            })
+    }
+
+    fn storyteller_pool_player_names(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+    ) -> Vec<String> {
+        let mut names = state
+            .storyteller_pool_member_auth_ids
+            .iter()
+            .filter_map(|room_auth_id| self.member_name_for_room_auth_id(state, room_auth_id))
+            .collect::<Vec<_>>();
+        names.sort();
+        names
+    }
+
+    fn storyteller_candidate_indices(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+        excluded_index: Option<usize>,
+    ) -> Vec<usize> {
+        let storyteller_pool_is_active = self.storyteller_pool_is_active(state);
+        state
+            .player_order
+            .iter()
+            .enumerate()
+            .filter(|(idx, _)| excluded_index != Some(*idx))
+            .filter_map(|(idx, name)| {
+                let in_storyteller_pool = state
+                    .member_room_auth_ids
+                    .get(name)
+                    .map(|room_auth_id| {
+                        state
+                            .storyteller_pool_member_auth_ids
+                            .contains(room_auth_id)
+                    })
+                    .unwrap_or(false);
+                (!storyteller_pool_is_active || in_storyteller_pool).then_some(idx)
+            })
+            .collect()
+    }
+
     fn choose_random_lowest_storyteller_index(
         &self,
         state: &RwLockWriteGuard<'_, RoomState>,
@@ -3791,19 +3896,23 @@ impl Room {
         state: &RwLockWriteGuard<'_, RoomState>,
         preferred_name: Option<&str>,
     ) -> Option<usize> {
-        let min_storyteller_count = state
-            .player_order
+        let candidate_indices = self.storyteller_candidate_indices(state, None);
+        let min_storyteller_count = candidate_indices
             .iter()
+            .filter_map(|idx| state.player_order.get(*idx))
             .map(|name| self.storyteller_count_for_member(state, name))
             .min()?;
 
-        let candidate_indices = state
-            .player_order
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, name)| {
-                (self.storyteller_count_for_member(state, name) == min_storyteller_count)
-                    .then_some(idx)
+        let candidate_indices = candidate_indices
+            .into_iter()
+            .filter(|idx| {
+                state
+                    .player_order
+                    .get(*idx)
+                    .map(|name| {
+                        self.storyteller_count_for_member(state, name) == min_storyteller_count
+                    })
+                    .unwrap_or(false)
             })
             .collect::<Vec<_>>();
 
@@ -3823,22 +3932,23 @@ impl Room {
         state: &RwLockWriteGuard<'_, RoomState>,
         excluded_index: usize,
     ) -> Option<usize> {
-        let candidate_indices = state
-            .player_order
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, name)| (idx != excluded_index).then_some((idx, name)))
-            .collect::<Vec<_>>();
+        let candidate_indices = self.storyteller_candidate_indices(state, Some(excluded_index));
         let min_storyteller_count = candidate_indices
             .iter()
-            .map(|(_, name)| self.storyteller_count_for_member(state, name))
+            .filter_map(|idx| state.player_order.get(*idx))
+            .map(|name| self.storyteller_count_for_member(state, name))
             .min()?;
 
         candidate_indices
             .into_iter()
-            .filter_map(|(idx, name)| {
-                (self.storyteller_count_for_member(state, name) == min_storyteller_count)
-                    .then_some(idx)
+            .filter(|idx| {
+                state
+                    .player_order
+                    .get(*idx)
+                    .map(|name| {
+                        self.storyteller_count_for_member(state, name) == min_storyteller_count
+                    })
+                    .unwrap_or(false)
             })
             .collect::<Vec<_>>()
             .choose(&mut rand::thread_rng())
@@ -4172,6 +4282,7 @@ impl Room {
             state.creator = None;
         }
         state.name_tokens.remove(name);
+        self.remove_member_from_storyteller_pool(state, name);
         self.remove_room_auth_id_for_member(state, name);
         state.connection_generation.remove(name);
         state.removed_players.insert(name.to_string());
@@ -4262,6 +4373,7 @@ impl Room {
             state.creator = None;
         }
         state.name_tokens.remove(player_name);
+        self.remove_member_from_storyteller_pool(state, player_name);
         self.remove_room_auth_id_for_member(state, player_name);
         state.connection_generation.remove(player_name);
         state.removed_players.insert(player_name.to_string());
@@ -6849,6 +6961,92 @@ impl Room {
                 self.clamp_stage_timer_settings(&mut state);
                 self.broadcast_msg(self.room_state(&state))?;
             }
+            ClientMsg::SetStorytellerPoolEnabled { enabled } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change the storyteller pool".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+                if !matches!(state.stage, RoomStage::Joining)
+                    || !matches!(state.game_mode, GameMode::DixitPlus)
+                {
+                    return Ok(());
+                }
+
+                state.storyteller_pool_enabled = enabled;
+                self.broadcast_msg(self.room_state(&state))?;
+            }
+            ClientMsg::SetStorytellerPoolPlayers { players } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change the storyteller pool".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+                if !matches!(state.stage, RoomStage::Joining)
+                    || !matches!(state.game_mode, GameMode::DixitPlus)
+                {
+                    return Ok(());
+                }
+
+                let storyteller_pool_member_auth_ids = players
+                    .into_iter()
+                    .map(|player| canonical_member_name(&player).to_string())
+                    .filter(|player| !player.is_empty())
+                    .filter_map(|player| state.member_room_auth_ids.get(&player).cloned())
+                    .collect::<HashSet<_>>();
+                state.storyteller_pool_member_auth_ids = storyteller_pool_member_auth_ids;
+                self.broadcast_msg(self.room_state(&state))?;
+            }
+            ClientMsg::SetStorytellerSuccessPoints { points } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change storyteller success score".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                let can_change_storyteller_setting = match state.game_mode {
+                    GameMode::DixitPlus => Self::is_joining_or_live_dixit_stage(state.stage),
+                    GameMode::Stella => !matches!(state.stage, RoomStage::End),
+                };
+                if !can_change_storyteller_setting {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Storyteller scoring can only be changed during live Dixit stages"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                state.storyteller_success_points = points;
+                self.clamp_storyteller_success_points(&mut state);
+                self.broadcast_msg(self.room_state(&state))?;
+            }
             ClientMsg::SetVotesPerGuesser { votes } => {
                 if !self.is_moderator(&state, name) {
                     if let Some(tx) = state.player_to_socket.get(name) {
@@ -8686,7 +8884,13 @@ impl Room {
                     point_change.insert(player.to_string(), 0);
                 }
             }
-            point_change.insert(active_player.clone(), 3);
+            point_change.insert(
+                active_player.clone(),
+                state.storyteller_success_points.clamp(
+                    MIN_STORYTELLER_SUCCESS_POINTS,
+                    MAX_STORYTELLER_SUCCESS_POINTS,
+                ),
+            );
         }
 
         // +1 extra point for correct double-vote on storyteller card.
@@ -9095,6 +9299,15 @@ impl Room {
         let beauty_points_bonus = state
             .beauty_points_bonus
             .clamp(beauty_points_min, beauty_points_max);
+        let (storyteller_success_points_min, storyteller_success_points_max) =
+            self.storyteller_success_points_bounds();
+        let storyteller_success_points = state.storyteller_success_points.clamp(
+            storyteller_success_points_min,
+            storyteller_success_points_max,
+        );
+        let storyteller_pool_enabled = state.storyteller_pool_enabled;
+        let storyteller_pool_active = self.storyteller_pool_is_active(state);
+        let storyteller_pool_players = self.storyteller_pool_player_names(state);
         let (beauty_divisor_min, beauty_divisor_max) =
             self.beauty_vote_points_divisor_tenths_bounds();
         let beauty_vote_points_divisor = Room::beauty_vote_points_divisor_from_tenths(
@@ -9165,6 +9378,12 @@ impl Room {
             storyteller_loss_complement_min: complement_min,
             storyteller_loss_complement_max: complement_max,
             storyteller_loss_complement_auto: state.storyteller_loss_complement_auto,
+            storyteller_pool_enabled,
+            storyteller_pool_active,
+            storyteller_pool_players,
+            storyteller_success_points,
+            storyteller_success_points_min,
+            storyteller_success_points_max,
             votes_per_guesser,
             votes_per_guesser_min: votes_min,
             votes_per_guesser_max: votes_max,
@@ -9383,6 +9602,23 @@ mod tests {
         state
             .connection_generation
             .insert(name.to_string(), generation);
+    }
+
+    fn set_storyteller_pool_members(
+        room: &Room,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+        names: &[&str],
+    ) -> Vec<String> {
+        let room_auth_ids = names
+            .iter()
+            .map(|name| {
+                room.room_auth_id_for_member(state, name)
+                    .unwrap_or_else(|| panic!("expected member {name} to have a room auth id"))
+            })
+            .collect::<Vec<_>>();
+        state.storyteller_pool_enabled = true;
+        state.storyteller_pool_member_auth_ids = room_auth_ids.iter().cloned().collect();
+        room_auth_ids
     }
 
     fn attach_test_socket(
@@ -9860,7 +10096,7 @@ mod tests {
         room.handle_client_msg("c", 501, to_ws(ClientMsg::RequestJoinFromObserver {}))
             .await?;
 
-        let state = room.state.read().await;
+        let state = room.state.write().await;
         assert!(
             state.players.contains_key("c"),
             "observer should become active player when joining back"
@@ -9913,7 +10149,7 @@ mod tests {
         room.handle_client_msg("p4", 602, to_ws(ClientMsg::RequestJoinFromObserver {}))
             .await?;
 
-        let state = room.state.read().await;
+        let state = room.state.write().await;
         assert_eq!(
             state.player_hand.get("p4").map(|hand| hand.len()),
             Some(4),
@@ -9969,7 +10205,7 @@ mod tests {
         room.handle_client_msg("obs", 17, to_ws(ClientMsg::RequestJoinFromObserver {}))
             .await?;
 
-        let state = room.state.read().await;
+        let state = room.state.write().await;
         assert!(
             state.observers.contains_key("obs"),
             "observer should stay observer during voting"
@@ -10026,7 +10262,7 @@ mod tests {
         room.handle_client_msg("obs", 171, to_ws(ClientMsg::RequestJoinFromObserver {}))
             .await?;
 
-        let state = room.state.read().await;
+        let state = room.state.write().await;
         assert_eq!(
             state.observers.get("obs").map(|o| o.join_requested),
             Some(false),
@@ -11165,7 +11401,7 @@ mod tests {
             .await?;
 
         {
-            let state = room.state.read().await;
+            let state = room.state.write().await;
             assert!(
                 matches!(state.stage, RoomStage::Results),
                 "results should remain visible until all players are ready"
@@ -11176,7 +11412,7 @@ mod tests {
             .await?;
 
         {
-            let state = room.state.read().await;
+            let state = room.state.write().await;
             assert!(
                 matches!(state.stage, RoomStage::BeautyResults),
                 "separate beauty mode should advance to BeautyResults before the next round"
@@ -11277,7 +11513,7 @@ mod tests {
         )
         .await?;
 
-        let state = room.state.read().await;
+        let state = room.state.write().await;
         assert!(
             !state.observers.contains_key("obs"),
             "moderator join action should promote observer immediately outside voting"
@@ -12345,6 +12581,12 @@ mod tests {
                 cards_per_hand,
                 cards_per_hand_max,
                 storyteller_loss_complement_auto,
+                storyteller_pool_enabled,
+                storyteller_pool_active,
+                storyteller_pool_players,
+                storyteller_success_points,
+                storyteller_success_points_min,
+                storyteller_success_points_max,
                 bonus_correct_guess_on_threshold_correct_loss,
                 bonus_double_vote_on_threshold_correct_loss,
                 bonus_threshold_loss_toggles_apply_to_all_storyteller_loss_rounds,
@@ -12397,6 +12639,30 @@ mod tests {
                 assert!(
                     storyteller_loss_complement_auto,
                     "storyteller win-condition auto-tune should default to on"
+                );
+                assert!(
+                    !storyteller_pool_enabled,
+                    "storyteller pool restriction should default to off"
+                );
+                assert!(
+                    !storyteller_pool_active,
+                    "storyteller pool should not be active until enabled and populated"
+                );
+                assert!(
+                    storyteller_pool_players.is_empty(),
+                    "storyteller pool should start empty"
+                );
+                assert_eq!(
+                    storyteller_success_points, DEFAULT_STORYTELLER_SUCCESS_POINTS,
+                    "storyteller success score should default to 3"
+                );
+                assert_eq!(
+                    storyteller_success_points_min, MIN_STORYTELLER_SUCCESS_POINTS,
+                    "room state should expose the storyteller success-score minimum"
+                );
+                assert_eq!(
+                    storyteller_success_points_max, MAX_STORYTELLER_SUCCESS_POINTS,
+                    "room state should expose the storyteller success-score maximum"
                 );
                 assert!(
                     bonus_correct_guess_on_threshold_correct_loss,
@@ -12826,7 +13092,7 @@ alpha
         .await?;
 
         {
-            let state = room.state.read().await;
+            let state = room.state.write().await;
             assert!(
                 state.beauty_enabled,
                 "Most Beautiful should stay enabled in BeautyVoting"
@@ -12908,7 +13174,7 @@ alpha
         .await?;
 
         {
-            let state = room.state.read().await;
+            let state = room.state.write().await;
             assert!(
                 matches!(
                     state.beauty_results_display_mode,
@@ -12932,7 +13198,7 @@ alpha
         )
         .await?;
 
-        let state = room.state.read().await;
+        let state = room.state.write().await;
         assert!(
             matches!(
                 state.beauty_results_display_mode,
@@ -14000,6 +14266,131 @@ alpha
             state.storyteller_loss_complement, 3,
             "complement should be clamped to current guesser upper bound"
         );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn moderator_can_configure_storyteller_pool_in_joining() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            add_player(&mut state, "p2", 0);
+            add_player(&mut state, "p3", 0);
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 9_100);
+            for player in ["host", "p2", "p3"] {
+                room.room_auth_id_for_member(&mut state, player);
+            }
+        }
+
+        room.handle_client_msg(
+            "host",
+            9_100,
+            to_ws(ClientMsg::SetStorytellerPoolPlayers {
+                players: vec!["p3".to_string(), "p2".to_string()],
+            }),
+        )
+        .await?;
+        room.handle_client_msg(
+            "host",
+            9_100,
+            to_ws(ClientMsg::SetStorytellerPoolEnabled { enabled: true }),
+        )
+        .await?;
+
+        let state = room.state.write().await;
+        assert!(state.storyteller_pool_enabled);
+        let p2_auth = state
+            .member_room_auth_ids
+            .get("p2")
+            .cloned()
+            .ok_or_else(|| anyhow!("expected p2 room auth id"))?;
+        let p3_auth = state
+            .member_room_auth_ids
+            .get("p3")
+            .cloned()
+            .ok_or_else(|| anyhow!("expected p3 room auth id"))?;
+        assert_eq!(
+            state.storyteller_pool_member_auth_ids,
+            HashSet::from([p2_auth, p3_auth]),
+            "pool selections should be stored as room auth ids, not raw names"
+        );
+
+        match room.room_state(&state) {
+            ServerMsg::RoomState {
+                storyteller_pool_enabled,
+                storyteller_pool_active,
+                storyteller_pool_players,
+                ..
+            } => {
+                assert!(storyteller_pool_enabled);
+                assert!(
+                    storyteller_pool_active,
+                    "pool should be effectively active while selected members are active players"
+                );
+                assert_eq!(
+                    storyteller_pool_players,
+                    vec!["p2".to_string(), "p3".to_string()],
+                    "room state should expose a sorted selected-member list"
+                );
+            }
+            _ => return Err(anyhow!("Expected RoomState")),
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn moderator_storyteller_success_points_update_is_clamped_and_allowed_in_results(
+    ) -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            add_player(&mut state, "p2", 0);
+            add_player(&mut state, "p3", 0);
+            state.stage = RoomStage::Results;
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 9_101);
+        }
+
+        room.handle_client_msg(
+            "host",
+            9_101,
+            to_ws(ClientMsg::SetStorytellerSuccessPoints { points: 99 }),
+        )
+        .await?;
+
+        let state = room.state.write().await;
+        assert_eq!(
+            state.storyteller_success_points, MAX_STORYTELLER_SUCCESS_POINTS,
+            "mid-game moderator edits should clamp storyteller success score to configured bounds"
+        );
+
+        match room.room_state(&state) {
+            ServerMsg::RoomState {
+                storyteller_success_points,
+                storyteller_success_points_min,
+                storyteller_success_points_max,
+                ..
+            } => {
+                assert_eq!(
+                    storyteller_success_points, MAX_STORYTELLER_SUCCESS_POINTS,
+                    "room state should expose the clamped storyteller success score"
+                );
+                assert_eq!(
+                    storyteller_success_points_min, MIN_STORYTELLER_SUCCESS_POINTS,
+                    "room state should expose the configured storyteller success-score minimum"
+                );
+                assert_eq!(
+                    storyteller_success_points_max, MAX_STORYTELLER_SUCCESS_POINTS,
+                    "room state should expose the configured storyteller success-score maximum"
+                );
+            }
+            _ => return Err(anyhow!("Expected RoomState")),
+        }
 
         Ok(())
     }
@@ -16364,6 +16755,65 @@ alpha
     }
 
     #[tokio::test]
+    async fn init_round_storyteller_pool_restricts_storyteller_selection() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        add_player(&mut state, "a", 0);
+        add_player(&mut state, "b", 0);
+        add_player(&mut state, "c", 0);
+        add_player(&mut state, "d", 0);
+        state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into()];
+        state.active_player = 0;
+        state.round = 4;
+        state.stage = RoomStage::Results;
+        set_storyteller_count(&mut state, "a", 0);
+        set_storyteller_count(&mut state, "b", 0);
+        set_storyteller_count(&mut state, "c", 5);
+        set_storyteller_count(&mut state, "d", 0);
+        set_storyteller_pool_members(&room, &mut state, &["c"]);
+
+        room.init_round(&mut state).await?;
+
+        assert_eq!(
+            state.player_order[state.active_player], "c",
+            "next storyteller should stay inside the active restricted pool even when unpooled players have lower counts"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn force_switch_storyteller_stays_within_active_storyteller_pool() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        add_player(&mut state, "a", 0);
+        add_player(&mut state, "b", 0);
+        add_player(&mut state, "c", 0);
+        add_player(&mut state, "d", 0);
+        state.stage = RoomStage::ActiveChooses;
+        state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into()];
+        state.active_player = 0;
+        set_storyteller_count(&mut state, "a", 5);
+        set_storyteller_count(&mut state, "b", 0);
+        set_storyteller_count(&mut state, "c", 6);
+        set_storyteller_count(&mut state, "d", 0);
+        set_storyteller_pool_members(&room, &mut state, &["a", "c"]);
+
+        assert!(
+            room.force_switch_storyteller(&mut state),
+            "force switch should succeed when another selected storyteller candidate exists"
+        );
+        assert_eq!(
+            state.player_order[state.active_player], "c",
+            "force switch should stay inside the active storyteller pool instead of escaping to unpooled low-count players"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn storyteller_count_increments_when_clue_is_submitted() -> Result<()> {
         let room = test_room();
         {
@@ -16399,6 +16849,156 @@ alpha
             matches!(state.stage, RoomStage::PlayersChoose),
             "round should advance after storyteller submits card and clue"
         );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn storyteller_pool_auto_disables_for_observers_and_reactivates_on_promotion(
+    ) -> Result<()> {
+        let room = test_room();
+        let storyteller_room_auth_id = {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "a", 0);
+            add_player(&mut state, "b", 0);
+            add_player(&mut state, "c", 0);
+            state.stage = RoomStage::Joining;
+            set_storyteller_pool_members(&room, &mut state, &["b"])
+                .into_iter()
+                .next()
+                .ok_or_else(|| anyhow!("expected storyteller pool auth id"))?
+        };
+
+        {
+            let state = room.state.write().await;
+            match room.room_state(&state) {
+                ServerMsg::RoomState {
+                    storyteller_pool_active,
+                    storyteller_pool_players,
+                    ..
+                } => {
+                    assert!(storyteller_pool_active);
+                    assert_eq!(storyteller_pool_players, vec!["b".to_string()]);
+                }
+                _ => return Err(anyhow!("Expected RoomState")),
+            }
+        }
+
+        {
+            let mut state = room.state.write().await;
+            let converted = room
+                .convert_player_to_observer(&mut state, "b", false)
+                .await?;
+            assert!(converted, "expected selected player to become observer");
+            assert!(
+                state
+                    .storyteller_pool_member_auth_ids
+                    .contains(&storyteller_room_auth_id),
+                "observer conversions should keep the saved storyteller pool selection"
+            );
+        }
+
+        {
+            let state = room.state.write().await;
+            match room.room_state(&state) {
+                ServerMsg::RoomState {
+                    storyteller_pool_active,
+                    storyteller_pool_players,
+                    ..
+                } => {
+                    assert!(
+                        !storyteller_pool_active,
+                        "pool should auto-disable while no selected member is currently active"
+                    );
+                    assert_eq!(
+                        storyteller_pool_players,
+                        vec!["b".to_string()],
+                        "saved pool members should still be shown while the pool is inactive"
+                    );
+                }
+                _ => return Err(anyhow!("Expected RoomState")),
+            }
+        }
+
+        {
+            let mut state = room.state.write().await;
+            let promoted = room.promote_observer_immediately(&mut state, "b").await?;
+            assert!(
+                promoted,
+                "expected selected observer to be promoted back to active"
+            );
+        }
+
+        let state = room.state.write().await;
+        match room.room_state(&state) {
+            ServerMsg::RoomState {
+                storyteller_pool_active,
+                storyteller_pool_players,
+                ..
+            } => {
+                assert!(
+                    storyteller_pool_active,
+                    "pool should automatically reactivate once a selected member becomes active again"
+                );
+                assert_eq!(storyteller_pool_players, vec!["b".to_string()]);
+            }
+            _ => return Err(anyhow!("Expected RoomState")),
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn removing_preclue_selected_storyteller_disables_pool_and_falls_back_unrestricted(
+    ) -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        add_player(&mut state, "a", 0);
+        add_player(&mut state, "b", 0);
+        add_player(&mut state, "c", 0);
+        state.stage = RoomStage::ActiveChooses;
+        state.player_order = vec!["a".into(), "b".into(), "c".into()];
+        state.active_player = 0;
+        state.current_description.clear();
+        set_storyteller_count(&mut state, "a", 5);
+        set_storyteller_count(&mut state, "b", 2);
+        set_storyteller_count(&mut state, "c", 1);
+        let storyteller_room_auth_id = set_storyteller_pool_members(&room, &mut state, &["a"])
+            .into_iter()
+            .next()
+            .ok_or_else(|| anyhow!("expected storyteller pool auth id"))?;
+
+        let removed = room.remove_player(&mut state, "a", None).await?;
+        assert!(removed, "expected selected storyteller to be removed");
+        assert!(
+            !state
+                .storyteller_pool_member_auth_ids
+                .contains(&storyteller_room_auth_id),
+            "kicked members should be pruned from the saved storyteller pool"
+        );
+        assert_eq!(
+            state.player_order[state.active_player], "c",
+            "once the restricted pool becomes inactive, pre-clue storyteller replacement should fall back to the unrestricted lowest-count player"
+        );
+
+        match room.room_state(&state) {
+            ServerMsg::RoomState {
+                storyteller_pool_active,
+                storyteller_pool_players,
+                ..
+            } => {
+                assert!(
+                    !storyteller_pool_active,
+                    "pool should auto-disable after its last selected active member is removed"
+                );
+                assert!(
+                    storyteller_pool_players.is_empty(),
+                    "removed selected members should disappear from the saved storyteller pool summary"
+                );
+            }
+            _ => return Err(anyhow!("Expected RoomState")),
+        }
 
         Ok(())
     }
@@ -16793,6 +17393,64 @@ alpha
         assert!(
             room.should_end_game(&state),
             "observer scores should satisfy the points win condition"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn storyteller_success_points_only_changes_storyteller_reward_in_successful_round(
+    ) -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        add_player(&mut state, "a", 0);
+        add_player(&mut state, "b", 0);
+        add_player(&mut state, "c", 0);
+        add_player(&mut state, "d", 0);
+        state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into()];
+        state.active_player = 0;
+        state.storyteller_loss_complement = 0;
+        state.storyteller_loss_complement_auto = false;
+        state.storyteller_success_points = 5;
+
+        state
+            .player_to_current_cards
+            .insert("a".into(), vec!["ca".into()]);
+        state
+            .player_to_current_cards
+            .insert("b".into(), vec!["cb".into()]);
+        state
+            .player_to_current_cards
+            .insert("c".into(), vec!["cc".into()]);
+        state
+            .player_to_current_cards
+            .insert("d".into(), vec!["cd".into()]);
+
+        state.player_to_votes.insert("b".into(), vec!["ca".into()]);
+        state.player_to_votes.insert("c".into(), vec!["cd".into()]);
+        state.player_to_votes.insert("d".into(), vec!["cc".into()]);
+
+        let point_change = room.compute_results(&state);
+        assert_eq!(
+            point_change.get("a").copied(),
+            Some(5),
+            "successful storyteller rounds should use the configured storyteller success score"
+        );
+        assert_eq!(
+            point_change.get("b").copied(),
+            Some(3),
+            "correct guessers should keep their existing +3 base reward"
+        );
+        assert_eq!(
+            point_change.get("c").copied(),
+            Some(1),
+            "non-storyteller decoy scoring should remain unchanged"
+        );
+        assert_eq!(
+            point_change.get("d").copied(),
+            Some(1),
+            "other non-storyteller scoring branches should remain unchanged"
         );
 
         Ok(())
