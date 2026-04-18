@@ -48,7 +48,8 @@ function normalizeMode(value: unknown): LeaderboardViewMode | null {
 		value === 'total' ||
 		value === 'story_only' ||
 		value === 'beauty_only' ||
-		value === 'combined'
+		value === 'combined' ||
+		value === 'clue_stars'
 	) {
 		return value;
 	}

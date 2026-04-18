@@ -17,6 +17,12 @@
 		storytellerLeaderboardPointChange
 	} from '$lib/mostBeautiful';
 	import {
+		clearClueRatingResults,
+		resetClueRatingClientState,
+		setClueRatingResults,
+		setClueRatingRoomState
+	} from '$lib/clueRating';
+	import {
 		readRoomMigrationOverride,
 		resetCurrentRoomMigration,
 		setCurrentRoomAuthId,
@@ -64,6 +70,7 @@
 	import PlayersChoose from './PlayersChoose.svelte';
 	import Voting from './Voting.svelte';
 	import BeautyVoting from './BeautyVoting.svelte';
+	import ClueRating from './ClueRating.svelte';
 	import Results from './Results.svelte';
 	import BeautyResults from './BeautyResults.svelte';
 	import Paused from './Paused.svelte';
@@ -214,6 +221,7 @@
 	let stellaCardPoints: { [key: string]: number } = {};
 	let previousScoutTurnKey = '';
 	let hasLoadedMostBeautifulStats = false;
+	let clueRatingStageMaxStars = 3;
 
 	// store
 	let toastStore = getToastStore();
@@ -336,6 +344,7 @@
 			clearTimeout(stageVisualCueTimeout);
 		}
 		resetMostBeautifulClientState();
+		resetClueRatingClientState();
 		resetCurrentRoomMigration();
 		if (gameServer) {
 			rejoin = false;
@@ -485,6 +494,17 @@
 				forceCardChoosingTimer = data.RoomState.force_card_choosing_timer ?? false;
 				forceVotingTimer = data.RoomState.force_voting_timer ?? false;
 				forceBeautyTimer = data.RoomState.force_beauty_timer ?? false;
+				setClueRatingRoomState({
+					enabled: data.RoomState.clue_rating_enabled ?? false,
+					maxStars: data.RoomState.clue_rating_max_stars ?? 3,
+					minStars: data.RoomState.clue_rating_max_stars_min ?? 1,
+					maxStarsLimit: data.RoomState.clue_rating_max_stars_max ?? 10,
+					timerEnabled: data.RoomState.clue_rating_timer_enabled ?? true,
+					timerDurationS: data.RoomState.clue_rating_timer_duration_s ?? 20,
+					forceTimer: data.RoomState.force_clue_rating_timer ?? false,
+					memberAverage: data.RoomState.member_to_clue_rating_average ?? {},
+					memberRounds: data.RoomState.member_to_clue_rating_rounds ?? {}
+				});
 				serverTimeMs = data.RoomState.server_time_ms ?? null;
 				currentStageDeadlineS = data.RoomState.current_stage_deadline_s ?? null;
 				votingWrongCardDisableDistribution = data.RoomState
@@ -555,6 +575,7 @@
 				beautyVoteTotals = {};
 				beautyWinningCards = [];
 				storytellerChosenCard = '';
+				clearClueRatingResults();
 			} else if (data.PlayersChoose) {
 				setStage('PlayersChoose');
 				votingLayoutSeed = null;
@@ -569,6 +590,7 @@
 				beautyVoteTotals = {};
 				beautyWinningCards = [];
 				storytellerChosenCard = data.PlayersChoose.chosen_card || '';
+				clearClueRatingResults();
 			} else if (data.BeginVoting) {
 				setStage('Voting');
 				votingLayoutSeed = data.BeginVoting.voting_layout_seed || votingLayoutSeed;
@@ -583,6 +605,7 @@
 				storytellerLeaderboardPointChange.set({});
 				beautyLeaderboardPointChange.set({});
 				storytellerChosenCard = '';
+				clearClueRatingResults();
 			} else if (data.BeginBeautyVoting) {
 				setStage('BeautyVoting');
 				votingLayoutSeed = data.BeginBeautyVoting.voting_layout_seed || votingLayoutSeed;
@@ -595,6 +618,14 @@
 				storytellerLeaderboardPointChange.set({});
 				beautyLeaderboardPointChange.set({});
 				votingDisabledCards = [];
+				clearClueRatingResults();
+			} else if (data.BeginClueRating) {
+				setStage('ClueRating');
+				description = data.BeginClueRating.description || description;
+				clueRatingStageMaxStars = data.BeginClueRating.max_stars ?? clueRatingStageMaxStars;
+				storytellerLeaderboardPointChange.set({});
+				beautyLeaderboardPointChange.set({});
+				clearClueRatingResults();
 			} else if (data.Results) {
 				setStage('Results');
 				currentStageDeadlineS = null;
@@ -610,6 +641,15 @@
 				beautyLeaderboardPointChange.set(beautyPointChange);
 				beautyVoteTotals = data.Results.beauty_vote_totals || {};
 				beautyWinningCards = data.Results.beauty_winning_cards || [];
+				setClueRatingResults({
+					playerRatings: data.Results.player_to_clue_rating || {},
+					average:
+						data.Results.clue_rating_average === undefined
+							? null
+							: data.Results.clue_rating_average,
+					count: data.Results.clue_rating_count ?? 0,
+					bonus: data.Results.clue_rating_bonus ?? 0
+				});
 				votingDisabledCards = [];
 				beautyDisabledCards = [];
 				storytellerChosenCard = '';
@@ -631,6 +671,7 @@
 				beautyWinningCards = data.BeautyResults.beauty_winning_cards || [];
 				votingDisabledCards = [];
 				beautyDisabledCards = [];
+				clearClueRatingResults();
 				if (gameMode === 'dixit_plus') {
 					void refreshMostBeautifulStats();
 				}
@@ -647,6 +688,7 @@
 				pointChange = {};
 				storytellerLeaderboardPointChange.set({});
 				beautyLeaderboardPointChange.set({});
+				clearClueRatingResults();
 			} else if (data.StellaReveal) {
 				setStage('StellaReveal');
 				votingLayoutSeed = null;
@@ -660,6 +702,7 @@
 				pointChange = data.StellaReveal.point_change || {};
 				storytellerLeaderboardPointChange.set({});
 				beautyLeaderboardPointChange.set({});
+				clearClueRatingResults();
 				activePlayer = data.StellaReveal.scout || activePlayer;
 				stellaDarkPlayer = data.StellaReveal.dark_player || stellaDarkPlayer;
 			} else if (data.StellaResults) {
@@ -674,6 +717,7 @@
 				pointChange = data.StellaResults.point_change || {};
 				storytellerLeaderboardPointChange.set({});
 				beautyLeaderboardPointChange.set({});
+				clearClueRatingResults();
 				stellaDarkPlayer = data.StellaResults.dark_player || stellaDarkPlayer;
 			} else if (data.ErrorMsg) {
 				if (!hasReceivedRoomState && usingRoomAuthOverride()) {
@@ -720,6 +764,7 @@
 				setStage('End');
 				currentStageDeadlineS = null;
 				storytellerChosenCard = '';
+				clearClueRatingResults();
 				if (gameMode === 'dixit_plus') {
 					void refreshMostBeautifulStats();
 				}
@@ -1327,6 +1372,26 @@
 			{winCondition}
 			cardNumberLabels={displayImageBadgeLabels}
 			disabledCards={beautyDisabledCards}
+		/>
+	{:else if stage === 'ClueRating'}
+		<ClueRating
+			{name}
+			{creator}
+			{moderators}
+			{observers}
+			{activePlayer}
+			{gameServer}
+			{description}
+			{players}
+			{serverTimeMs}
+			{currentStageDeadlineS}
+			{stage}
+			{pointChange}
+			{roundNum}
+			{cardsRemaining}
+			{deckRefillFlashToken}
+			{winCondition}
+			maxStars={clueRatingStageMaxStars}
 		/>
 	{:else if stage === 'Results'}
 		<Results

@@ -9,6 +9,15 @@
 		beautyVotePointsDivisorMode as beautyVotePointsDivisorModeStore,
 		beautyVotePointsDivisorPlayerCountBase as beautyVotePointsDivisorPlayerCountBaseStore
 	} from '$lib/mostBeautiful';
+	import {
+		clueRatingEnabled as clueRatingEnabledStore,
+		clueRatingMaxStars as clueRatingMaxStarsStore,
+		clueRatingMaxStarsMax as clueRatingMaxStarsMaxStore,
+		clueRatingMaxStarsMin as clueRatingMaxStarsMinStore,
+		clueRatingTimerDurationS as clueRatingTimerDurationSStore,
+		clueRatingTimerEnabled as clueRatingTimerEnabledStore,
+		forceClueRatingTimer as forceClueRatingTimerStore
+	} from '$lib/clueRating';
 	import type {
 		BeautyScoringMode,
 		BeautyVotePointsDivisorMode,
@@ -44,6 +53,7 @@
 	const STORYTELLER_CHOOSING_ONLY_HINT = 'Can only be changed during storyteller choosing stage.';
 	const BEFORE_VOTING_HINT = 'Can only be changed before voting starts.';
 	const BEFORE_BEAUTY_VOTING_HINT = 'Can only be changed before beauty voting starts.';
+	const BEFORE_CLUE_RATING_HINT = 'Can only be changed before clue rating starts.';
 	const BEFORE_RESULTS_HINT = 'Can only be changed before results are revealed.';
 	const LIVE_DIXIT_STAGE_HINT = 'Can only be changed during a live Dixit stage.';
 	const STAGE_TIMER_DURATION_MIN_S = 1;
@@ -144,7 +154,10 @@
 	$: isStellaMode = gameMode === 'stella';
 	$: isDixitMode = gameMode !== 'stella';
 	$: selfObserveBlocked =
-		(stage === 'PlayersChoose' || stage === 'Voting' || stage === 'BeautyVoting') &&
+		(stage === 'PlayersChoose' ||
+			stage === 'Voting' ||
+			stage === 'BeautyVoting' ||
+			stage === 'ClueRating') &&
 		activePlayer === name;
 	$: canBecomeObserver =
 		!isSelfObserver && stage !== 'Joining' && stage !== 'End' && !selfObserveBlocked;
@@ -154,6 +167,7 @@
 			stage === 'PlayersChoose' ||
 			stage === 'Voting' ||
 			stage === 'BeautyVoting' ||
+			stage === 'ClueRating' ||
 			stage === 'Results' ||
 			stage === 'BeautyResults');
 	$: canChangeCardsPerHand = isDixitMode && stage === 'ActiveChooses';
@@ -161,6 +175,12 @@
 		isDixitMode && (stage === 'ActiveChooses' || stage === 'PlayersChoose');
 	$: canChangeBeforeBeautyVotingSettings =
 		isDixitMode && (stage === 'ActiveChooses' || stage === 'PlayersChoose' || stage === 'Voting');
+	$: canChangeBeforeClueRatingSettings =
+		isDixitMode &&
+		(stage === 'ActiveChooses' ||
+			stage === 'PlayersChoose' ||
+			stage === 'Voting' ||
+			stage === 'BeautyVoting');
 	$: canChangeBeforeResultsSettings =
 		isDixitMode &&
 		(stage === 'ActiveChooses' ||
@@ -220,7 +240,7 @@
 		!!selfObserverInfo &&
 		(selfObserverInfo.join_requested || selfObserverInfo.auto_join_on_next_round);
 	$: selfJoinBackLabel =
-		stage === 'Voting' || stage === 'BeautyVoting'
+		stage === 'Voting' || stage === 'BeautyVoting' || stage === 'ClueRating'
 			? selfJoinPending
 				? 'Cancel pending join'
 				: 'Join next round'
@@ -302,7 +322,7 @@
 	}
 
 	function observerJoinActionLabel(observerInfo: ObserverInfo) {
-		if (stage !== 'Voting' && stage !== 'BeautyVoting') return 'Join now';
+		if (stage !== 'Voting' && stage !== 'BeautyVoting' && stage !== 'ClueRating') return 'Join now';
 		const pending = observerInfo.join_requested || observerInfo.auto_join_on_next_round;
 		return pending ? 'Cancel pending join' : 'Join next round';
 	}
@@ -513,6 +533,35 @@
 		gameServer.setBeautyResultsDisplayMode(select.value as BeautyResultsDisplayMode);
 	}
 
+	function updateClueRatingEnabled(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		if (!isModerator || !canChangeBeforeClueRatingSettings) {
+			input.checked = $clueRatingEnabledStore;
+			return;
+		}
+		gameServer.setClueRatingEnabled(input.checked);
+	}
+
+	function updateClueRatingMaxStars(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const parsed = Number(input.value);
+		if (!isModerator || !canChangeBeforeClueRatingSettings) {
+			input.value = `${$clueRatingMaxStarsStore}`;
+			return;
+		}
+		if (
+			!Number.isInteger(parsed) ||
+			parsed < $clueRatingMaxStarsMinStore ||
+			parsed > $clueRatingMaxStarsMaxStore
+		) {
+			input.value = `${$clueRatingMaxStarsStore}`;
+			return;
+		}
+		if (parsed !== $clueRatingMaxStarsStore) {
+			gameServer.setClueRatingMaxStars(parsed);
+		}
+	}
+
 	function updateShowPreviousResultsDuringStorytellerChoosing(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
 		if (!isModerator || !canChangeLiveDixitSettings) {
@@ -710,6 +759,18 @@
 		);
 	}
 
+	function updateClueRatingTimerEnabled(event: Event) {
+		updateStageTimerToggle(event, $clueRatingTimerEnabledStore, (enabled) =>
+			gameServer.setClueRatingTimerEnabled(enabled)
+		);
+	}
+
+	function updateClueRatingTimerDuration(event: Event) {
+		updateStageTimerDuration(event, $clueRatingTimerDurationSStore, (seconds) =>
+			gameServer.setClueRatingTimerDuration(seconds)
+		);
+	}
+
 	function updateForceCardChoosingTimer(event: Event) {
 		updateStageTimerToggle(event, forceCardChoosingTimer, (enabled) =>
 			gameServer.setForceCardChoosingTimer(enabled)
@@ -725,6 +786,12 @@
 	function updateForceBeautyTimer(event: Event) {
 		updateStageTimerToggle(event, forceBeautyTimer, (enabled) =>
 			gameServer.setForceBeautyTimer(enabled)
+		);
+	}
+
+	function updateForceClueRatingTimer(event: Event) {
+		updateStageTimerToggle(event, $forceClueRatingTimerStore, (enabled) =>
+			gameServer.setForceClueRatingTimer(enabled)
 		);
 	}
 
@@ -1375,6 +1442,49 @@
 										<span>Force timeout by skipping missing beauty votes</span>
 									</label>
 								</div>
+								<div class="rounded border border-white/15 px-2 py-2">
+									<div class="flex items-start justify-between gap-3">
+										<div>
+											<p class="font-medium">Clue rating</p>
+											<p class="text-xs opacity-70">Optional star-voting countdown.</p>
+										</div>
+										<label class="flex items-center gap-2 text-sm">
+											<input
+												type="checkbox"
+												class="h-4 w-4 cursor-pointer accent-primary-500"
+												checked={$clueRatingTimerEnabledStore}
+												on:change={updateClueRatingTimerEnabled}
+												disabled={!isModerator || !canChangeStageTimers}
+											/>
+											<span>Enabled</span>
+										</label>
+									</div>
+									<div class="mt-2 flex items-center gap-2">
+										<input
+											type="number"
+											class="w-24 rounded border px-2 py-1 text-gray-700 shadow"
+											min={STAGE_TIMER_DURATION_MIN_S}
+											max={STAGE_TIMER_DURATION_MAX_S}
+											step="1"
+											value={$clueRatingTimerDurationSStore}
+											on:change={updateClueRatingTimerDuration}
+											disabled={!isModerator || !canChangeStageTimers}
+										/>
+										<span class="text-xs opacity-75"
+											>{STAGE_TIMER_DURATION_MIN_S}–{STAGE_TIMER_DURATION_MAX_S}s</span
+										>
+									</div>
+									<label class="mt-2 flex items-start gap-3 text-sm">
+										<input
+											type="checkbox"
+											class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
+											checked={$forceClueRatingTimerStore}
+											on:change={updateForceClueRatingTimer}
+											disabled={!isModerator || !canChangeStageTimers}
+										/>
+										<span>Force timeout by skipping missing star votes</span>
+									</label>
+								</div>
 							{/if}
 						{/if}
 					</div>
@@ -1935,8 +2045,48 @@
 								with a local Previous Results / My Cards switch for active players
 							</span>
 						</label>
+						<div class="mt-3 rounded border border-white/15 px-3 py-3">
+							<p class="text-sm font-medium">Clue rating</p>
+							<p class="mt-1 text-xs opacity-75">
+								Optional star-vote stage after storyteller and beauty voting, before results.
+							</p>
+							<label class="mt-3 flex items-start gap-3 text-sm">
+								<input
+									type="checkbox"
+									class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
+									checked={$clueRatingEnabledStore}
+									on:change={updateClueRatingEnabled}
+									disabled={!isModerator || !canChangeBeforeClueRatingSettings}
+								/>
+								<span>Enable clue rating stage</span>
+							</label>
+							<div class="mt-3 grid gap-3 md:grid-cols-2">
+								<div>
+									<label class="text-sm font-medium" for="clue-rating-max-stars"> Max stars </label>
+									<input
+										id="clue-rating-max-stars"
+										type="number"
+										class="mt-1 w-full rounded border px-2 py-1 text-gray-700 shadow"
+										min={$clueRatingMaxStarsMinStore}
+										max={$clueRatingMaxStarsMaxStore}
+										step="1"
+										value={$clueRatingMaxStarsStore}
+										on:change={updateClueRatingMaxStars}
+										disabled={!isModerator || !canChangeBeforeClueRatingSettings}
+									/>
+									<p class="mt-1 text-xs opacity-75">
+										Range: {$clueRatingMaxStarsMinStore}–{$clueRatingMaxStarsMaxStore}
+									</p>
+								</div>
+								<div class="rounded border border-white/10 px-3 py-2 text-xs opacity-80">
+									Storyteller bonus = max(round(average stars) - 1, 0).
+								</div>
+							</div>
+						</div>
 						{#if !canChangeBeforeBeautyVotingSettings}
 							<p class="mt-1 text-xs opacity-70">{BEFORE_BEAUTY_VOTING_HINT}</p>
+						{:else if !canChangeBeforeClueRatingSettings}
+							<p class="mt-1 text-xs opacity-70">{BEFORE_CLUE_RATING_HINT}</p>
 						{:else if !canChangeBeforeResultsSettings}
 							<p class="mt-1 text-xs opacity-70">{BEFORE_RESULTS_HINT}</p>
 						{:else if !canChangeStorytellerScoringSettings}

@@ -2,6 +2,11 @@
 	import { getDesktopFitRowCount } from '$lib/cardGrid';
 	import { buildBeautyBadgeMetadata } from '$lib/beautyResults';
 	import {
+		resultsClueRatingAverage,
+		resultsClueRatingBonus,
+		resultsClueRatingCount
+	} from '$lib/clueRating';
+	import {
 		buildCardNumberNavigatorTargetId,
 		CARD_NUMBER_NAVIGATOR_SCROLL_MARGIN_TOP
 	} from '$lib/cardNumberNavigator';
@@ -132,6 +137,8 @@
 	$: resultsCardClass = (image: string) =>
 		`${resultHighlightClass(activeCard === image, beautyWinningCardSet.has(image))} relative overflow-hidden rounded-lg bg-slate-900/35 ${resultsDesktopFitClass}`;
 	$: resultsImageClass = `relative w-full object-cover object-center aspect-[2/3] ${resultsDesktopFitClass}`;
+	$: formattedClueRatingAverage =
+		$resultsClueRatingAverage === null ? null : $resultsClueRatingAverage.toFixed(1);
 
 	function resultHighlightClass(isStoryCard: boolean, isBeautyWinner: boolean) {
 		if (isStoryCard && isBeautyWinner) return 'result-highlight-story-beauty';
@@ -296,6 +303,19 @@
 					Review votes and scores, then continue to the next round.
 				{/if}
 			</p>
+			{#if formattedClueRatingAverage !== null}
+				<div class="rounded-xl bg-amber-400/10 px-3 py-2 text-sm">
+					<p class="font-semibold text-amber-200">
+						Clue stars: {formattedClueRatingAverage}★
+					</p>
+					<p class="text-white/75">
+						{$resultsClueRatingCount} rating{$resultsClueRatingCount === 1 ? '' : 's'} ·
+						{activePlayer} gets +{$resultsClueRatingBonus}
+					</p>
+				</div>
+			{:else}
+				<p class="text-sm opacity-75">Clue stars: no ratings recorded this round.</p>
+			{/if}
 		</div>
 		<div class="card light p-4">
 			<div class="space-y-4">
@@ -336,6 +356,19 @@
 					Review votes and scores, then continue to the next round.
 				{/if}
 			</p>
+			{#if formattedClueRatingAverage !== null}
+				<div class="rounded-xl bg-amber-400/10 px-3 py-2 text-sm">
+					<p class="font-semibold text-amber-200">
+						Clue stars: {formattedClueRatingAverage}★
+					</p>
+					<p class="text-white/75">
+						{$resultsClueRatingCount} rating{$resultsClueRatingCount === 1 ? '' : 's'} ·
+						{activePlayer} +{$resultsClueRatingBonus}
+					</p>
+				</div>
+			{:else}
+				<p class="text-sm opacity-75">Clue stars: no ratings recorded this round.</p>
+			{/if}
 		</div>
 	</svelte:fragment>
 

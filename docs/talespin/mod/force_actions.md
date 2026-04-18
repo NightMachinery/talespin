@@ -14,6 +14,7 @@ Current-stage moderator panels now expose two separate intervention buttons:
   - `PlayersChoose`
   - `Voting`
   - `BeautyVoting`
+  - `ClueRating`
   - `StellaAssociate`
   - manual `StellaReveal`
 - It is hidden during queued/auto-play Stella reveal, because there is no pending scout input to
@@ -32,5 +33,6 @@ Current-stage moderator panels now expose two separate intervention buttons:
 - `PlayersChoose`: offline non-storytellers who have not locked cards yet.
 - `Voting`: offline non-storytellers who have not submitted votes yet.
 - `BeautyVoting`: offline players who have not submitted beauty votes yet.
+- `ClueRating`: offline non-storytellers who have not submitted a star rating yet.
 - `StellaAssociate`: offline players who have not locked selections yet.
 - Manual `StellaReveal`: offline current scout.

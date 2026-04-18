@@ -5,7 +5,13 @@
 		setLeaderboardViewModePreference
 	} from '$lib/mostBeautiful';
 	import {
+		clueRatingEnabled,
+		memberClueRatingAverage,
+		memberClueRatingRounds
+	} from '$lib/clueRating';
+	import {
 		leaderboardDigitWidths,
+		resolveLeaderboardMode,
 		rankEntriesByMode,
 		scoreBreakdown,
 		type RankedLeaderboardEntry
@@ -43,13 +49,23 @@
 	let sortedObserverEntries: Array<{
 		name: string;
 		breakdown: ReturnType<typeof scoreBreakdown> | null;
+		clueStars: number | null;
 	}> = [];
 	let digitWidths = { total: 1, story: 1, beauty: 1 };
 	let showSinceJoined = false;
+	let activeLeaderboardViewMode: LeaderboardViewMode = 'total';
 
 	$: supportsBeautyModes = gameMode === 'dixit_plus' && beautyEnabled;
+	$: supportsClueStarsMode = gameMode === 'dixit_plus' && $clueRatingEnabled;
 	$: storytellerPoolPlayerSet = new Set(storytellerPoolPlayers);
-	$: activeLeaderboardViewMode = supportsBeautyModes ? $leaderboardViewMode : 'total';
+	$: activeLeaderboardViewMode = resolveLeaderboardMode(
+		$leaderboardViewMode,
+		supportsBeautyModes,
+		supportsClueStarsMode
+	);
+	$: if ($leaderboardViewMode !== activeLeaderboardViewMode) {
+		setLeaderboardViewModePreference(activeLeaderboardViewMode);
+	}
 	$: viewerJoinedRound = firstActiveRoundForPlayer(name);
 	$: canShowSinceJoined = supportsBeautyModes && viewerJoinedRound !== null;
 	$: if (!canShowSinceJoined) {
@@ -91,7 +107,8 @@
 		const names = allKnownNames();
 		const playerEntries = Object.entries(players).map(([playerName, info]) => ({
 			name: playerName,
-			breakdown: scoreBreakdown(info.points, $memberBeautyPoints[playerName] ?? 0)
+			breakdown: scoreBreakdown(info.points, $memberBeautyPoints[playerName] ?? 0),
+			clueStars: clueStarsForPlayer(playerName)
 		}));
 		const observerEntries = Object.entries(observers)
 			.sort(([a], [b]) => a.localeCompare(b))
@@ -100,13 +117,15 @@
 				breakdown:
 					info.points === null
 						? null
-						: scoreBreakdown(info.points, $memberBeautyPoints[observerName] ?? 0)
+						: scoreBreakdown(info.points, $memberBeautyPoints[observerName] ?? 0),
+				clueStars: clueStarsForPlayer(observerName)
 			}));
 		for (const knownName of names) {
 			if (!(knownName in players) && !(knownName in observers)) {
 				playerEntries.push({
 					name: knownName,
-					breakdown: scoreBreakdown(0, 0)
+					breakdown: scoreBreakdown(0, 0),
+					clueStars: clueStarsForPlayer(knownName)
 				});
 			}
 		}
@@ -139,7 +158,8 @@
 				const current = totals.get(playerName) ?? { total: 0, beauty: 0 };
 				return {
 					name: playerName,
-					breakdown: scoreBreakdown(current.total, current.beauty)
+					breakdown: scoreBreakdown(current.total, current.beauty),
+					clueStars: clueStarsForPlayer(playerName)
 				};
 			});
 		const observerEntries = names
@@ -148,7 +168,8 @@
 				const current = totals.get(playerName) ?? { total: 0, beauty: 0 };
 				return {
 					name: playerName,
-					breakdown: scoreBreakdown(current.total, current.beauty)
+					breakdown: scoreBreakdown(current.total, current.beauty),
+					clueStars: clueStarsForPlayer(playerName)
 				};
 			});
 		return {
@@ -181,6 +202,15 @@
 	function isStorytellerPoolPlayer(playerName: string) {
 		return storytellerPoolActive && storytellerPoolPlayerSet.has(playerName);
 	}
+
+	function clueStarsForPlayer(playerName: string) {
+		if (($memberClueRatingRounds[playerName] ?? 0) < 1) return null;
+		return $memberClueRatingAverage[playerName] ?? null;
+	}
+
+	function formatClueStars(value: number | null) {
+		return value === null ? 'NA' : value.toFixed(1);
+	}
 </script>
 
 <div class="px-3">
@@ -189,7 +219,7 @@
 
 		<div class="card light w-full max-w-2xl p-4 text-center">
 			<div class="mb-4 space-y-3">
-				{#if supportsBeautyModes}
+				{#if supportsBeautyModes || supportsClueStarsMode}
 					<label class="mx-auto block max-w-xs text-left text-sm">
 						<span class="mb-1 block text-xs font-semibold uppercase tracking-wide opacity-70">
 							Leaderboard view
@@ -200,12 +230,17 @@
 							on:change={handleViewModeChange}
 						>
 							<option value="total">Total</option>
-							<option value="beauty_only">Beauty Only</option>
-							<option value="story_only">Story Only</option>
-							<option value="combined">Combined</option>
+							{#if supportsBeautyModes}
+								<option value="beauty_only">Beauty Only</option>
+								<option value="story_only">Story Only</option>
+								<option value="combined">Combined</option>
+							{/if}
+							{#if supportsClueStarsMode}
+								<option value="clue_stars">Clue Stars</option>
+							{/if}
 						</select>
 					</label>
-					{#if canShowSinceJoined && viewerJoinedRound !== null}
+					{#if canShowSinceJoined && viewerJoinedRound !== null && activeLeaderboardViewMode !== 'clue_stars'}
 						<label class="mx-auto flex max-w-xs items-start gap-3 text-left text-sm">
 							<input
 								type="checkbox"
@@ -263,6 +298,8 @@
 								</div>
 							{:else if activeLeaderboardViewMode === 'beauty_only'}
 								{entry.breakdown.beauty}
+							{:else if activeLeaderboardViewMode === 'clue_stars'}
+								{formatClueStars(entry.clueStars)}
 							{:else if activeLeaderboardViewMode === 'story_only'}
 								{entry.breakdown.story}
 							{:else}
@@ -300,6 +337,8 @@
 										</div>
 									{:else if activeLeaderboardViewMode === 'beauty_only'}
 										{observerEntry.breakdown.beauty}
+									{:else if activeLeaderboardViewMode === 'clue_stars'}
+										{formatClueStars(observerEntry.clueStars ?? null)}
 									{:else if activeLeaderboardViewMode === 'story_only'}
 										{observerEntry.breakdown.story}
 									{:else}

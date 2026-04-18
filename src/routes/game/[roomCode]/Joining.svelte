@@ -1,6 +1,12 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import MigrateDeviceButton from '$lib/MigrateDeviceButton.svelte';
+	import {
+		clueRatingEnabled,
+		clueRatingMaxStars,
+		clueRatingMaxStarsMax,
+		clueRatingMaxStarsMin
+	} from '$lib/clueRating';
 	import { copyTextToClipboard } from '$lib/deviceMigration';
 	import type GameServer from '$lib/gameServer';
 	import {
@@ -289,6 +295,26 @@
 		const input = event.currentTarget as HTMLSelectElement;
 		if (!canEditSettings) return;
 		gameServer.setBeautyResultsDisplayMode(input.value as BeautyResultsDisplayMode);
+	}
+
+	function updateClueRatingEnabled(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		if (!canEditSettings) return;
+		gameServer.setClueRatingEnabled(input.checked);
+	}
+
+	function updateClueRatingMaxStars(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const value = Number(input.value);
+		if (
+			!canEditSettings ||
+			!Number.isInteger(value) ||
+			value < $clueRatingMaxStarsMin ||
+			value > $clueRatingMaxStarsMax
+		) {
+			return;
+		}
+		gameServer.setClueRatingMaxStars(value);
 	}
 
 	function updateShowPreviousResultsDuringStorytellerChoosing(event: Event) {
@@ -748,6 +774,40 @@
 										</p>
 									</div>
 								</label>
+								<div class="rounded border border-white/15 px-3 py-3">
+									<label class="flex items-start gap-3 text-sm">
+										<input
+											type="checkbox"
+											class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
+											checked={$clueRatingEnabled}
+											on:change={updateClueRatingEnabled}
+											disabled={!canEditSettings}
+										/>
+										<div>
+											<span class="block font-semibold">Enable clue rating</span>
+											<p class="text-xs opacity-70">Add a star-vote stage before results.</p>
+										</div>
+									</label>
+									<div class="mt-3">
+										<label class="text-sm font-semibold" for="clueRatingMaxStars">
+											Max stars
+										</label>
+										<input
+											id="clueRatingMaxStars"
+											class="mt-1 w-full rounded border px-3 py-2 text-gray-700"
+											type="number"
+											min={$clueRatingMaxStarsMin}
+											max={$clueRatingMaxStarsMax}
+											value={$clueRatingMaxStars}
+											on:change={updateClueRatingMaxStars}
+											disabled={!canEditSettings}
+										/>
+										<p class="mt-1 text-xs opacity-70">
+											Range: {$clueRatingMaxStarsMin}–{$clueRatingMaxStarsMax}. Bonus =
+											max(round(avg stars) - 1, 0).
+										</p>
+									</div>
+								</div>
 							</div>
 						</div>
 					{:else}

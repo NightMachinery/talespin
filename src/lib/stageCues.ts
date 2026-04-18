@@ -8,6 +8,7 @@ export const STAGE_CHANGE_CUE_STAGES = [
 	'PlayersChoose',
 	'Voting',
 	'BeautyVoting',
+	'ClueRating',
 	'Results',
 	'BeautyResults',
 	'StellaAssociate',
@@ -63,6 +64,14 @@ export const GAME_CUES: Record<GameCueId, GameCueDefinition> = {
 			{ frequencyHz: 698.46, durationS: 0.16 },
 			{ frequencyHz: 880, durationS: 0.18 },
 			{ frequencyHz: 1046.5, durationS: 0.18 }
+		],
+		visualTone: 'vote'
+	},
+	ClueRating: {
+		notes: [
+			{ frequencyHz: 880, durationS: 0.15 },
+			{ frequencyHz: 1174.66, durationS: 0.17 },
+			{ frequencyHz: 987.77, durationS: 0.19 }
 		],
 		visualTone: 'vote'
 	},

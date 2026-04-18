@@ -10,8 +10,15 @@
 		storytellerLeaderboardPointChange
 	} from '$lib/mostBeautiful';
 	import {
+		clueRatingEnabled,
+		memberClueRatingAverage,
+		memberClueRatingRounds,
+		resultsPlayerClueRatings
+	} from '$lib/clueRating';
+	import {
 		leaderboardDigitWidths,
 		leaderboardModeLabel,
+		resolveLeaderboardMode,
 		rankEntriesByMode,
 		scoreBreakdown,
 		type RankedLeaderboardEntry
@@ -61,6 +68,7 @@
 	};
 
 	let rankedPlayers: RankedLeaderboardEntry[] = [];
+	let activeLeaderboardViewMode: LeaderboardViewMode = 'total';
 	let winConditionLabel = '';
 	let previousFlashToken = 0;
 	let cardsRemainingFlashing = false;
@@ -78,7 +86,15 @@
 	$: isModerator = new Set(moderators).has(name);
 	$: storytellerPoolPlayerSet = new Set(storytellerPoolPlayers);
 	$: supportsBeautyModes = gameMode === 'dixit_plus' && beautyEnabled;
-	$: activeLeaderboardViewMode = supportsBeautyModes ? $leaderboardViewMode : 'total';
+	$: supportsClueStarsMode = gameMode === 'dixit_plus' && $clueRatingEnabled;
+	$: activeLeaderboardViewMode = resolveLeaderboardMode(
+		$leaderboardViewMode,
+		supportsBeautyModes,
+		supportsClueStarsMode
+	);
+	$: if ($leaderboardViewMode !== activeLeaderboardViewMode) {
+		setLeaderboardViewModePreference(activeLeaderboardViewMode);
+	}
 	$: pointChangeStage = leaderboardPointChangeStageOverride || stage;
 	$: effectivePointChange = leaderboardPointChangeOverride ?? pointChange;
 	$: effectiveStorytellerPointChange =
@@ -89,7 +105,8 @@
 		rankedPlayers = rankEntriesByMode(
 			Object.entries(players).map(([entryName, info]) => ({
 				name: entryName,
-				breakdown: scoreBreakdown(info.points, beautyPointsForPlayer(entryName))
+				breakdown: scoreBreakdown(info.points, beautyPointsForPlayer(entryName)),
+				clueStars: clueStarsForPlayer(entryName)
 			})),
 			activeLeaderboardViewMode
 		);
@@ -139,14 +156,18 @@
 		if (
 			stage === 'Joining' ||
 			stage === 'StellaAssociate' ||
+			stage === 'ClueRating' ||
 			stage === 'BeautyVoting' ||
 			stage === 'Results' ||
 			stage === 'BeautyResults' ||
 			stage === 'StellaResults'
 		) {
-			return true;
+			return stage !== 'ClueRating' || playerName !== activePlayer;
 		}
-		if ((stage === 'PlayersChoose' || stage === 'Voting') && playerName !== activePlayer) {
+		if (
+			(stage === 'PlayersChoose' || stage === 'Voting' || stage === 'ClueRating') &&
+			playerName !== activePlayer
+		) {
 			return true;
 		}
 		return false;
@@ -170,6 +191,9 @@
 	}
 
 	function displayedPointChangeForPlayer(playerName: string) {
+		if (activeLeaderboardViewMode === 'clue_stars') {
+			return 0;
+		}
 		if (!supportsBeautyModes) {
 			return effectivePointChange[playerName] ?? 0;
 		}
@@ -272,12 +296,33 @@
 	function widthStyle(digits: number) {
 		return `min-width: ${digits}ch;`;
 	}
+
+	function clueStarsForPlayer(playerName: string) {
+		if (($memberClueRatingRounds[playerName] ?? 0) < 1) return null;
+		return $memberClueRatingAverage[playerName] ?? null;
+	}
+
+	function formatClueStars(value: number | null) {
+		return value === null ? 'NA' : value.toFixed(1);
+	}
+
+	$: shouldShowResultsClueRatings = stage === 'Results' && supportsClueStarsMode;
+
+	function displayRoundClueRating(playerName: string, isObserverRow = false) {
+		if (isObserverRow || playerName === activePlayer) return '—';
+		const stars = $resultsPlayerClueRatings[playerName];
+		return typeof stars === 'number' ? `${stars}★` : '—';
+	}
+
+	function hasRoundClueRating(playerName: string) {
+		return typeof $resultsPlayerClueRatings[playerName] === 'number';
+	}
 </script>
 
 <div class="w-full">
 	<div class="card light p-4">
 		<h2 class="text-xl">Round {roundNum}</h2>
-		{#if supportsBeautyModes}
+		{#if supportsBeautyModes || supportsClueStarsMode}
 			<div class="mt-3 space-y-2 text-sm">
 				<label class="block">
 					<span class="mb-1 block text-xs font-semibold uppercase tracking-wide opacity-70">
@@ -289,9 +334,14 @@
 						on:change={handleViewModeChange}
 					>
 						<option value="total">Total</option>
-						<option value="beauty_only">Beauty Only</option>
-						<option value="story_only">Story Only</option>
-						<option value="combined">Combined</option>
+						{#if supportsBeautyModes}
+							<option value="beauty_only">Beauty Only</option>
+							<option value="story_only">Story Only</option>
+							<option value="combined">Combined</option>
+						{/if}
+						{#if supportsClueStarsMode}
+							<option value="clue_stars">Clue Stars</option>
+						{/if}
 					</select>
 				</label>
 				{#if isModerator && stage !== 'End'}
@@ -332,28 +382,38 @@
 			<div>
 				{#each rankedPlayers as entry}
 					<div class="flex items-center justify-between gap-2 py-0.5">
-						<div class="flex-auto">
-							{entry.rank}.
-							<span
-								class={`${entry.name === activePlayer ? 'boujee-text' : ''} ${!players[entry.name].connected ? 'opacity-50 grayscale' : ''}`}
-							>
-								{entry.name}
-							</span>
-							{#if isStorytellerPoolPlayer(entry.name)}
-								<span class="storyteller-pool-badge" title="In storyteller pool">✦</span>
-							{/if}
-							{#if darkPlayer !== '' && entry.name === darkPlayer}
-								<span title="In the Dark">🌑</span>
-							{/if}
-							{#if !players[entry.name].connected}
-								<span class="text-error-500">({OFFLINE_STATUS_LABEL})</span>
-							{/if}
-							{#if shouldShowReadyIndicator(entry.name)}
-								{#if players[entry.name].ready}
-									<span>🟢</span>
-								{:else}
-									<span>🔴</span>
+						<div class="flex min-w-0 flex-auto items-center gap-2">
+							<div class="min-w-0 flex-auto">
+								{entry.rank}.
+								<span
+									class={`${entry.name === activePlayer ? 'boujee-text' : ''} ${!players[entry.name].connected ? 'opacity-50 grayscale' : ''}`}
+								>
+									{entry.name}
+								</span>
+								{#if isStorytellerPoolPlayer(entry.name)}
+									<span class="storyteller-pool-badge" title="In storyteller pool">✦</span>
 								{/if}
+								{#if darkPlayer !== '' && entry.name === darkPlayer}
+									<span title="In the Dark">🌑</span>
+								{/if}
+								{#if !players[entry.name].connected}
+									<span class="text-error-500">({OFFLINE_STATUS_LABEL})</span>
+								{/if}
+								{#if shouldShowReadyIndicator(entry.name)}
+									{#if players[entry.name].ready}
+										<span>🟢</span>
+									{:else}
+										<span>🔴</span>
+									{/if}
+								{/if}
+							</div>
+							{#if shouldShowResultsClueRatings}
+								<span
+									class={`result-clue-rating ${hasRoundClueRating(entry.name) ? 'active' : ''}`}
+									title="Round star rating"
+								>
+									{displayRoundClueRating(entry.name)}
+								</span>
 							{/if}
 						</div>
 						<div class="shrink-0 text-right font-mono tabular-nums">
@@ -382,6 +442,8 @@
 								</div>
 							{:else if activeLeaderboardViewMode === 'beauty_only'}
 								{entry.breakdown.beauty}
+							{:else if activeLeaderboardViewMode === 'clue_stars'}
+								{formatClueStars(entry.clueStars)}
 							{:else if activeLeaderboardViewMode === 'story_only'}
 								{entry.breakdown.story}
 							{:else}
@@ -429,16 +491,23 @@
 						<div
 							class={`flex items-center justify-between gap-2 ${!observerEntry.info.connected ? 'opacity-50' : ''}`}
 						>
-							<div class="min-w-0 flex-auto break-words">
-								{observerEntry.name}
-								{#if isStorytellerPoolPlayer(observerEntry.name)}
-									<span class="storyteller-pool-badge" title="In storyteller pool">✦</span>
-								{/if}
-								{#if observerEntry.info.join_requested || observerEntry.info.auto_join_on_next_round}
-									<span class="opacity-70"> (joining next round)</span>
-								{/if}
-								{#if !observerEntry.info.connected}
-									<span class="opacity-70"> ({OFFLINE_STATUS_LABEL})</span>
+							<div class="flex min-w-0 flex-auto items-center gap-2">
+								<div class="min-w-0 flex-auto break-words">
+									{observerEntry.name}
+									{#if isStorytellerPoolPlayer(observerEntry.name)}
+										<span class="storyteller-pool-badge" title="In storyteller pool">✦</span>
+									{/if}
+									{#if observerEntry.info.join_requested || observerEntry.info.auto_join_on_next_round}
+										<span class="opacity-70"> (joining next round)</span>
+									{/if}
+									{#if !observerEntry.info.connected}
+										<span class="opacity-70"> ({OFFLINE_STATUS_LABEL})</span>
+									{/if}
+								</div>
+								{#if shouldShowResultsClueRatings}
+									<span class="result-clue-rating" title="Round star rating">
+										{displayRoundClueRating(observerEntry.name, true)}
+									</span>
 								{/if}
 							</div>
 							<div class="shrink-0 text-right font-mono tabular-nums">
@@ -469,6 +538,8 @@
 									</div>
 								{:else if activeLeaderboardViewMode === 'beauty_only'}
 									{observerEntry.breakdown.beauty}
+								{:else if activeLeaderboardViewMode === 'clue_stars'}
+									{formatClueStars(clueStarsForPlayer(observerEntry.name))}
 								{:else if activeLeaderboardViewMode === 'story_only'}
 									{observerEntry.breakdown.story}
 								{:else}
@@ -535,6 +606,26 @@
 		font-size: 0.72rem;
 		line-height: 1.2;
 		opacity: 0.78;
+	}
+
+	.result-clue-rating {
+		display: inline-flex;
+		min-width: 2.8rem;
+		align-items: center;
+		justify-content: center;
+		border-radius: 9999px;
+		border: 1px solid rgb(255 255 255 / 0.15);
+		background: rgb(255 255 255 / 0.06);
+		padding: 0.15rem 0.55rem;
+		font-size: 0.75rem;
+		font-weight: 700;
+		color: rgb(226 232 240 / 0.8);
+	}
+
+	.result-clue-rating.active {
+		border-color: rgb(253 224 71 / 0.45);
+		background: linear-gradient(135deg, rgb(250 204 21 / 0.22), rgb(251 191 36 / 0.1));
+		color: rgb(254 240 138);
 	}
 
 	@keyframes cards-refilled-pulse {

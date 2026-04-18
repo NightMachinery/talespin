@@ -4,6 +4,7 @@
 		beautyVotePointsDivisorEffective,
 		beautyVotePointsDivisorMode
 	} from '$lib/mostBeautiful';
+	import { clueRatingEnabled, clueRatingMaxStars } from '$lib/clueRating';
 	import type { BeautyResultsDisplayMode, GameMode } from '$lib/types';
 
 	export let gameMode: GameMode = 'dixit_plus';
@@ -127,6 +128,16 @@
 				<li>
 					Beauty duplicates: {beautyAllowDuplicateVotes ? 'allowed' : 'not allowed'}. Reveal mode: {beautyResultsDisplayMode}.
 				</li>
+			{/if}
+			{#if $clueRatingEnabled}
+				<li>
+					Clue stars: non-storytellers rate the clue from 1 to {$clueRatingMaxStars} star{$clueRatingMaxStars ===
+					1
+						? ''
+						: 's'}.
+				</li>
+				<li>Storyteller clue bonus: max(round(average stars) - 1, 0).</li>
+				<li>Skipped or timed-out raters are excluded from the average.</li>
 			{/if}
 		</ul>
 	{/if}

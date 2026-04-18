@@ -164,7 +164,9 @@
 							? 'Voting timer'
 							: stage === 'BeautyVoting'
 								? 'Beauty timer'
-								: 'Stage timer';
+								: stage === 'ClueRating'
+									? 'Clue rating timer'
+									: 'Stage timer';
 	$: stageTimerDisplay = formatCountdown(remainingStageTimerSeconds);
 	$: stageTimerExpired = hasStageTimer && remainingStageTimerSeconds === 0;
 </script>

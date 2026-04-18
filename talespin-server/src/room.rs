@@ -38,6 +38,7 @@ const DEFAULT_HINT_CHOOSING_TIMER_DURATION_S: u16 = 60;
 const DEFAULT_CARD_CHOOSING_TIMER_DURATION_S: u16 = 30;
 const DEFAULT_VOTING_TIMER_DURATION_S: u16 = 3 * 60;
 const DEFAULT_BEAUTY_TIMER_DURATION_S: u16 = 60;
+const DEFAULT_CLUE_RATING_TIMER_DURATION_S: u16 = 20;
 const DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION: [f64; 1] = [1.0];
 const VOTING_WRONG_CARD_DISABLE_SUM_TOLERANCE: f64 = 1e-6;
 const DEFAULT_BEAUTY_ENABLED: bool = false;
@@ -57,6 +58,10 @@ const MAX_BEAUTY_VOTE_POINTS_DIVISOR_TENTHS: u16 = 1000;
 const DEFAULT_BEAUTY_VOTE_POINTS_DIVISOR_PLAYER_COUNT_BASE: u16 = 4;
 const MIN_BEAUTY_VOTE_POINTS_DIVISOR_PLAYER_COUNT_BASE: u16 = 1;
 const MAX_BEAUTY_VOTE_POINTS_DIVISOR_PLAYER_COUNT_BASE: u16 = 100;
+const DEFAULT_CLUE_RATING_ENABLED: bool = false;
+const DEFAULT_CLUE_RATING_MAX_STARS: u16 = 3;
+const MIN_CLUE_RATING_MAX_STARS: u16 = 1;
+const MAX_CLUE_RATING_MAX_STARS: u16 = 10;
 pub(crate) const MAX_MEMBER_NAME_LEN: usize = 30;
 
 pub(crate) fn canonical_member_name(name: &str) -> &str {
@@ -133,6 +138,7 @@ pub enum LeaderboardViewMode {
     StoryOnly,
     BeautyOnly,
     Combined,
+    ClueStars,
 }
 
 #[derive(Debug, Serialize, Clone, PartialEq, Eq)]
@@ -143,6 +149,10 @@ pub struct DixitEndRoundHistoryEntry {
     active_players: Vec<String>,
     story_deltas: HashMap<String, u16>,
     beauty_deltas: HashMap<String, i32>,
+    clue_rating_sum: u16,
+    clue_rating_count: u16,
+    clue_rating_bonus: u16,
+    player_clue_ratings: HashMap<String, u16>,
     total_after_round: HashMap<String, u16>,
     beauty_total_after_round: HashMap<String, u16>,
     results_display_mode: BeautyResultsDisplayMode,
@@ -259,13 +269,22 @@ pub enum ServerMsg {
         voting_timer_duration_s: u16,
         beauty_timer_enabled: bool,
         beauty_timer_duration_s: u16,
+        clue_rating_enabled: bool,
+        clue_rating_max_stars: u16,
+        clue_rating_max_stars_min: u16,
+        clue_rating_max_stars_max: u16,
+        clue_rating_timer_enabled: bool,
+        clue_rating_timer_duration_s: u16,
         force_card_choosing_timer: bool,
         force_voting_timer: bool,
         force_beauty_timer: bool,
+        force_clue_rating_timer: bool,
         server_time_ms: u64,
         current_stage_deadline_s: Option<u64>,
         voting_wrong_card_disable_distribution: Vec<f64>,
         member_to_beauty_points: HashMap<String, u16>,
+        member_to_clue_rating_average: Box<HashMap<String, f64>>,
+        member_to_clue_rating_rounds: Box<HashMap<String, u16>>,
         leaderboard_view_mode_default: LeaderboardViewMode,
         leaderboard_view_mode_default_version: u64,
         dixit_end_round_history: Vec<DixitEndRoundHistoryEntry>,
@@ -312,10 +331,15 @@ pub enum ServerMsg {
         allow_duplicate_votes: bool,
         voting_layout_seed: String,
     },
+    BeginClueRating {
+        description: String,
+        max_stars: u16,
+    },
     Results {
         center_cards: Vec<String>,
         player_to_votes: HashMap<String, Vec<String>>,
         player_to_beauty_votes: HashMap<String, Vec<String>>,
+        player_to_clue_rating: Box<HashMap<String, u16>>,
         player_to_current_cards: HashMap<String, Vec<String>>,
         active_card: String,
         point_change: HashMap<String, i32>,
@@ -323,6 +347,9 @@ pub enum ServerMsg {
         beauty_point_change: HashMap<String, i32>,
         beauty_vote_totals: HashMap<String, u16>,
         beauty_winning_cards: Vec<String>,
+        clue_rating_average: Option<f64>,
+        clue_rating_count: u16,
+        clue_rating_bonus: u16,
     },
     BeautyResults {
         center_cards: Vec<String>,
@@ -508,6 +535,18 @@ pub enum ClientMsg {
     SetBeautyTimerDuration {
         seconds: u16,
     },
+    SetClueRatingEnabled {
+        enabled: bool,
+    },
+    SetClueRatingMaxStars {
+        stars: u16,
+    },
+    SetClueRatingTimerEnabled {
+        enabled: bool,
+    },
+    SetClueRatingTimerDuration {
+        seconds: u16,
+    },
     SetForceCardChoosingTimer {
         enabled: bool,
     },
@@ -515,6 +554,9 @@ pub enum ClientMsg {
         enabled: bool,
     },
     SetForceBeautyTimer {
+        enabled: bool,
+    },
+    SetForceClueRatingTimer {
         enabled: bool,
     },
     SetLeaderboardViewModeDefault {
@@ -586,6 +628,9 @@ pub enum ClientMsg {
     SubmitBeautyVotes {
         cards: Vec<String>,
     },
+    SubmitClueRating {
+        stars: u16,
+    },
     SubmitStellaSelection {
         cards: Vec<String>,
     },
@@ -615,6 +660,8 @@ pub enum RoomStage {
     Voting,
     // players vote on the most beautiful card after storyteller voting
     BeautyVoting,
+    // players rate the storyteller clue before results are revealed
+    ClueRating,
     // results are computed; circle back to ActiveChooses while deck is not empty
     Results,
     BeautyResults,
@@ -744,6 +791,14 @@ struct RoomState {
     beauty_timer_enabled: bool,
     // Most Beautiful timer duration in seconds
     beauty_timer_duration_s: u16,
+    // whether Dixit uses the optional clue-rating stage before results
+    clue_rating_enabled: bool,
+    // highest star value available during clue rating
+    clue_rating_max_stars: u16,
+    // whether to show a countdown during clue rating
+    clue_rating_timer_enabled: bool,
+    // clue rating timer duration in seconds
+    clue_rating_timer_duration_s: u16,
     // auto-fill missing player card choices at timeout
     force_hint_choosing_timer: bool,
     // auto-force storyteller switch / Resonance selections at hint-stage timeout
@@ -752,6 +807,8 @@ struct RoomState {
     force_voting_timer: bool,
     // skip missing Most Beautiful votes at timeout
     force_beauty_timer: bool,
+    // skip missing clue ratings at timeout
+    force_clue_rating_timer: bool,
     // probability distribution over additional wrong cards disabled per player during voting
     voting_wrong_card_disable_distribution: Vec<f64>,
     // store general stats about each player
@@ -790,6 +847,8 @@ struct RoomState {
     player_to_votes: HashMap<String, Vec<String>>,
     // for each player, the card(s) they voted for as most beautiful
     player_to_beauty_votes: HashMap<String, Vec<String>>,
+    // for each player, the star rating they gave the storyteller clue
+    player_to_clue_rating: HashMap<String, u16>,
     // voters whose ballot was completed or created via forced random voting
     forced_random_voters: HashSet<String>,
     // cached storyteller-stage point change for the current round
@@ -798,6 +857,10 @@ struct RoomState {
     beauty_point_change: HashMap<String, i32>,
     // accumulated beauty points already applied to each member this game
     member_to_beauty_points: HashMap<String, u16>,
+    // sum of recorded storyteller-round clue averages for each member in the current game
+    member_to_clue_rating_average_sum: HashMap<String, f64>,
+    // number of recorded storyteller clue-rating rounds for each member in the current game
+    member_to_clue_rating_rounds: HashMap<String, u16>,
     // cumulative beauty votes received during the current vote-divisor segment of this game
     vote_divisor_member_to_cumulative_beauty_votes: HashMap<String, u32>,
     // accumulated vote-divisor points already applied during the current vote-divisor segment
@@ -995,9 +1058,14 @@ impl Room {
             voting_timer_duration_s: DEFAULT_VOTING_TIMER_DURATION_S,
             beauty_timer_enabled: true,
             beauty_timer_duration_s: DEFAULT_BEAUTY_TIMER_DURATION_S,
+            clue_rating_enabled: DEFAULT_CLUE_RATING_ENABLED,
+            clue_rating_max_stars: DEFAULT_CLUE_RATING_MAX_STARS,
+            clue_rating_timer_enabled: true,
+            clue_rating_timer_duration_s: DEFAULT_CLUE_RATING_TIMER_DURATION_S,
             force_card_choosing_timer: false,
             force_voting_timer: false,
             force_beauty_timer: false,
+            force_clue_rating_timer: false,
             voting_wrong_card_disable_distribution: DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION
                 .to_vec(),
             players: HashMap::new(),
@@ -1016,10 +1084,13 @@ impl Room {
             player_to_current_cards: HashMap::new(),
             player_to_votes: HashMap::new(),
             player_to_beauty_votes: HashMap::new(),
+            player_to_clue_rating: HashMap::new(),
             forced_random_voters: HashSet::new(),
             storyteller_point_change: HashMap::new(),
             beauty_point_change: HashMap::new(),
             member_to_beauty_points: HashMap::new(),
+            member_to_clue_rating_average_sum: HashMap::new(),
+            member_to_clue_rating_rounds: HashMap::new(),
             vote_divisor_member_to_cumulative_beauty_votes: HashMap::new(),
             vote_divisor_member_to_points: HashMap::new(),
             vote_divisor_completed_rounds: 0,
@@ -1260,6 +1331,10 @@ impl Room {
         (MIN_BEAUTY_POINTS_BONUS, MAX_BEAUTY_POINTS_BONUS)
     }
 
+    fn clue_rating_max_stars_bounds(&self) -> (u16, u16) {
+        (MIN_CLUE_RATING_MAX_STARS, MAX_CLUE_RATING_MAX_STARS)
+    }
+
     fn storyteller_success_points_bounds(&self) -> (u16, u16) {
         (
             MIN_STORYTELLER_SUCCESS_POINTS,
@@ -1328,6 +1403,8 @@ impl Room {
             Self::clamp_stage_timer_duration_s(state.voting_timer_duration_s);
         state.beauty_timer_duration_s =
             Self::clamp_stage_timer_duration_s(state.beauty_timer_duration_s);
+        state.clue_rating_timer_duration_s =
+            Self::clamp_stage_timer_duration_s(state.clue_rating_timer_duration_s);
         self.refresh_current_stage_deadline(state);
     }
 
@@ -1370,6 +1447,9 @@ impl Room {
             RoomStage::BeautyVoting if state.beauty_timer_enabled => Some(u64::from(
                 Self::clamp_stage_timer_duration_s(state.beauty_timer_duration_s),
             )),
+            RoomStage::ClueRating if state.clue_rating_timer_enabled => Some(u64::from(
+                Self::clamp_stage_timer_duration_s(state.clue_rating_timer_duration_s),
+            )),
             _ => None,
         }
     }
@@ -1388,6 +1468,7 @@ impl Room {
                 | RoomStage::PlayersChoose
                 | RoomStage::Voting
                 | RoomStage::BeautyVoting
+                | RoomStage::ClueRating
                 | RoomStage::Results
                 | RoomStage::BeautyResults
         )
@@ -1414,6 +1495,17 @@ impl Room {
         )
     }
 
+    fn is_before_clue_rating_stage(stage: RoomStage) -> bool {
+        matches!(
+            stage,
+            RoomStage::Joining
+                | RoomStage::ActiveChooses
+                | RoomStage::PlayersChoose
+                | RoomStage::Voting
+                | RoomStage::BeautyVoting
+        )
+    }
+
     fn is_before_results_stage(stage: RoomStage) -> bool {
         matches!(
             stage,
@@ -1422,6 +1514,7 @@ impl Room {
                 | RoomStage::PlayersChoose
                 | RoomStage::Voting
                 | RoomStage::BeautyVoting
+                | RoomStage::ClueRating
         )
     }
 
@@ -1592,6 +1685,16 @@ impl Room {
     ) -> Result<()> {
         if self.beauty_enabled_for_round(state) {
             self.init_beauty_voting(state).await
+        } else if self.clue_rating_enabled_for_round(state) {
+            self.init_clue_rating(state)
+        } else {
+            self.init_results(state)
+        }
+    }
+
+    fn advance_post_beauty_stage(&self, state: &mut RwLockWriteGuard<'_, RoomState>) -> Result<()> {
+        if self.clue_rating_enabled_for_round(state) {
+            self.init_clue_rating(state)
         } else {
             self.init_results(state)
         }
@@ -1615,6 +1718,10 @@ impl Room {
             }
             RoomStage::Voting => self.force_finish_voting_stage(state).await,
             RoomStage::BeautyVoting => {
+                self.advance_post_beauty_stage(state)?;
+                Ok(true)
+            }
+            RoomStage::ClueRating => {
                 self.init_results(state)?;
                 Ok(true)
             }
@@ -1690,6 +1797,21 @@ impl Room {
                         .map(|_| player_name.clone())
                 })
                 .collect(),
+            RoomStage::ClueRating => {
+                let active_player = self.active_player_name(state);
+                state
+                    .player_order
+                    .iter()
+                    .filter(|player_name| active_player != Some(player_name.as_str()))
+                    .filter_map(|player_name| {
+                        state
+                            .players
+                            .get(player_name.as_str())
+                            .filter(|player| !player.connected && !player.ready)
+                            .map(|_| player_name.clone())
+                    })
+                    .collect()
+            }
             _ => Vec::new(),
         }
     }
@@ -1715,6 +1837,7 @@ impl Room {
             RoomStage::PlayersChoose
             | RoomStage::Voting
             | RoomStage::BeautyVoting
+            | RoomStage::ClueRating
             | RoomStage::StellaAssociate => {
                 for player_name in self.offline_pending_players_to_observerify(state) {
                     if self
@@ -1753,6 +1876,7 @@ impl Room {
             RoomStage::PlayersChoose => state.force_card_choosing_timer,
             RoomStage::Voting => state.force_voting_timer,
             RoomStage::BeautyVoting => state.force_beauty_timer,
+            RoomStage::ClueRating => state.force_clue_rating_timer,
             RoomStage::StellaReveal if state.stella_queue_during_association => true,
             RoomStage::StellaReveal => state.force_stella_scout_timer,
             _ => false,
@@ -1794,6 +1918,12 @@ impl Room {
         state.beauty_points_bonus = state.beauty_points_bonus.clamp(min_points, max_points);
     }
 
+    fn clamp_clue_rating_max_stars(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
+        let (min_stars, max_stars) = self.clue_rating_max_stars_bounds();
+        state.clue_rating_max_stars = state.clue_rating_max_stars.clamp(min_stars, max_stars);
+        self.clamp_clue_rating_submission_values(state);
+    }
+
     fn clamp_beauty_vote_points_divisor_tenths(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
         let (min_divisor, max_divisor) = self.beauty_vote_points_divisor_tenths_bounds();
         state.beauty_vote_points_divisor_tenths = state
@@ -1828,6 +1958,16 @@ impl Room {
         state.nominations_per_guesser = state.nominations_per_guesser.clamp(min_cards, max_cards);
         self.clamp_beauty_votes_per_player(state);
         self.clamp_beauty_vote_submission_lengths(state);
+    }
+
+    fn clamp_clue_rating_submission_values(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
+        let max_stars = state
+            .clue_rating_max_stars
+            .clamp(MIN_CLUE_RATING_MAX_STARS, MAX_CLUE_RATING_MAX_STARS);
+        state.player_to_clue_rating.retain(|_, stars| {
+            *stars = (*stars).clamp(MIN_CLUE_RATING_MAX_STARS, max_stars);
+            true
+        });
     }
 
     fn clamp_stella_settings(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
@@ -2004,8 +2144,17 @@ impl Room {
         usize::from(state.beauty_votes_per_player.clamp(1, max_votes))
     }
 
+    fn effective_clue_rating_max_stars(&self, state: &RwLockWriteGuard<'_, RoomState>) -> u16 {
+        let (min_stars, max_stars) = self.clue_rating_max_stars_bounds();
+        state.clue_rating_max_stars.clamp(min_stars, max_stars)
+    }
+
     fn beauty_enabled_for_round(&self, state: &RwLockWriteGuard<'_, RoomState>) -> bool {
         matches!(state.game_mode, GameMode::DixitPlus) && state.beauty_enabled
+    }
+
+    fn clue_rating_enabled_for_round(&self, state: &RwLockWriteGuard<'_, RoomState>) -> bool {
+        matches!(state.game_mode, GameMode::DixitPlus) && state.clue_rating_enabled
     }
 
     fn uses_separate_beauty_results_stage(&self, state: &RwLockWriteGuard<'_, RoomState>) -> bool {
@@ -2014,6 +2163,49 @@ impl Room {
                 state.beauty_results_display_mode,
                 BeautyResultsDisplayMode::Separate
             )
+    }
+
+    fn clue_rating_summary(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+    ) -> (Option<f64>, u16, u16) {
+        if state.player_to_clue_rating.is_empty() {
+            return (None, 0, 0);
+        }
+
+        let rating_sum = state
+            .player_to_clue_rating
+            .values()
+            .map(|stars| f64::from(*stars))
+            .sum::<f64>();
+        let rating_count = state.player_to_clue_rating.len().min(usize::from(u16::MAX)) as u16;
+        let average = rating_sum / f64::from(rating_count);
+        let rounded_average = average.round();
+        let bonus = if rounded_average <= 1.0 {
+            0
+        } else {
+            (rounded_average.min(f64::from(u16::MAX)) as u16).saturating_sub(1)
+        };
+
+        (Some(average), rating_count, bonus)
+    }
+
+    fn member_to_clue_rating_average_for_room_state(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+    ) -> HashMap<String, f64> {
+        state
+            .member_to_clue_rating_average_sum
+            .iter()
+            .filter_map(|(player, average_sum)| {
+                let round_count = state
+                    .member_to_clue_rating_rounds
+                    .get(player)
+                    .copied()
+                    .unwrap_or(0);
+                (round_count > 0).then(|| (player.clone(), *average_sum / f64::from(round_count)))
+            })
+            .collect()
     }
 
     fn has_pending_separate_beauty_results(&self, state: &RwLockWriteGuard<'_, RoomState>) -> bool {
@@ -2960,6 +3152,8 @@ impl Room {
                 score_log,
             })?;
 
+        let (_, clue_rating_count, clue_rating_bonus) = self.clue_rating_summary(state);
+        let clue_rating_sum = state.player_to_clue_rating.values().copied().sum::<u16>();
         let round_history_entry = DixitEndRoundHistoryEntry {
             round_num: state.round,
             storyteller: storyteller_name,
@@ -2967,6 +3161,10 @@ impl Room {
             active_players: state.player_order.clone(),
             story_deltas: state.storyteller_point_change.clone(),
             beauty_deltas: state.beauty_point_change.clone(),
+            clue_rating_sum,
+            clue_rating_count,
+            clue_rating_bonus,
+            player_clue_ratings: state.player_to_clue_rating.clone(),
             total_after_round,
             beauty_total_after_round,
             results_display_mode: state.beauty_results_display_mode,
@@ -2985,6 +3183,8 @@ impl Room {
         state.current_dixit_game_started_at_s = Some(get_time_s());
         state.dixit_end_round_history.clear();
         state.previous_dixit_results = None;
+        state.member_to_clue_rating_average_sum.clear();
+        state.member_to_clue_rating_rounds.clear();
         self.reset_vote_divisor_segment(state);
     }
 
@@ -3287,6 +3487,7 @@ impl Room {
             | RoomStage::StellaReveal
             | RoomStage::Voting
             | RoomStage::BeautyVoting
+            | RoomStage::ClueRating
             | RoomStage::Results
             | RoomStage::BeautyResults => {
                 let observer_since_round = state.round;
@@ -3500,6 +3701,8 @@ impl Room {
         state.player_to_current_cards.clear();
         state.player_to_votes.clear();
         state.player_to_beauty_votes.clear();
+        state.player_to_clue_rating.clear();
+        state.forced_random_voters.clear();
         state.storyteller_point_change.clear();
         state.beauty_point_change.clear();
         state.player_to_disabled_voting_cards.clear();
@@ -4347,6 +4550,7 @@ impl Room {
 
         state.player_to_votes.remove(player_name);
         state.player_to_beauty_votes.remove(player_name);
+        state.player_to_clue_rating.remove(player_name);
 
         let removed_from_player_order = if let Some(pos) = state
             .player_order
@@ -4368,6 +4572,9 @@ impl Room {
         state.players.remove(player_name);
         state.observer_since_round.remove(player_name);
         state.storyteller_counts.remove(player_name);
+        state.member_to_beauty_points.remove(player_name);
+        state.member_to_clue_rating_average_sum.remove(player_name);
+        state.member_to_clue_rating_rounds.remove(player_name);
         state.moderators.remove(player_name);
         if state.creator.as_deref() == Some(player_name) {
             state.creator = None;
@@ -4619,6 +4826,35 @@ impl Room {
                 }
 
                 if state.players.values().all(|player| player.ready) {
+                    self.advance_post_beauty_stage(state)?;
+                } else {
+                    self.broadcast_msg(self.room_state(state))?;
+                }
+                return Ok(());
+            }
+            RoomStage::ClueRating => {
+                let active_exists = self
+                    .active_player_name(state)
+                    .map(|name| {
+                        state.players.contains_key(name)
+                            && state
+                                .player_to_current_cards
+                                .get(name)
+                                .map(|cards| !cards.is_empty())
+                                .unwrap_or(false)
+                    })
+                    .unwrap_or(false);
+                if !active_exists {
+                    self.sync_player_order_with_players(state);
+                    state.active_player = self
+                        .choose_random_lowest_storyteller_index(state)
+                        .unwrap_or(0);
+                    self.restart_round_keep_hands(state).await?;
+                    return Ok(());
+                }
+
+                let ready_count = state.players.values().filter(|player| player.ready).count();
+                if ready_count >= state.players.len().saturating_sub(1) {
                     self.init_results(state)?;
                 } else {
                     self.broadcast_msg(self.room_state(state))?;
@@ -4764,10 +5000,15 @@ impl Room {
                     .voting_layout_seed(state)
                     .unwrap_or_else(|| "0000000000000000".to_string()),
             }),
+            RoomStage::ClueRating => Ok(ServerMsg::BeginClueRating {
+                description: state.current_description.clone(),
+                max_stars: self.effective_clue_rating_max_stars(state),
+            }),
             RoomStage::Results => Ok(ServerMsg::Results {
                 center_cards: self.get_center_cards(state),
                 player_to_votes: state.player_to_votes.clone(),
                 player_to_beauty_votes: state.player_to_beauty_votes.clone(),
+                player_to_clue_rating: Box::new(state.player_to_clue_rating.clone()),
                 player_to_current_cards: state.player_to_current_cards.clone(),
                 active_card: state
                     .player_to_current_cards
@@ -4787,6 +5028,9 @@ impl Room {
                 beauty_point_change: state.beauty_point_change.clone(),
                 beauty_vote_totals: self.compute_beauty_vote_totals(state),
                 beauty_winning_cards: self.compute_beauty_winning_cards(state),
+                clue_rating_average: self.clue_rating_summary(state).0,
+                clue_rating_count: self.clue_rating_summary(state).1,
+                clue_rating_bonus: self.clue_rating_summary(state).2,
             }),
             RoomStage::BeautyResults => Ok(ServerMsg::BeautyResults {
                 center_cards: self.get_center_cards(state),
@@ -5054,9 +5298,283 @@ impl Room {
         self.broadcast_msg(self.room_state(state))?;
 
         if state.players.values().all(|player| player.ready) {
+            self.advance_post_beauty_stage(state)?;
+        }
+
+        Ok(())
+    }
+
+    async fn submit_clue_rating(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+        name: &str,
+        stars: u16,
+    ) -> Result<()> {
+        if !state.players.contains_key(name) {
+            return Ok(());
+        }
+
+        if !matches!(state.stage, RoomStage::ClueRating) || state.player_order.is_empty() {
+            return Ok(());
+        }
+
+        if state.player_order[state.active_player] == name {
+            if let Some(socket) = state.player_to_socket.get(name) {
+                socket
+                    .send(
+                        ServerMsg::ErrorMsg("Storyteller cannot rate their own clue".to_string())
+                            .into(),
+                    )
+                    .await?;
+            }
+            return Ok(());
+        }
+
+        let max_stars = self.effective_clue_rating_max_stars(state);
+        if stars < MIN_CLUE_RATING_MAX_STARS || stars > max_stars {
+            if let Some(socket) = state.player_to_socket.get(name) {
+                socket
+                    .send(
+                        ServerMsg::ErrorMsg(format!(
+                            "Clue rating must be between {} and {} star{}",
+                            MIN_CLUE_RATING_MAX_STARS,
+                            max_stars,
+                            if max_stars == 1 { "" } else { "s" }
+                        ))
+                        .into(),
+                    )
+                    .await?;
+            }
+            return Ok(());
+        }
+
+        state.player_to_clue_rating.insert(name.to_string(), stars);
+        if let Some(player) = state.players.get_mut(name) {
+            player.ready = true;
+        }
+        self.broadcast_msg(self.room_state(state))?;
+
+        if state.players.values().filter(|player| player.ready).count()
+            >= state.players.len().saturating_sub(1)
+        {
             self.init_results(state)?;
         }
 
+        Ok(())
+    }
+
+    async fn handle_set_clue_rating_enabled(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+        name: &str,
+        enabled: bool,
+    ) -> Result<()> {
+        if !self.is_moderator(state, name) {
+            if let Some(tx) = state.player_to_socket.get(name) {
+                tx.send(
+                    ServerMsg::ErrorMsg(
+                        "Only moderators can change clue rating settings".to_string(),
+                    )
+                    .into(),
+                )
+                .await?;
+            }
+            return Ok(());
+        }
+
+        if matches!(state.stage, RoomStage::End) || !matches!(state.game_mode, GameMode::DixitPlus)
+        {
+            return Ok(());
+        }
+
+        if !Self::is_before_clue_rating_stage(state.stage) {
+            if let Some(tx) = state.player_to_socket.get(name) {
+                tx.send(
+                    ServerMsg::ErrorMsg(
+                        "Clue rating entry settings can only be changed before clue rating starts"
+                            .to_string(),
+                    )
+                    .into(),
+                )
+                .await?;
+            }
+            return Ok(());
+        }
+
+        state.clue_rating_enabled = enabled;
+        self.broadcast_msg(self.room_state(state))?;
+        Ok(())
+    }
+
+    async fn handle_set_clue_rating_max_stars(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+        name: &str,
+        stars: u16,
+    ) -> Result<()> {
+        if !self.is_moderator(state, name) {
+            if let Some(tx) = state.player_to_socket.get(name) {
+                tx.send(
+                    ServerMsg::ErrorMsg(
+                        "Only moderators can change clue rating settings".to_string(),
+                    )
+                    .into(),
+                )
+                .await?;
+            }
+            return Ok(());
+        }
+
+        if matches!(state.stage, RoomStage::End) || !matches!(state.game_mode, GameMode::DixitPlus)
+        {
+            return Ok(());
+        }
+
+        if !Self::is_before_clue_rating_stage(state.stage) {
+            if let Some(tx) = state.player_to_socket.get(name) {
+                tx.send(
+                    ServerMsg::ErrorMsg(
+                        "Clue rating entry settings can only be changed before clue rating starts"
+                            .to_string(),
+                    )
+                    .into(),
+                )
+                .await?;
+            }
+            return Ok(());
+        }
+
+        state.clue_rating_max_stars = stars;
+        self.clamp_clue_rating_max_stars(state);
+        self.broadcast_msg(self.room_state(state))?;
+        Ok(())
+    }
+
+    async fn handle_set_clue_rating_timer_enabled(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+        name: &str,
+        enabled: bool,
+    ) -> Result<()> {
+        if !self.is_moderator(state, name) {
+            if let Some(tx) = state.player_to_socket.get(name) {
+                tx.send(
+                    ServerMsg::ErrorMsg(
+                        "Only moderators can change clue rating timer settings".to_string(),
+                    )
+                    .into(),
+                )
+                .await?;
+            }
+            return Ok(());
+        }
+
+        if matches!(state.stage, RoomStage::End) || !matches!(state.game_mode, GameMode::DixitPlus)
+        {
+            return Ok(());
+        }
+
+        if !Self::is_joining_or_live_dixit_stage(state.stage) {
+            if let Some(tx) = state.player_to_socket.get(name) {
+                tx.send(
+                    ServerMsg::ErrorMsg(
+                        "Stage timers can only be changed during live Dixit stages".to_string(),
+                    )
+                    .into(),
+                )
+                .await?;
+            }
+            return Ok(());
+        }
+
+        state.clue_rating_timer_enabled = enabled;
+        self.clamp_stage_timer_settings(state);
+        self.broadcast_msg(self.room_state(state))?;
+        Ok(())
+    }
+
+    async fn handle_set_clue_rating_timer_duration(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+        name: &str,
+        seconds: u16,
+    ) -> Result<()> {
+        if !self.is_moderator(state, name) {
+            if let Some(tx) = state.player_to_socket.get(name) {
+                tx.send(
+                    ServerMsg::ErrorMsg(
+                        "Only moderators can change clue rating timer settings".to_string(),
+                    )
+                    .into(),
+                )
+                .await?;
+            }
+            return Ok(());
+        }
+
+        if matches!(state.stage, RoomStage::End) || !matches!(state.game_mode, GameMode::DixitPlus)
+        {
+            return Ok(());
+        }
+
+        if !Self::is_joining_or_live_dixit_stage(state.stage) {
+            if let Some(tx) = state.player_to_socket.get(name) {
+                tx.send(
+                    ServerMsg::ErrorMsg(
+                        "Stage timers can only be changed during live Dixit stages".to_string(),
+                    )
+                    .into(),
+                )
+                .await?;
+            }
+            return Ok(());
+        }
+
+        state.clue_rating_timer_duration_s = seconds;
+        self.clamp_stage_timer_settings(state);
+        self.broadcast_msg(self.room_state(state))?;
+        Ok(())
+    }
+
+    async fn handle_set_force_clue_rating_timer(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+        name: &str,
+        enabled: bool,
+    ) -> Result<()> {
+        if !self.is_moderator(state, name) {
+            if let Some(tx) = state.player_to_socket.get(name) {
+                tx.send(
+                    ServerMsg::ErrorMsg(
+                        "Only moderators can change clue rating timer settings".to_string(),
+                    )
+                    .into(),
+                )
+                .await?;
+            }
+            return Ok(());
+        }
+
+        if matches!(state.stage, RoomStage::End) || !matches!(state.game_mode, GameMode::DixitPlus)
+        {
+            return Ok(());
+        }
+
+        if !Self::is_joining_or_live_dixit_stage(state.stage) {
+            if let Some(tx) = state.player_to_socket.get(name) {
+                tx.send(
+                    ServerMsg::ErrorMsg(
+                        "Stage timers can only be changed during live Dixit stages".to_string(),
+                    )
+                    .into(),
+                )
+                .await?;
+            }
+            return Ok(());
+        }
+
+        state.force_clue_rating_timer = enabled;
+        self.broadcast_msg(self.room_state(state))?;
         Ok(())
     }
 
@@ -5065,6 +5583,7 @@ impl Room {
         state.voting_order_seed = rand::thread_rng().gen::<u64>();
         state.player_to_votes.clear();
         state.player_to_beauty_votes.clear();
+        state.player_to_clue_rating.clear();
         state.forced_random_voters.clear();
         state.storyteller_point_change.clear();
         state.beauty_point_change.clear();
@@ -5220,6 +5739,7 @@ impl Room {
         self.clear_ready(state);
         state.player_to_disabled_voting_cards.clear();
         state.player_to_beauty_votes.clear();
+        state.player_to_clue_rating.clear();
 
         for player in state.player_order.iter() {
             let player_name = player.as_str();
@@ -5229,6 +5749,16 @@ impl Room {
         }
         self.broadcast_msg(self.room_state(state))?;
 
+        Ok(())
+    }
+
+    fn init_clue_rating(&self, state: &mut RwLockWriteGuard<'_, RoomState>) -> Result<()> {
+        self.set_stage(state, RoomStage::ClueRating);
+        self.clear_ready(state);
+        state.player_to_disabled_voting_cards.clear();
+        state.player_to_clue_rating.clear();
+        self.broadcast_msg(self.get_msg(None, state)?)?;
+        self.broadcast_msg(self.room_state(state))?;
         Ok(())
     }
 
@@ -5252,8 +5782,37 @@ impl Room {
             self.autofill_missing_storyteller_votes(state)?;
         }
 
+        let (clue_rating_average, _, clue_rating_bonus) = self.clue_rating_summary(state);
         self.set_stage(state, RoomStage::Results);
         state.storyteller_point_change = self.compute_results(state);
+        if clue_rating_bonus > 0 {
+            let active_player = self.get_active_player(state)?;
+            let storyteller_delta = state
+                .storyteller_point_change
+                .entry(active_player.clone())
+                .or_insert(0);
+            *storyteller_delta = storyteller_delta.saturating_add(clue_rating_bonus);
+            if let Some(round_average) = clue_rating_average {
+                *state
+                    .member_to_clue_rating_average_sum
+                    .entry(active_player.clone())
+                    .or_insert(0.0) += round_average;
+                *state
+                    .member_to_clue_rating_rounds
+                    .entry(active_player)
+                    .or_insert(0) += 1;
+            }
+        } else if let Some(round_average) = clue_rating_average {
+            let active_player = self.get_active_player(state)?;
+            *state
+                .member_to_clue_rating_average_sum
+                .entry(active_player.clone())
+                .or_insert(0.0) += round_average;
+            *state
+                .member_to_clue_rating_rounds
+                .entry(active_player)
+                .or_insert(0) += 1;
+        }
         state.beauty_point_change = self.compute_beauty_point_change(state);
         if from_beauty_voting {
             self.record_most_beautiful_round_stats(state)?;
@@ -5966,6 +6525,7 @@ impl Room {
         state.player_to_current_cards.clear();
         state.player_to_votes.clear();
         state.player_to_beauty_votes.clear();
+        state.player_to_clue_rating.clear();
         state.forced_random_voters.clear();
         state.storyteller_point_change.clear();
         state.beauty_point_change.clear();
@@ -6406,6 +6966,7 @@ impl Room {
                                 | RoomStage::PlayersChoose
                                 | RoomStage::Voting
                                 | RoomStage::BeautyVoting
+                                | RoomStage::ClueRating
                         );
                     if storyteller_switch_blocked {
                         if let Some(tx) = state.player_to_socket.get(name) {
@@ -6428,7 +6989,10 @@ impl Room {
                         self.after_member_removed_or_observered(&mut state).await?;
                     }
                 } else if state.observers.contains_key(target) {
-                    if matches!(state.stage, RoomStage::Voting | RoomStage::BeautyVoting) {
+                    if matches!(
+                        state.stage,
+                        RoomStage::Voting | RoomStage::BeautyVoting | RoomStage::ClueRating
+                    ) {
                         self.toggle_observer_join_request(&mut state, target);
                     } else {
                         let _ = self
@@ -6440,7 +7004,10 @@ impl Room {
             }
             ClientMsg::RequestJoinFromObserver {} => {
                 if state.observers.contains_key(name) {
-                    if matches!(state.stage, RoomStage::Voting | RoomStage::BeautyVoting) {
+                    if matches!(
+                        state.stage,
+                        RoomStage::Voting | RoomStage::BeautyVoting | RoomStage::ClueRating
+                    ) {
                         self.toggle_observer_join_request(&mut state, name);
                     } else {
                         let _ = self.promote_observer_immediately(&mut state, name).await?;
@@ -8314,6 +8881,26 @@ impl Room {
                 state.force_beauty_timer = enabled;
                 self.broadcast_msg(self.room_state(&state))?;
             }
+            ClientMsg::SetClueRatingEnabled { enabled } => {
+                self.handle_set_clue_rating_enabled(&mut state, name, enabled)
+                    .await?;
+            }
+            ClientMsg::SetClueRatingMaxStars { stars } => {
+                self.handle_set_clue_rating_max_stars(&mut state, name, stars)
+                    .await?;
+            }
+            ClientMsg::SetClueRatingTimerEnabled { enabled } => {
+                self.handle_set_clue_rating_timer_enabled(&mut state, name, enabled)
+                    .await?;
+            }
+            ClientMsg::SetClueRatingTimerDuration { seconds } => {
+                self.handle_set_clue_rating_timer_duration(&mut state, name, seconds)
+                    .await?;
+            }
+            ClientMsg::SetForceClueRatingTimer { enabled } => {
+                self.handle_set_force_clue_rating_timer(&mut state, name, enabled)
+                    .await?;
+            }
             ClientMsg::SetLeaderboardViewModeDefault { mode } => {
                 if !self.is_moderator(&state, name) {
                     if let Some(tx) = state.player_to_socket.get(name) {
@@ -8408,6 +8995,7 @@ impl Room {
                         | RoomStage::PlayersChoose
                         | RoomStage::Voting
                         | RoomStage::BeautyVoting
+                        | RoomStage::ClueRating
                         | RoomStage::StellaAssociate
                         | RoomStage::StellaReveal
                 );
@@ -8447,6 +9035,7 @@ impl Room {
                         | RoomStage::PlayersChoose
                         | RoomStage::Voting
                         | RoomStage::BeautyVoting
+                        | RoomStage::ClueRating
                         | RoomStage::StellaAssociate
                         | RoomStage::StellaReveal
                 );
@@ -8638,6 +9227,9 @@ impl Room {
             }
             ClientMsg::SubmitBeautyVotes { cards } => {
                 self.submit_beauty_votes(&mut state, name, cards).await?;
+            }
+            ClientMsg::SubmitClueRating { stars } => {
+                self.submit_clue_rating(&mut state, name, stars).await?;
             }
             ClientMsg::SubmitStellaSelection { cards } => {
                 if !state.players.contains_key(name)
@@ -9115,6 +9707,7 @@ impl Room {
         self.clamp_votes_per_guesser(&mut state);
         self.clamp_beauty_votes_per_player(&mut state);
         self.clamp_beauty_points_bonus(&mut state);
+        self.clamp_clue_rating_max_stars(&mut state);
         self.clamp_beauty_vote_points_divisor_tenths(&mut state);
         self.clamp_beauty_vote_points_divisor_player_count_base(&mut state);
         self.clamp_cards_per_hand(&mut state);
@@ -9149,6 +9742,7 @@ impl Room {
             state.stage,
             RoomStage::Voting
                 | RoomStage::BeautyVoting
+                | RoomStage::ClueRating
                 | RoomStage::Results
                 | RoomStage::BeautyResults
                 | RoomStage::StellaAssociate
@@ -9340,6 +9934,13 @@ impl Room {
             Self::clamp_stage_timer_duration_s(state.voting_timer_duration_s);
         let beauty_timer_duration_s =
             Self::clamp_stage_timer_duration_s(state.beauty_timer_duration_s);
+        let clue_rating_timer_duration_s =
+            Self::clamp_stage_timer_duration_s(state.clue_rating_timer_duration_s);
+        let (clue_rating_max_stars_min, clue_rating_max_stars_max) =
+            self.clue_rating_max_stars_bounds();
+        let clue_rating_max_stars = state
+            .clue_rating_max_stars
+            .clamp(clue_rating_max_stars_min, clue_rating_max_stars_max);
         let voting_wrong_card_disable_distribution = self
             .canonicalize_voting_wrong_card_disable_distribution(
                 &state.voting_wrong_card_disable_distribution,
@@ -9439,13 +10040,24 @@ impl Room {
             voting_timer_duration_s,
             beauty_timer_enabled: state.beauty_timer_enabled,
             beauty_timer_duration_s,
+            clue_rating_enabled: state.clue_rating_enabled,
+            clue_rating_max_stars,
+            clue_rating_max_stars_min,
+            clue_rating_max_stars_max,
+            clue_rating_timer_enabled: state.clue_rating_timer_enabled,
+            clue_rating_timer_duration_s,
             force_card_choosing_timer: state.force_card_choosing_timer,
             force_voting_timer: state.force_voting_timer,
             force_beauty_timer: state.force_beauty_timer,
+            force_clue_rating_timer: state.force_clue_rating_timer,
             server_time_ms: get_time_ms(),
             current_stage_deadline_s: state.current_stage_deadline_s,
             voting_wrong_card_disable_distribution,
             member_to_beauty_points: state.member_to_beauty_points.clone(),
+            member_to_clue_rating_average: Box::new(
+                self.member_to_clue_rating_average_for_room_state(state),
+            ),
+            member_to_clue_rating_rounds: Box::new(state.member_to_clue_rating_rounds.clone()),
             leaderboard_view_mode_default: state.leaderboard_view_mode_default,
             leaderboard_view_mode_default_version: state.leaderboard_view_mode_default_version,
             dixit_end_round_history: if matches!(state.stage, RoomStage::End)
@@ -11059,6 +11671,10 @@ mod tests {
                 active_players,
                 story_deltas: HashMap::from([("c".into(), 3)]),
                 beauty_deltas: HashMap::from([("b".into(), 2)]),
+                clue_rating_sum: 0,
+                clue_rating_count: 0,
+                clue_rating_bonus: 0,
+                player_clue_ratings: HashMap::new(),
                 total_after_round: HashMap::from([
                     ("a".into(), 0),
                     ("b".into(), 2),
@@ -11212,6 +11828,10 @@ mod tests {
                 active_players: active_players.clone(),
                 story_deltas: HashMap::new(),
                 beauty_deltas: HashMap::from([("b".into(), 2)]),
+                clue_rating_sum: 0,
+                clue_rating_count: 0,
+                clue_rating_bonus: 0,
+                player_clue_ratings: HashMap::new(),
                 total_after_round: HashMap::from([("b".into(), 2)]),
                 beauty_total_after_round: HashMap::from([("b".into(), 2)]),
                 results_display_mode: BeautyResultsDisplayMode::Separate,
@@ -11225,6 +11845,10 @@ mod tests {
                 active_players,
                 story_deltas: HashMap::new(),
                 beauty_deltas: HashMap::from([("b".into(), 1)]),
+                clue_rating_sum: 0,
+                clue_rating_count: 0,
+                clue_rating_bonus: 0,
+                player_clue_ratings: HashMap::new(),
                 total_after_round: HashMap::from([("b".into(), 3)]),
                 beauty_total_after_round: HashMap::from([("b".into(), 3)]),
                 results_display_mode: BeautyResultsDisplayMode::Separate,

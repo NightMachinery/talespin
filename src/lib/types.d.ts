@@ -21,7 +21,12 @@ export type BeautyScoringMode = 'vote_divisor' | 'winner_bonus';
 
 export type BeautyVotePointsDivisorMode = 'manual' | 'player_count_auto' | 'median_auto';
 
-export type LeaderboardViewMode = 'total' | 'story_only' | 'beauty_only' | 'combined';
+export type LeaderboardViewMode =
+	| 'total'
+	| 'story_only'
+	| 'beauty_only'
+	| 'combined'
+	| 'clue_stars';
 
 export type PreviousDixitResultsView =
 	| {
@@ -55,6 +60,10 @@ export interface DixitEndRoundHistoryEntry {
 	active_players: string[];
 	story_deltas: Record<string, number>;
 	beauty_deltas: Record<string, number>;
+	clue_rating_sum: number;
+	clue_rating_count: number;
+	clue_rating_bonus: number;
+	player_clue_ratings: Record<string, number>;
 	total_after_round: Record<string, number>;
 	beauty_total_after_round: Record<string, number>;
 	results_display_mode: BeautyResultsDisplayMode;

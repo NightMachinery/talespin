@@ -451,6 +451,38 @@ class GameServer {
 		});
 	}
 
+	setClueRatingEnabled(enabled: boolean) {
+		this.send({
+			SetClueRatingEnabled: {
+				enabled
+			}
+		});
+	}
+
+	setClueRatingMaxStars(stars: number) {
+		this.send({
+			SetClueRatingMaxStars: {
+				stars
+			}
+		});
+	}
+
+	setClueRatingTimerEnabled(enabled: boolean) {
+		this.send({
+			SetClueRatingTimerEnabled: {
+				enabled
+			}
+		});
+	}
+
+	setClueRatingTimerDuration(seconds: number) {
+		this.send({
+			SetClueRatingTimerDuration: {
+				seconds
+			}
+		});
+	}
+
 	setForceCardChoosingTimer(enabled: boolean) {
 		this.send({
 			SetForceCardChoosingTimer: {
@@ -475,7 +507,17 @@ class GameServer {
 		});
 	}
 
-	setLeaderboardViewModeDefault(mode: 'total' | 'story_only' | 'beauty_only' | 'combined') {
+	setForceClueRatingTimer(enabled: boolean) {
+		this.send({
+			SetForceClueRatingTimer: {
+				enabled
+			}
+		});
+	}
+
+	setLeaderboardViewModeDefault(
+		mode: 'total' | 'story_only' | 'beauty_only' | 'combined' | 'clue_stars'
+	) {
 		this.send({
 			SetLeaderboardViewModeDefault: {
 				mode
@@ -630,6 +672,14 @@ class GameServer {
 		this.send({
 			SubmitBeautyVotes: {
 				cards
+			}
+		});
+	}
+
+	submitClueRating(stars: number) {
+		this.send({
+			SubmitClueRating: {
+				stars
 			}
 		});
 	}
