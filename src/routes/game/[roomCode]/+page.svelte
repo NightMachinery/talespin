@@ -482,8 +482,7 @@
 				nominationsPerGuesserMax = data.RoomState.nominations_per_guesser_max ?? 1;
 				bonusCorrectGuessOnThresholdCorrectLoss =
 					data.RoomState.bonus_correct_guess_on_threshold_correct_loss ?? true;
-				doubleVoteBonusNormalPoints =
-					data.RoomState.double_vote_bonus_normal_points ?? 1;
+				doubleVoteBonusNormalPoints = data.RoomState.double_vote_bonus_normal_points ?? 1;
 				doubleVoteBonusTooManyWrongPoints =
 					data.RoomState.double_vote_bonus_too_many_wrong_points ?? doubleVoteBonusNormalPoints;
 				doubleVoteBonusTooManyWrongFollowsNormal =

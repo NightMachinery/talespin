@@ -13248,8 +13248,8 @@ mod tests {
             );
             assert_eq!(
                 point_change.get("b").copied(),
-                Some(5),
-                "normal branch should add the configured double-vote bonus on top of +3 correct points"
+                Some(8),
+                "normal branch should add the configured double-vote bonus on top of +3 correct points and +3 capped decoy bonus"
             );
         }
 
@@ -13260,8 +13260,8 @@ mod tests {
             let point_change = room.compute_results(&state);
             assert_eq!(
                 point_change.get("b").copied(),
-                Some(3),
-                "a zero normal double-vote bonus should disable the extra reward"
+                Some(6),
+                "a zero normal double-vote bonus should disable only the extra reward while preserving the capped decoy bonus"
             );
         }
 

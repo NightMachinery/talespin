@@ -113,8 +113,7 @@
 
 			{#if canRate}
 				<div class="mt-8 flex flex-wrap items-center justify-center gap-3 sm:gap-4">
-					{#each Array(maxStars) as _, index}
-						{@const starValue = index + 1}
+					{#each Array.from({ length: maxStars }, (_, index) => index + 1) as starValue}
 						<button
 							type="button"
 							class={`star-button ${(hoverStars || selectedStars) >= starValue ? 'active' : ''}`}
