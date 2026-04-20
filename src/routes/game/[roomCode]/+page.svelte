@@ -138,7 +138,13 @@
 	let nominationsPerGuesserMin = 1;
 	let nominationsPerGuesserMax = 1;
 	let bonusCorrectGuessOnThresholdCorrectLoss = true;
-	let bonusDoubleVoteOnThresholdCorrectLoss = true;
+	let doubleVoteBonusNormalPoints = 1;
+	let doubleVoteBonusTooManyWrongPoints = 1;
+	let doubleVoteBonusTooManyWrongFollowsNormal = true;
+	let doubleVoteBonusTooManyCorrectPoints = 1;
+	let doubleVoteBonusTooManyCorrectFollowsNormal = true;
+	let doubleVoteBonusPointsMin = 0;
+	let doubleVoteBonusPointsMax = 10;
 	let bonusThresholdLossTogglesApplyToAllStorytellerLossRounds = true;
 	let showVotingCardNumbers = true;
 	let roundStartDiscardCount = 3;
@@ -476,8 +482,18 @@
 				nominationsPerGuesserMax = data.RoomState.nominations_per_guesser_max ?? 1;
 				bonusCorrectGuessOnThresholdCorrectLoss =
 					data.RoomState.bonus_correct_guess_on_threshold_correct_loss ?? true;
-				bonusDoubleVoteOnThresholdCorrectLoss =
-					data.RoomState.bonus_double_vote_on_threshold_correct_loss ?? true;
+				doubleVoteBonusNormalPoints =
+					data.RoomState.double_vote_bonus_normal_points ?? 1;
+				doubleVoteBonusTooManyWrongPoints =
+					data.RoomState.double_vote_bonus_too_many_wrong_points ?? doubleVoteBonusNormalPoints;
+				doubleVoteBonusTooManyWrongFollowsNormal =
+					data.RoomState.double_vote_bonus_too_many_wrong_follows_normal ?? true;
+				doubleVoteBonusTooManyCorrectPoints =
+					data.RoomState.double_vote_bonus_too_many_correct_points ?? doubleVoteBonusNormalPoints;
+				doubleVoteBonusTooManyCorrectFollowsNormal =
+					data.RoomState.double_vote_bonus_too_many_correct_follows_normal ?? true;
+				doubleVoteBonusPointsMin = data.RoomState.double_vote_bonus_points_min ?? 0;
+				doubleVoteBonusPointsMax = data.RoomState.double_vote_bonus_points_max ?? 10;
 				bonusThresholdLossTogglesApplyToAllStorytellerLossRounds =
 					data.RoomState.bonus_threshold_loss_toggles_apply_to_all_storyteller_loss_rounds ?? true;
 				showVotingCardNumbers = data.RoomState.show_voting_card_numbers ?? true;
@@ -892,7 +908,13 @@
 			{nominationsPerGuesserMin}
 			{nominationsPerGuesserMax}
 			{bonusCorrectGuessOnThresholdCorrectLoss}
-			{bonusDoubleVoteOnThresholdCorrectLoss}
+			{doubleVoteBonusNormalPoints}
+			{doubleVoteBonusTooManyWrongPoints}
+			{doubleVoteBonusTooManyWrongFollowsNormal}
+			{doubleVoteBonusTooManyCorrectPoints}
+			{doubleVoteBonusTooManyCorrectFollowsNormal}
+			{doubleVoteBonusPointsMin}
+			{doubleVoteBonusPointsMax}
 			{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 			{showVotingCardNumbers}
 			{roundStartDiscardCount}
@@ -979,7 +1001,13 @@
 			{nominationsPerGuesserMin}
 			{nominationsPerGuesserMax}
 			{bonusCorrectGuessOnThresholdCorrectLoss}
-			{bonusDoubleVoteOnThresholdCorrectLoss}
+			{doubleVoteBonusNormalPoints}
+			{doubleVoteBonusTooManyWrongPoints}
+			{doubleVoteBonusTooManyWrongFollowsNormal}
+			{doubleVoteBonusTooManyCorrectPoints}
+			{doubleVoteBonusTooManyCorrectFollowsNormal}
+			{doubleVoteBonusPointsMin}
+			{doubleVoteBonusPointsMax}
 			{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 			{showVotingCardNumbers}
 			{roundStartDiscardCount}
@@ -1071,7 +1099,13 @@
 			{nominationsPerGuesserMin}
 			{nominationsPerGuesserMax}
 			{bonusCorrectGuessOnThresholdCorrectLoss}
-			{bonusDoubleVoteOnThresholdCorrectLoss}
+			{doubleVoteBonusNormalPoints}
+			{doubleVoteBonusTooManyWrongPoints}
+			{doubleVoteBonusTooManyWrongFollowsNormal}
+			{doubleVoteBonusTooManyCorrectPoints}
+			{doubleVoteBonusTooManyCorrectFollowsNormal}
+			{doubleVoteBonusPointsMin}
+			{doubleVoteBonusPointsMax}
 			{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 			{showVotingCardNumbers}
 			{roundStartDiscardCount}
@@ -1157,7 +1191,13 @@
 			{nominationsPerGuesserMin}
 			{nominationsPerGuesserMax}
 			{bonusCorrectGuessOnThresholdCorrectLoss}
-			{bonusDoubleVoteOnThresholdCorrectLoss}
+			{doubleVoteBonusNormalPoints}
+			{doubleVoteBonusTooManyWrongPoints}
+			{doubleVoteBonusTooManyWrongFollowsNormal}
+			{doubleVoteBonusTooManyCorrectPoints}
+			{doubleVoteBonusTooManyCorrectFollowsNormal}
+			{doubleVoteBonusPointsMin}
+			{doubleVoteBonusPointsMax}
 			{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 			{showVotingCardNumbers}
 			{roundStartDiscardCount}
@@ -1243,7 +1283,13 @@
 			{nominationsPerGuesserMin}
 			{nominationsPerGuesserMax}
 			{bonusCorrectGuessOnThresholdCorrectLoss}
-			{bonusDoubleVoteOnThresholdCorrectLoss}
+			{doubleVoteBonusNormalPoints}
+			{doubleVoteBonusTooManyWrongPoints}
+			{doubleVoteBonusTooManyWrongFollowsNormal}
+			{doubleVoteBonusTooManyCorrectPoints}
+			{doubleVoteBonusTooManyCorrectFollowsNormal}
+			{doubleVoteBonusPointsMin}
+			{doubleVoteBonusPointsMax}
 			{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 			{showVotingCardNumbers}
 			{roundStartDiscardCount}
@@ -1330,7 +1376,13 @@
 			{nominationsPerGuesserMin}
 			{nominationsPerGuesserMax}
 			{bonusCorrectGuessOnThresholdCorrectLoss}
-			{bonusDoubleVoteOnThresholdCorrectLoss}
+			{doubleVoteBonusNormalPoints}
+			{doubleVoteBonusTooManyWrongPoints}
+			{doubleVoteBonusTooManyWrongFollowsNormal}
+			{doubleVoteBonusTooManyCorrectPoints}
+			{doubleVoteBonusTooManyCorrectFollowsNormal}
+			{doubleVoteBonusPointsMin}
+			{doubleVoteBonusPointsMax}
 			{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 			{showVotingCardNumbers}
 			{roundStartDiscardCount}
@@ -1441,7 +1493,13 @@
 			{nominationsPerGuesserMin}
 			{nominationsPerGuesserMax}
 			{bonusCorrectGuessOnThresholdCorrectLoss}
-			{bonusDoubleVoteOnThresholdCorrectLoss}
+			{doubleVoteBonusNormalPoints}
+			{doubleVoteBonusTooManyWrongPoints}
+			{doubleVoteBonusTooManyWrongFollowsNormal}
+			{doubleVoteBonusTooManyCorrectPoints}
+			{doubleVoteBonusTooManyCorrectFollowsNormal}
+			{doubleVoteBonusPointsMin}
+			{doubleVoteBonusPointsMax}
 			{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 			{showVotingCardNumbers}
 			{roundStartDiscardCount}
@@ -1530,7 +1588,13 @@
 			{nominationsPerGuesserMin}
 			{nominationsPerGuesserMax}
 			{bonusCorrectGuessOnThresholdCorrectLoss}
-			{bonusDoubleVoteOnThresholdCorrectLoss}
+			{doubleVoteBonusNormalPoints}
+			{doubleVoteBonusTooManyWrongPoints}
+			{doubleVoteBonusTooManyWrongFollowsNormal}
+			{doubleVoteBonusTooManyCorrectPoints}
+			{doubleVoteBonusTooManyCorrectFollowsNormal}
+			{doubleVoteBonusPointsMin}
+			{doubleVoteBonusPointsMax}
 			{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 			{showVotingCardNumbers}
 			{roundStartDiscardCount}
@@ -1616,7 +1680,13 @@
 			{nominationsPerGuesserMin}
 			{nominationsPerGuesserMax}
 			{bonusCorrectGuessOnThresholdCorrectLoss}
-			{bonusDoubleVoteOnThresholdCorrectLoss}
+			{doubleVoteBonusNormalPoints}
+			{doubleVoteBonusTooManyWrongPoints}
+			{doubleVoteBonusTooManyWrongFollowsNormal}
+			{doubleVoteBonusTooManyCorrectPoints}
+			{doubleVoteBonusTooManyCorrectFollowsNormal}
+			{doubleVoteBonusPointsMin}
+			{doubleVoteBonusPointsMax}
 			{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 			{showVotingCardNumbers}
 			{roundStartDiscardCount}
@@ -1703,7 +1773,13 @@
 			{nominationsPerGuesserMin}
 			{nominationsPerGuesserMax}
 			{bonusCorrectGuessOnThresholdCorrectLoss}
-			{bonusDoubleVoteOnThresholdCorrectLoss}
+			{doubleVoteBonusNormalPoints}
+			{doubleVoteBonusTooManyWrongPoints}
+			{doubleVoteBonusTooManyWrongFollowsNormal}
+			{doubleVoteBonusTooManyCorrectPoints}
+			{doubleVoteBonusTooManyCorrectFollowsNormal}
+			{doubleVoteBonusPointsMin}
+			{doubleVoteBonusPointsMax}
 			{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 			{showVotingCardNumbers}
 			{roundStartDiscardCount}
@@ -1776,7 +1852,11 @@
 				{beautyPointsBonus}
 				{beautyResultsDisplayMode}
 				{bonusCorrectGuessOnThresholdCorrectLoss}
-				{bonusDoubleVoteOnThresholdCorrectLoss}
+				{doubleVoteBonusNormalPoints}
+				{doubleVoteBonusTooManyWrongPoints}
+				{doubleVoteBonusTooManyWrongFollowsNormal}
+				{doubleVoteBonusTooManyCorrectPoints}
+				{doubleVoteBonusTooManyCorrectFollowsNormal}
 				{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 			/>
 		</div>

@@ -51,6 +51,9 @@ const MAX_BEAUTY_POINTS_BONUS: u16 = 10;
 const DEFAULT_STORYTELLER_SUCCESS_POINTS: u16 = 3;
 const MIN_STORYTELLER_SUCCESS_POINTS: u16 = 0;
 const MAX_STORYTELLER_SUCCESS_POINTS: u16 = 10;
+const DEFAULT_DOUBLE_VOTE_BONUS_POINTS: u16 = 1;
+const MIN_DOUBLE_VOTE_BONUS_POINTS: u16 = 0;
+const MAX_DOUBLE_VOTE_BONUS_POINTS: u16 = 10;
 const BEAUTY_VOTE_POINTS_DIVISOR_SCALE: u16 = 10;
 const DEFAULT_BEAUTY_VOTE_POINTS_DIVISOR_TENTHS: u16 = 30;
 const MIN_BEAUTY_VOTE_POINTS_DIVISOR_TENTHS: u16 = 10;
@@ -227,6 +230,13 @@ pub enum ServerMsg {
         storyteller_success_points: u16,
         storyteller_success_points_min: u16,
         storyteller_success_points_max: u16,
+        double_vote_bonus_normal_points: u16,
+        double_vote_bonus_too_many_wrong_points: u16,
+        double_vote_bonus_too_many_wrong_follows_normal: bool,
+        double_vote_bonus_too_many_correct_points: u16,
+        double_vote_bonus_too_many_correct_follows_normal: bool,
+        double_vote_bonus_points_min: u16,
+        double_vote_bonus_points_max: u16,
         votes_per_guesser: u16,
         votes_per_guesser_min: u16,
         votes_per_guesser_max: u16,
@@ -256,7 +266,6 @@ pub enum ServerMsg {
         nominations_per_guesser_min: u16,
         nominations_per_guesser_max: u16,
         bonus_correct_guess_on_threshold_correct_loss: bool,
-        bonus_double_vote_on_threshold_correct_loss: bool,
         bonus_threshold_loss_toggles_apply_to_all_storyteller_loss_rounds: bool,
         show_voting_card_numbers: bool,
         round_start_discard_count: u16,
@@ -448,6 +457,21 @@ pub enum ClientMsg {
     SetStorytellerSuccessPoints {
         points: u16,
     },
+    SetDoubleVoteBonusNormalPoints {
+        points: u16,
+    },
+    SetDoubleVoteBonusTooManyWrongPoints {
+        points: u16,
+    },
+    SetDoubleVoteBonusTooManyWrongFollowsNormal {
+        enabled: bool,
+    },
+    SetDoubleVoteBonusTooManyCorrectPoints {
+        points: u16,
+    },
+    SetDoubleVoteBonusTooManyCorrectFollowsNormal {
+        enabled: bool,
+    },
     SetVotesPerGuesser {
         votes: u16,
     },
@@ -491,9 +515,6 @@ pub enum ClientMsg {
         cards: u16,
     },
     SetBonusCorrectGuessOnThresholdCorrectLoss {
-        enabled: bool,
-    },
-    SetBonusDoubleVoteOnThresholdCorrectLoss {
         enabled: bool,
     },
     SetBonusThresholdLossTogglesApplyToAllStorytellerLossRounds {
@@ -735,6 +756,16 @@ struct RoomState {
     storyteller_pool_member_auth_ids: HashSet<String>,
     // storyteller reward in successful rounds
     storyteller_success_points: u16,
+    // extra points for guessers with 2+ correct vote tokens in normal rounds
+    double_vote_bonus_normal_points: u16,
+    // extra points for guessers with 2+ correct vote tokens in storyteller-loss rounds with too many wrong guesses
+    double_vote_bonus_too_many_wrong_points: u16,
+    // whether the too-many-wrong double-vote bonus follows the normal-round setting
+    double_vote_bonus_too_many_wrong_follows_normal: bool,
+    // extra points for guessers with 2+ correct vote tokens in storyteller-loss rounds with too many correct guesses
+    double_vote_bonus_too_many_correct_points: u16,
+    // whether the too-many-correct double-vote bonus follows the normal-round setting
+    double_vote_bonus_too_many_correct_follows_normal: bool,
     // number of vote tokens each guesser can cast in Voting
     votes_per_guesser: u16,
     // whether Dixit uses the optional Most Beautiful stage
@@ -767,8 +798,6 @@ struct RoomState {
     nominations_per_guesser: u16,
     // apply correct-guess base bonus in threshold-correct storyteller-loss rounds
     bonus_correct_guess_on_threshold_correct_loss: bool,
-    // apply double-correct bonus in threshold-correct storyteller-loss rounds
-    bonus_double_vote_on_threshold_correct_loss: bool,
     // whether the threshold-correct bonus toggles also apply when storyteller loses because too many guessers were wrong
     bonus_threshold_loss_toggles_apply_to_all_storyteller_loss_rounds: bool,
     // show deterministic numbers on voting cards
@@ -1028,6 +1057,11 @@ impl Room {
             storyteller_pool_enabled: false,
             storyteller_pool_member_auth_ids: HashSet::new(),
             storyteller_success_points: DEFAULT_STORYTELLER_SUCCESS_POINTS,
+            double_vote_bonus_normal_points: DEFAULT_DOUBLE_VOTE_BONUS_POINTS,
+            double_vote_bonus_too_many_wrong_points: DEFAULT_DOUBLE_VOTE_BONUS_POINTS,
+            double_vote_bonus_too_many_wrong_follows_normal: true,
+            double_vote_bonus_too_many_correct_points: DEFAULT_DOUBLE_VOTE_BONUS_POINTS,
+            double_vote_bonus_too_many_correct_follows_normal: true,
             votes_per_guesser: 1,
             beauty_enabled: DEFAULT_BEAUTY_ENABLED,
             beauty_votes_per_player: DEFAULT_BEAUTY_VOTES_PER_PLAYER,
@@ -1045,7 +1079,6 @@ impl Room {
             cards_per_hand: DEFAULT_CARDS_PER_HAND,
             nominations_per_guesser: DEFAULT_NOMINATIONS_PER_GUESSER,
             bonus_correct_guess_on_threshold_correct_loss: true,
-            bonus_double_vote_on_threshold_correct_loss: true,
             bonus_threshold_loss_toggles_apply_to_all_storyteller_loss_rounds: true,
             show_voting_card_numbers: true,
             round_start_discard_count: 3,
@@ -1340,6 +1373,10 @@ impl Room {
             MIN_STORYTELLER_SUCCESS_POINTS,
             MAX_STORYTELLER_SUCCESS_POINTS,
         )
+    }
+
+    fn double_vote_bonus_points_bounds(&self) -> (u16, u16) {
+        (MIN_DOUBLE_VOTE_BONUS_POINTS, MAX_DOUBLE_VOTE_BONUS_POINTS)
     }
 
     fn beauty_vote_points_divisor_tenths_bounds(&self) -> (u16, u16) {
@@ -1903,6 +1940,19 @@ impl Room {
             .clamp(min_points, max_points);
     }
 
+    fn clamp_double_vote_bonus_points(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
+        let (min_points, max_points) = self.double_vote_bonus_points_bounds();
+        state.double_vote_bonus_normal_points = state
+            .double_vote_bonus_normal_points
+            .clamp(min_points, max_points);
+        state.double_vote_bonus_too_many_wrong_points = state
+            .double_vote_bonus_too_many_wrong_points
+            .clamp(min_points, max_points);
+        state.double_vote_bonus_too_many_correct_points = state
+            .double_vote_bonus_too_many_correct_points
+            .clamp(min_points, max_points);
+    }
+
     fn clamp_votes_per_guesser(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
         let (min_votes, max_votes) = self.votes_per_guesser_bounds(state);
         state.votes_per_guesser = state.votes_per_guesser.clamp(min_votes, max_votes);
@@ -2147,6 +2197,44 @@ impl Room {
     fn effective_clue_rating_max_stars(&self, state: &RwLockWriteGuard<'_, RoomState>) -> u16 {
         let (min_stars, max_stars) = self.clue_rating_max_stars_bounds();
         state.clue_rating_max_stars.clamp(min_stars, max_stars)
+    }
+
+    fn effective_double_vote_bonus_normal_points(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+    ) -> u16 {
+        let (min_points, max_points) = self.double_vote_bonus_points_bounds();
+        state
+            .double_vote_bonus_normal_points
+            .clamp(min_points, max_points)
+    }
+
+    fn effective_double_vote_bonus_too_many_wrong_points(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+    ) -> u16 {
+        if state.double_vote_bonus_too_many_wrong_follows_normal {
+            self.effective_double_vote_bonus_normal_points(state)
+        } else {
+            let (min_points, max_points) = self.double_vote_bonus_points_bounds();
+            state
+                .double_vote_bonus_too_many_wrong_points
+                .clamp(min_points, max_points)
+        }
+    }
+
+    fn effective_double_vote_bonus_too_many_correct_points(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+    ) -> u16 {
+        if state.double_vote_bonus_too_many_correct_follows_normal {
+            self.effective_double_vote_bonus_normal_points(state)
+        } else {
+            let (min_points, max_points) = self.double_vote_bonus_points_bounds();
+            state
+                .double_vote_bonus_too_many_correct_points
+                .clamp(min_points, max_points)
+        }
     }
 
     fn beauty_enabled_for_round(&self, state: &RwLockWriteGuard<'_, RoomState>) -> bool {
@@ -7614,6 +7702,199 @@ impl Room {
                 self.clamp_storyteller_success_points(&mut state);
                 self.broadcast_msg(self.room_state(&state))?;
             }
+            ClientMsg::SetDoubleVoteBonusNormalPoints { points } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change double-vote bonus settings"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                let can_change_storyteller_setting = match state.game_mode {
+                    GameMode::DixitPlus => Self::is_joining_or_live_dixit_stage(state.stage),
+                    GameMode::Stella => !matches!(state.stage, RoomStage::End),
+                };
+                if !can_change_storyteller_setting {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Storyteller scoring can only be changed during live Dixit stages"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                state.double_vote_bonus_normal_points = points;
+                self.clamp_double_vote_bonus_points(&mut state);
+                self.broadcast_msg(self.room_state(&state))?;
+            }
+            ClientMsg::SetDoubleVoteBonusTooManyWrongPoints { points } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change double-vote bonus settings"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                let can_change_storyteller_setting = match state.game_mode {
+                    GameMode::DixitPlus => Self::is_joining_or_live_dixit_stage(state.stage),
+                    GameMode::Stella => !matches!(state.stage, RoomStage::End),
+                };
+                if !can_change_storyteller_setting {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Storyteller scoring can only be changed during live Dixit stages"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                state.double_vote_bonus_too_many_wrong_points = points;
+                self.clamp_double_vote_bonus_points(&mut state);
+                self.broadcast_msg(self.room_state(&state))?;
+            }
+            ClientMsg::SetDoubleVoteBonusTooManyWrongFollowsNormal { enabled } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change double-vote bonus settings"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                let can_change_storyteller_setting = match state.game_mode {
+                    GameMode::DixitPlus => Self::is_joining_or_live_dixit_stage(state.stage),
+                    GameMode::Stella => !matches!(state.stage, RoomStage::End),
+                };
+                if !can_change_storyteller_setting {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Storyteller scoring can only be changed during live Dixit stages"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if !enabled {
+                    state.double_vote_bonus_too_many_wrong_points =
+                        self.effective_double_vote_bonus_normal_points(&state);
+                }
+                state.double_vote_bonus_too_many_wrong_follows_normal = enabled;
+                self.clamp_double_vote_bonus_points(&mut state);
+                self.broadcast_msg(self.room_state(&state))?;
+            }
+            ClientMsg::SetDoubleVoteBonusTooManyCorrectPoints { points } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change double-vote bonus settings"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                let can_change_storyteller_setting = match state.game_mode {
+                    GameMode::DixitPlus => Self::is_joining_or_live_dixit_stage(state.stage),
+                    GameMode::Stella => !matches!(state.stage, RoomStage::End),
+                };
+                if !can_change_storyteller_setting {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Storyteller scoring can only be changed during live Dixit stages"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                state.double_vote_bonus_too_many_correct_points = points;
+                self.clamp_double_vote_bonus_points(&mut state);
+                self.broadcast_msg(self.room_state(&state))?;
+            }
+            ClientMsg::SetDoubleVoteBonusTooManyCorrectFollowsNormal { enabled } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change double-vote bonus settings"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                let can_change_storyteller_setting = match state.game_mode {
+                    GameMode::DixitPlus => Self::is_joining_or_live_dixit_stage(state.stage),
+                    GameMode::Stella => !matches!(state.stage, RoomStage::End),
+                };
+                if !can_change_storyteller_setting {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Storyteller scoring can only be changed during live Dixit stages"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if !enabled {
+                    state.double_vote_bonus_too_many_correct_points =
+                        self.effective_double_vote_bonus_normal_points(&state);
+                }
+                state.double_vote_bonus_too_many_correct_follows_normal = enabled;
+                self.clamp_double_vote_bonus_points(&mut state);
+                self.broadcast_msg(self.room_state(&state))?;
+            }
             ClientMsg::SetVotesPerGuesser { votes } => {
                 if !self.is_moderator(&state, name) {
                     if let Some(tx) = state.player_to_socket.get(name) {
@@ -8229,42 +8510,6 @@ impl Room {
                 }
 
                 state.bonus_correct_guess_on_threshold_correct_loss = enabled;
-                self.broadcast_msg(self.room_state(&state))?;
-            }
-            ClientMsg::SetBonusDoubleVoteOnThresholdCorrectLoss { enabled } => {
-                if !self.is_moderator(&state, name) {
-                    if let Some(tx) = state.player_to_socket.get(name) {
-                        tx.send(
-                            ServerMsg::ErrorMsg(
-                                "Only moderators can change threshold-correct scoring bonuses"
-                                    .to_string(),
-                            )
-                            .into(),
-                        )
-                        .await?;
-                    }
-                    return Ok(());
-                }
-
-                if matches!(state.stage, RoomStage::End) {
-                    return Ok(());
-                }
-
-                if !Self::is_joining_or_live_dixit_stage(state.stage) {
-                    if let Some(tx) = state.player_to_socket.get(name) {
-                        tx.send(
-                            ServerMsg::ErrorMsg(
-                                "Threshold-correct scoring bonuses can only be changed during live Dixit stages"
-                                    .to_string(),
-                            )
-                            .into(),
-                        )
-                        .await?;
-                    }
-                    return Ok(());
-                }
-
-                state.bonus_double_vote_on_threshold_correct_loss = enabled;
                 self.broadcast_msg(self.room_state(&state))?;
             }
             ClientMsg::SetBonusThresholdLossTogglesApplyToAllStorytellerLossRounds { enabled } => {
@@ -9485,17 +9730,21 @@ impl Room {
             );
         }
 
-        // +1 extra point for correct double-vote on storyteller card.
-        let allow_double_correct_bonus =
-            if storyteller_loses && threshold_loss_bonuses_apply_in_this_storyteller_loss_round {
-                state.bonus_double_vote_on_threshold_correct_loss
+        let double_vote_bonus_points = if storyteller_loses {
+            if too_many_wrong {
+                self.effective_double_vote_bonus_too_many_wrong_points(state)
+            } else if too_many_correct {
+                self.effective_double_vote_bonus_too_many_correct_points(state)
             } else {
-                true
-            };
-        if allow_double_correct_bonus {
+                self.effective_double_vote_bonus_normal_points(state)
+            }
+        } else {
+            self.effective_double_vote_bonus_normal_points(state)
+        };
+        if double_vote_bonus_points > 0 {
             for player in double_correct_guessers.iter() {
                 let entry = point_change.entry(player.to_string()).or_insert(0);
-                *entry += 1;
+                *entry += double_vote_bonus_points;
             }
         }
 
@@ -9899,6 +10148,13 @@ impl Room {
             storyteller_success_points_min,
             storyteller_success_points_max,
         );
+        let (double_vote_bonus_points_min, double_vote_bonus_points_max) =
+            self.double_vote_bonus_points_bounds();
+        let double_vote_bonus_normal_points = self.effective_double_vote_bonus_normal_points(state);
+        let double_vote_bonus_too_many_wrong_points =
+            self.effective_double_vote_bonus_too_many_wrong_points(state);
+        let double_vote_bonus_too_many_correct_points =
+            self.effective_double_vote_bonus_too_many_correct_points(state);
         let storyteller_pool_enabled = state.storyteller_pool_enabled;
         let storyteller_pool_active = self.storyteller_pool_is_active(state);
         let storyteller_pool_players = self.storyteller_pool_player_names(state);
@@ -9985,6 +10241,15 @@ impl Room {
             storyteller_success_points,
             storyteller_success_points_min,
             storyteller_success_points_max,
+            double_vote_bonus_normal_points,
+            double_vote_bonus_too_many_wrong_points,
+            double_vote_bonus_too_many_wrong_follows_normal: state
+                .double_vote_bonus_too_many_wrong_follows_normal,
+            double_vote_bonus_too_many_correct_points,
+            double_vote_bonus_too_many_correct_follows_normal: state
+                .double_vote_bonus_too_many_correct_follows_normal,
+            double_vote_bonus_points_min,
+            double_vote_bonus_points_max,
             votes_per_guesser,
             votes_per_guesser_min: votes_min,
             votes_per_guesser_max: votes_max,
@@ -10025,8 +10290,6 @@ impl Room {
             nominations_per_guesser_max: nominations_max,
             bonus_correct_guess_on_threshold_correct_loss: state
                 .bonus_correct_guess_on_threshold_correct_loss,
-            bonus_double_vote_on_threshold_correct_loss: state
-                .bonus_double_vote_on_threshold_correct_loss,
             bonus_threshold_loss_toggles_apply_to_all_storyteller_loss_rounds: state
                 .bonus_threshold_loss_toggles_apply_to_all_storyteller_loss_rounds,
             show_voting_card_numbers: state.show_voting_card_numbers,
@@ -12926,6 +13189,86 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn normal_round_uses_configured_normal_double_vote_bonus_and_zero_disables_it(
+    ) -> Result<()> {
+        let setup_normal_round_state =
+            |state: &mut RwLockWriteGuard<'_, RoomState>, normal_double_bonus_points: u16| {
+                add_player(state, "a", 0);
+                add_player(state, "b", 0);
+                add_player(state, "c", 0);
+                add_player(state, "d", 0);
+                add_player(state, "e", 0);
+                state.player_order =
+                    vec!["a".into(), "b".into(), "c".into(), "d".into(), "e".into()];
+                state.active_player = 0;
+                state.storyteller_loss_complement = 1;
+                state.storyteller_loss_complement_auto = false;
+                state.votes_per_guesser = 2;
+                state.double_vote_bonus_normal_points = normal_double_bonus_points;
+
+                state
+                    .player_to_current_cards
+                    .insert("a".into(), vec!["ca".into()]);
+                state
+                    .player_to_current_cards
+                    .insert("b".into(), vec!["cb".into()]);
+                state
+                    .player_to_current_cards
+                    .insert("c".into(), vec!["cc".into()]);
+                state
+                    .player_to_current_cards
+                    .insert("d".into(), vec!["cd".into()]);
+                state
+                    .player_to_current_cards
+                    .insert("e".into(), vec!["ce".into()]);
+
+                state
+                    .player_to_votes
+                    .insert("b".into(), vec!["ca".into(), "ca".into()]);
+                state
+                    .player_to_votes
+                    .insert("c".into(), vec!["ca".into(), "cb".into()]);
+                state
+                    .player_to_votes
+                    .insert("d".into(), vec!["cb".into(), "cc".into()]);
+                state
+                    .player_to_votes
+                    .insert("e".into(), vec!["cb".into(), "cc".into()]);
+            };
+
+        {
+            let room = test_room();
+            let mut state = room.state.write().await;
+            setup_normal_round_state(&mut state, 2);
+            let point_change = room.compute_results(&state);
+            assert_eq!(
+                point_change.get("a").copied(),
+                Some(3),
+                "storyteller should win in the normal branch"
+            );
+            assert_eq!(
+                point_change.get("b").copied(),
+                Some(5),
+                "normal branch should add the configured double-vote bonus on top of +3 correct points"
+            );
+        }
+
+        {
+            let room = test_room();
+            let mut state = room.state.write().await;
+            setup_normal_round_state(&mut state, 0);
+            let point_change = room.compute_results(&state);
+            assert_eq!(
+                point_change.get("b").copied(),
+                Some(3),
+                "a zero normal double-vote bonus should disable the extra reward"
+            );
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn double_correct_bonus_and_duplicate_decoys_apply_with_caps() -> Result<()> {
         let room = test_room();
         let mut state = room.state.write().await;
@@ -12993,12 +13336,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn threshold_correct_loss_bonus_toggles_adjust_correct_and_double_rewards() -> Result<()>
+    async fn threshold_correct_loss_bonus_and_branch_double_bonus_adjust_rewards() -> Result<()>
     {
         let setup_threshold_correct_state =
             |state: &mut RwLockWriteGuard<'_, RoomState>,
              correct_bonus_enabled: bool,
-             double_bonus_enabled: bool| {
+             correct_branch_double_bonus_points: u16| {
                 add_player(state, "a", 0);
                 add_player(state, "b", 0);
                 add_player(state, "c", 0);
@@ -13009,7 +13352,8 @@ mod tests {
                 state.storyteller_loss_complement_auto = false;
                 state.votes_per_guesser = 2;
                 state.bonus_correct_guess_on_threshold_correct_loss = correct_bonus_enabled;
-                state.bonus_double_vote_on_threshold_correct_loss = double_bonus_enabled;
+                state.double_vote_bonus_too_many_correct_follows_normal = false;
+                state.double_vote_bonus_too_many_correct_points = correct_branch_double_bonus_points;
 
                 state
                     .player_to_current_cards
@@ -13039,7 +13383,7 @@ mod tests {
         {
             let room = test_room();
             let mut state = room.state.write().await;
-            setup_threshold_correct_state(&mut state, false, false);
+            setup_threshold_correct_state(&mut state, false, 0);
             let point_change = room.compute_results(&state);
             assert_eq!(
                 point_change.get("a").copied(),
@@ -13049,14 +13393,14 @@ mod tests {
             assert_eq!(
                 point_change.get("b").copied(),
                 Some(2),
-                "with both toggles off, correct and double-correct should stay at base +2"
+                "with correct bonus off and a zero branch bonus, double-correct should stay at base +2"
             );
         }
 
         {
             let room = test_room();
             let mut state = room.state.write().await;
-            setup_threshold_correct_state(&mut state, true, false);
+            setup_threshold_correct_state(&mut state, true, 0);
             let point_change = room.compute_results(&state);
             assert_eq!(
                 point_change.get("b").copied(),
@@ -13068,12 +13412,12 @@ mod tests {
         {
             let room = test_room();
             let mut state = room.state.write().await;
-            setup_threshold_correct_state(&mut state, true, true);
+            setup_threshold_correct_state(&mut state, true, 2);
             let point_change = room.compute_results(&state);
             assert_eq!(
                 point_change.get("b").copied(),
-                Some(4),
-                "with both toggles on, double-correct bonus should stack on +3 correct base"
+                Some(5),
+                "configured too-many-correct branch bonus should stack on +3 correct base"
             );
         }
 
@@ -13081,12 +13425,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn all_storyteller_loss_bonus_scope_toggle_adjusts_wrong_loss_rewards() -> Result<()> {
+    async fn all_storyteller_loss_bonus_scope_toggle_only_changes_correct_base_bonus() -> Result<()> {
         let setup_wrong_loss_state =
             |state: &mut RwLockWriteGuard<'_, RoomState>,
              scope_enabled: bool,
              correct_bonus_enabled: bool,
-             double_bonus_enabled: bool| {
+             wrong_branch_double_bonus_points: u16| {
                 add_player(state, "a", 0);
                 add_player(state, "b", 0);
                 add_player(state, "c", 0);
@@ -13108,7 +13452,8 @@ mod tests {
                 state.bonus_threshold_loss_toggles_apply_to_all_storyteller_loss_rounds =
                     scope_enabled;
                 state.bonus_correct_guess_on_threshold_correct_loss = correct_bonus_enabled;
-                state.bonus_double_vote_on_threshold_correct_loss = double_bonus_enabled;
+                state.double_vote_bonus_too_many_wrong_follows_normal = false;
+                state.double_vote_bonus_too_many_wrong_points = wrong_branch_double_bonus_points;
 
                 state
                     .player_to_current_cards
@@ -13151,7 +13496,7 @@ mod tests {
         {
             let room = test_room();
             let mut state = room.state.write().await;
-            setup_wrong_loss_state(&mut state, false, false, false);
+            setup_wrong_loss_state(&mut state, false, false, 2);
             let point_change = room.compute_results(&state);
             assert_eq!(
                 point_change.get("a").copied(),
@@ -13160,32 +13505,32 @@ mod tests {
             );
             assert_eq!(
                 point_change.get("b").copied(),
-                Some(3),
-                "with scope off, too-many-wrong rounds should keep existing +2 base and always-on double bonus behavior"
+                Some(4),
+                "too-many-wrong branch bonus should apply even when correct-bonus scope is off"
             );
         }
 
         {
             let room = test_room();
             let mut state = room.state.write().await;
-            setup_wrong_loss_state(&mut state, true, true, true);
+            setup_wrong_loss_state(&mut state, true, true, 2);
             let point_change = room.compute_results(&state);
             assert_eq!(
                 point_change.get("b").copied(),
-                Some(4),
-                "with scope on, too-many-wrong rounds should honor both storyteller-loss bonuses"
+                Some(5),
+                "with scope on, too-many-wrong rounds should honor both the correct-base and wrong-branch double bonuses"
             );
         }
 
         {
             let room = test_room();
             let mut state = room.state.write().await;
-            setup_wrong_loss_state(&mut state, true, false, false);
+            setup_wrong_loss_state(&mut state, true, false, 0);
             let point_change = room.compute_results(&state);
             assert_eq!(
                 point_change.get("b").copied(),
                 Some(2),
-                "with scope on and both toggles off, too-many-wrong rounds should fall back to plain +2"
+                "with scope on and a zero wrong-branch bonus, too-many-wrong rounds should fall back to plain +2"
             );
         }
 
@@ -13211,8 +13556,14 @@ mod tests {
                 storyteller_success_points,
                 storyteller_success_points_min,
                 storyteller_success_points_max,
+                double_vote_bonus_normal_points,
+                double_vote_bonus_too_many_wrong_points,
+                double_vote_bonus_too_many_wrong_follows_normal,
+                double_vote_bonus_too_many_correct_points,
+                double_vote_bonus_too_many_correct_follows_normal,
+                double_vote_bonus_points_min,
+                double_vote_bonus_points_max,
                 bonus_correct_guess_on_threshold_correct_loss,
-                bonus_double_vote_on_threshold_correct_loss,
                 bonus_threshold_loss_toggles_apply_to_all_storyteller_loss_rounds,
                 show_voting_card_numbers,
                 randomize_voting_card_order_per_viewer,
@@ -13288,13 +13639,37 @@ mod tests {
                     storyteller_success_points_max, MAX_STORYTELLER_SUCCESS_POINTS,
                     "room state should expose the storyteller success-score maximum"
                 );
+                assert_eq!(
+                    double_vote_bonus_normal_points, DEFAULT_DOUBLE_VOTE_BONUS_POINTS,
+                    "normal double-vote bonus should default to 1"
+                );
+                assert_eq!(
+                    double_vote_bonus_too_many_wrong_points, DEFAULT_DOUBLE_VOTE_BONUS_POINTS,
+                    "too-many-wrong double-vote bonus should default to following the normal value"
+                );
+                assert!(
+                    double_vote_bonus_too_many_wrong_follows_normal,
+                    "too-many-wrong double-vote bonus should follow normal by default"
+                );
+                assert_eq!(
+                    double_vote_bonus_too_many_correct_points, DEFAULT_DOUBLE_VOTE_BONUS_POINTS,
+                    "too-many-correct double-vote bonus should default to following the normal value"
+                );
+                assert!(
+                    double_vote_bonus_too_many_correct_follows_normal,
+                    "too-many-correct double-vote bonus should follow normal by default"
+                );
+                assert_eq!(
+                    double_vote_bonus_points_min, MIN_DOUBLE_VOTE_BONUS_POINTS,
+                    "room state should expose the double-vote bonus minimum"
+                );
+                assert_eq!(
+                    double_vote_bonus_points_max, MAX_DOUBLE_VOTE_BONUS_POINTS,
+                    "room state should expose the double-vote bonus maximum"
+                );
                 assert!(
                     bonus_correct_guess_on_threshold_correct_loss,
                     "correct-guess threshold bonus should default to on"
-                );
-                assert!(
-                    bonus_double_vote_on_threshold_correct_loss,
-                    "double-vote threshold bonus should default to on"
                 );
                 assert!(
                     bonus_threshold_loss_toggles_apply_to_all_storyteller_loss_rounds,
@@ -15496,7 +15871,7 @@ alpha
     }
 
     #[tokio::test]
-    async fn threshold_correct_bonus_toggles_change_in_live_dixit_stages() -> Result<()> {
+    async fn double_vote_bonus_settings_change_in_live_dixit_stages() -> Result<()> {
         let room = test_room();
         {
             let mut state = room.state.write().await;
@@ -15505,8 +15880,11 @@ alpha
             add_player(&mut state, "p3", 0);
             add_player(&mut state, "p4", 0);
             state.stage = RoomStage::PlayersChoose;
-            state.bonus_correct_guess_on_threshold_correct_loss = false;
-            state.bonus_double_vote_on_threshold_correct_loss = false;
+            state.double_vote_bonus_normal_points = 1;
+            state.double_vote_bonus_too_many_wrong_points = 1;
+            state.double_vote_bonus_too_many_wrong_follows_normal = true;
+            state.double_vote_bonus_too_many_correct_points = 1;
+            state.double_vote_bonus_too_many_correct_follows_normal = true;
             state.moderators.insert("host".to_string());
             setup_connected_member(&mut state, "host", "t-host", 113);
         }
@@ -15514,25 +15892,35 @@ alpha
         room.handle_client_msg(
             "host",
             113,
-            to_ws(ClientMsg::SetBonusCorrectGuessOnThresholdCorrectLoss { enabled: true }),
+            to_ws(ClientMsg::SetDoubleVoteBonusNormalPoints { points: 99 }),
         )
         .await?;
         room.handle_client_msg(
             "host",
             113,
-            to_ws(ClientMsg::SetBonusDoubleVoteOnThresholdCorrectLoss { enabled: false }),
+            to_ws(ClientMsg::SetDoubleVoteBonusTooManyWrongFollowsNormal { enabled: false }),
+        )
+        .await?;
+        room.handle_client_msg(
+            "host",
+            113,
+            to_ws(ClientMsg::SetDoubleVoteBonusTooManyWrongPoints { points: 4 }),
         )
         .await?;
 
         {
             let state = room.state.read().await;
-            assert!(
-                state.bonus_correct_guess_on_threshold_correct_loss,
-                "correct-guess bonus toggle should update in PlayersChoose"
+            assert_eq!(
+                state.double_vote_bonus_normal_points, MAX_DOUBLE_VOTE_BONUS_POINTS,
+                "normal double-vote bonus should clamp in PlayersChoose"
             );
             assert!(
-                !state.bonus_double_vote_on_threshold_correct_loss,
-                "double-vote bonus toggle should remain unchanged until explicitly enabled"
+                !state.double_vote_bonus_too_many_wrong_follows_normal,
+                "too-many-wrong follow toggle should update in PlayersChoose"
+            );
+            assert_eq!(
+                state.double_vote_bonus_too_many_wrong_points, 4,
+                "too-many-wrong override should update in PlayersChoose"
             );
         }
 
@@ -15544,24 +15932,124 @@ alpha
         room.handle_client_msg(
             "host",
             113,
-            to_ws(ClientMsg::SetBonusCorrectGuessOnThresholdCorrectLoss { enabled: true }),
+            to_ws(ClientMsg::SetDoubleVoteBonusNormalPoints { points: 3 }),
         )
         .await?;
         room.handle_client_msg(
             "host",
             113,
-            to_ws(ClientMsg::SetBonusDoubleVoteOnThresholdCorrectLoss { enabled: true }),
+            to_ws(ClientMsg::SetDoubleVoteBonusTooManyCorrectFollowsNormal { enabled: false }),
+        )
+        .await?;
+        room.handle_client_msg(
+            "host",
+            113,
+            to_ws(ClientMsg::SetDoubleVoteBonusTooManyCorrectPoints { points: 5 }),
         )
         .await?;
 
         let state = room.state.read().await;
-        assert!(
-            state.bonus_correct_guess_on_threshold_correct_loss,
-            "correct-guess bonus toggle should stay editable in Results"
+        assert_eq!(
+            state.double_vote_bonus_normal_points, 3,
+            "normal double-vote bonus should stay editable in Results"
         );
         assert!(
-            state.bonus_double_vote_on_threshold_correct_loss,
-            "double-vote bonus toggle should update in Results"
+            !state.double_vote_bonus_too_many_correct_follows_normal,
+            "too-many-correct follow toggle should update in Results"
+        );
+        assert_eq!(
+            state.double_vote_bonus_too_many_correct_points, 5,
+            "too-many-correct override should update in Results"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn followed_double_vote_branch_values_mirror_normal_room_state() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+        state.double_vote_bonus_normal_points = 4;
+        state.double_vote_bonus_too_many_wrong_points = 1;
+        state.double_vote_bonus_too_many_wrong_follows_normal = true;
+        state.double_vote_bonus_too_many_correct_points = 2;
+        state.double_vote_bonus_too_many_correct_follows_normal = true;
+
+        match room.room_state(&state) {
+            ServerMsg::RoomState {
+                double_vote_bonus_normal_points,
+                double_vote_bonus_too_many_wrong_points,
+                double_vote_bonus_too_many_correct_points,
+                ..
+            } => {
+                assert_eq!(double_vote_bonus_normal_points, 4);
+                assert_eq!(
+                    double_vote_bonus_too_many_wrong_points, 4,
+                    "followed too-many-wrong room-state value should mirror normal"
+                );
+                assert_eq!(
+                    double_vote_bonus_too_many_correct_points, 4,
+                    "followed too-many-correct room-state value should mirror normal"
+                );
+            }
+            other => panic!("expected RoomState, got {other:?}"),
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn disabling_double_vote_follow_copies_current_normal_value() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            add_player(&mut state, "p2", 0);
+            add_player(&mut state, "p3", 0);
+            state.stage = RoomStage::Results;
+            state.double_vote_bonus_normal_points = 6;
+            state.double_vote_bonus_too_many_wrong_points = 1;
+            state.double_vote_bonus_too_many_wrong_follows_normal = true;
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 115);
+        }
+
+        room.handle_client_msg(
+            "host",
+            115,
+            to_ws(ClientMsg::SetDoubleVoteBonusTooManyWrongFollowsNormal {
+                enabled: false,
+            }),
+        )
+        .await?;
+
+        {
+            let state = room.state.read().await;
+            assert!(
+                !state.double_vote_bonus_too_many_wrong_follows_normal,
+                "too-many-wrong branch should stop following normal"
+            );
+            assert_eq!(
+                state.double_vote_bonus_too_many_wrong_points, 6,
+                "disabling follow should seed the branch override from the current normal value"
+            );
+        }
+
+        room.handle_client_msg(
+            "host",
+            115,
+            to_ws(ClientMsg::SetDoubleVoteBonusNormalPoints { points: 2 }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert_eq!(
+            state.double_vote_bonus_normal_points, 2,
+            "normal bonus should still update after disabling follow"
+        );
+        assert_eq!(
+            state.double_vote_bonus_too_many_wrong_points, 6,
+            "seeded branch override should persist after follow is disabled"
         );
 
         Ok(())

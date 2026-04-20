@@ -14,7 +14,11 @@
 	export let votesPerGuesser = 1;
 	export let votesPerGuesserMax = 1;
 	export let bonusCorrectGuessOnThresholdCorrectLoss = true;
-	export let bonusDoubleVoteOnThresholdCorrectLoss = true;
+	export let doubleVoteBonusNormalPoints = 1;
+	export let doubleVoteBonusTooManyWrongPoints = 1;
+	export let doubleVoteBonusTooManyWrongFollowsNormal = true;
+	export let doubleVoteBonusTooManyCorrectPoints = 1;
+	export let doubleVoteBonusTooManyCorrectFollowsNormal = true;
 	export let bonusThresholdLossTogglesApplyToAllStorytellerLossRounds = true;
 	export let beautyEnabled = false;
 	export let beautyVotesPerPlayer = 2;
@@ -30,6 +34,12 @@
 	);
 	$: storytellerLabel = activePlayer || 'Storyteller';
 	$: storytellerWinCondition = Math.max(1, storytellerLossComplement + 1);
+	$: effectiveDoubleVoteBonusTooManyWrongPoints = doubleVoteBonusTooManyWrongFollowsNormal
+		? doubleVoteBonusNormalPoints
+		: doubleVoteBonusTooManyWrongPoints;
+	$: effectiveDoubleVoteBonusTooManyCorrectPoints = doubleVoteBonusTooManyCorrectFollowsNormal
+		? doubleVoteBonusNormalPoints
+		: doubleVoteBonusTooManyCorrectPoints;
 	$: effectiveBeautyVotesPerPlayer = Math.max(
 		1,
 		Math.min(beautyVotesPerPlayer, Math.max(beautyVotesPerPlayerMax, 1))
@@ -38,6 +48,10 @@
 		$beautyVotePointsDivisorEffective === null
 			? 'pending'
 			: $beautyVotePointsDivisorEffective.toFixed(1);
+
+	function formatDoubleVoteBonus(points: number) {
+		return points === 0 ? 'off' : `+${points}`;
+	}
 </script>
 
 <div class="card light p-4">
@@ -71,9 +85,9 @@
 				+2.
 			</li>
 			{#if bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
-				<li>The two bonus toggles below apply in any storyteller-loss round.</li>
+				<li>The correct-guess bonus below applies in any storyteller-loss round.</li>
 			{:else}
-				<li>The two bonus toggles below apply only when enough guessers were correct.</li>
+				<li>The correct-guess bonus below applies only when enough guessers were correct.</li>
 			{/if}
 			{#if bonusCorrectGuessOnThresholdCorrectLoss}
 				<li>
@@ -87,16 +101,19 @@
 				Normal round: <span class="font-semibold">{storytellerLabel}</span>
 				+{storytellerSuccessPoints}, each guesser with at least one correct vote +3.
 			</li>
-			{#if bonusDoubleVoteOnThresholdCorrectLoss}
+			{#if doubleVoteBonusTooManyWrongFollowsNormal && doubleVoteBonusTooManyCorrectFollowsNormal}
 				<li>
-					Double-correct bonus: +1 if 2+ of your {effectiveVotesPerGuesser} vote
-					{effectiveVotesPerGuesser === 1 ? '' : 's'} hit storyteller card.
+					Double-correct bonus: {formatDoubleVoteBonus(doubleVoteBonusNormalPoints)} if 2+ of your
+					{effectiveVotesPerGuesser} vote{effectiveVotesPerGuesser === 1 ? '' : 's'} hit storyteller
+					card.
 				</li>
 			{:else}
 				<li>
-					Double-correct bonus: +1 if 2+ of your {effectiveVotesPerGuesser} vote
-					{effectiveVotesPerGuesser === 1 ? '' : 's'} hit storyteller card, except in covered storyteller-loss
-					rounds.
+					Double-correct bonus when 2+ of your {effectiveVotesPerGuesser} vote
+					{effectiveVotesPerGuesser === 1 ? '' : 's'} hit storyteller card: normal
+					{formatDoubleVoteBonus(doubleVoteBonusNormalPoints)}, too many guessed wrong
+					{formatDoubleVoteBonus(effectiveDoubleVoteBonusTooManyWrongPoints)}, too many guessed
+					correctly {formatDoubleVoteBonus(effectiveDoubleVoteBonusTooManyCorrectPoints)}.
 				</li>
 			{/if}
 			<li>Decoy bonus: +1 per vote token on your card (max +3, non-storyteller only).</li>

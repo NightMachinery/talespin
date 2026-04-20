@@ -15,6 +15,7 @@ Deploy note: routine Talespin redeploys now keep benign Browserslist/Caddy noise
 - `docs/talespin/mod/options.md`: Dixit moderator option lock windows after storyteller clue lock
 - `docs/talespin/mod/force_actions.md`: current-stage moderator force buttons, including auto-observerify for offline blockers
 - `docs/talespin/scoring/storyteller_success.md`: configurable storyteller success points and how they differ from `W`
+- `docs/talespin/scoring/double_vote_bonus.md`: configurable double-vote bonuses for normal, too-many-wrong, and too-many-correct Dixit rounds
 - `docs/talespin/dixit_randomized_voting_layout.md`: Dixit per-viewer randomized voting layout with canonical number badges
 - `docs/talespin/sticky_card_navigator.md`: local sticky card-number navigator for Dixit voting and results
 - `docs/talespin/stage_change_cues.md`: local stage-change sound + visual cues, supported stages, and persistence

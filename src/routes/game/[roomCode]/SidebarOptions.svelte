@@ -107,7 +107,13 @@
 	export let nominationsPerGuesserMin = 1;
 	export let nominationsPerGuesserMax = 1;
 	export let bonusCorrectGuessOnThresholdCorrectLoss = true;
-	export let bonusDoubleVoteOnThresholdCorrectLoss = true;
+	export let doubleVoteBonusNormalPoints = 1;
+	export let doubleVoteBonusTooManyWrongPoints = 1;
+	export let doubleVoteBonusTooManyWrongFollowsNormal = true;
+	export let doubleVoteBonusTooManyCorrectPoints = 1;
+	export let doubleVoteBonusTooManyCorrectFollowsNormal = true;
+	export let doubleVoteBonusPointsMin = 0;
+	export let doubleVoteBonusPointsMax = 10;
 	export let bonusThresholdLossTogglesApplyToAllStorytellerLossRounds = true;
 	export let showVotingCardNumbers = true;
 	export let roundStartDiscardCount = 3;
@@ -211,6 +217,12 @@
 	$: storytellerWinCondition = storytellerLossComplement + 1;
 	$: storytellerWinConditionMin = storytellerLossComplementMin + 1;
 	$: storytellerWinConditionMax = storytellerLossComplementMax + 1;
+	$: effectiveDoubleVoteBonusTooManyWrongPoints = doubleVoteBonusTooManyWrongFollowsNormal
+		? doubleVoteBonusNormalPoints
+		: doubleVoteBonusTooManyWrongPoints;
+	$: effectiveDoubleVoteBonusTooManyCorrectPoints = doubleVoteBonusTooManyCorrectFollowsNormal
+		? doubleVoteBonusNormalPoints
+		: doubleVoteBonusTooManyCorrectPoints;
 	$: storytellerPoolStatusLabel = !storytellerPoolEnabled
 		? 'Disabled'
 		: storytellerPoolActive
@@ -380,6 +392,92 @@
 		if (parsed !== storytellerSuccessPoints) {
 			gameServer.setStorytellerSuccessPoints(parsed);
 		}
+	}
+
+	function updateDoubleVoteBonusNormalPoints(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const parsed = Number(input.value);
+		if (!isModerator || !canChangeStorytellerScoringSettings) {
+			input.value = `${doubleVoteBonusNormalPoints}`;
+			return;
+		}
+		if (
+			!Number.isInteger(parsed) ||
+			parsed < doubleVoteBonusPointsMin ||
+			parsed > doubleVoteBonusPointsMax
+		) {
+			input.value = `${doubleVoteBonusNormalPoints}`;
+			return;
+		}
+		if (parsed !== doubleVoteBonusNormalPoints) {
+			gameServer.setDoubleVoteBonusNormalPoints(parsed);
+		}
+	}
+
+	function updateDoubleVoteBonusTooManyWrongPoints(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const parsed = Number(input.value);
+		if (
+			!isModerator ||
+			!canChangeStorytellerScoringSettings ||
+			doubleVoteBonusTooManyWrongFollowsNormal
+		) {
+			input.value = `${effectiveDoubleVoteBonusTooManyWrongPoints}`;
+			return;
+		}
+		if (
+			!Number.isInteger(parsed) ||
+			parsed < doubleVoteBonusPointsMin ||
+			parsed > doubleVoteBonusPointsMax
+		) {
+			input.value = `${effectiveDoubleVoteBonusTooManyWrongPoints}`;
+			return;
+		}
+		if (parsed !== doubleVoteBonusTooManyWrongPoints) {
+			gameServer.setDoubleVoteBonusTooManyWrongPoints(parsed);
+		}
+	}
+
+	function updateDoubleVoteBonusTooManyWrongFollowsNormal(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		if (!isModerator || !canChangeStorytellerScoringSettings) {
+			input.checked = doubleVoteBonusTooManyWrongFollowsNormal;
+			return;
+		}
+		gameServer.setDoubleVoteBonusTooManyWrongFollowsNormal(input.checked);
+	}
+
+	function updateDoubleVoteBonusTooManyCorrectPoints(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const parsed = Number(input.value);
+		if (
+			!isModerator ||
+			!canChangeStorytellerScoringSettings ||
+			doubleVoteBonusTooManyCorrectFollowsNormal
+		) {
+			input.value = `${effectiveDoubleVoteBonusTooManyCorrectPoints}`;
+			return;
+		}
+		if (
+			!Number.isInteger(parsed) ||
+			parsed < doubleVoteBonusPointsMin ||
+			parsed > doubleVoteBonusPointsMax
+		) {
+			input.value = `${effectiveDoubleVoteBonusTooManyCorrectPoints}`;
+			return;
+		}
+		if (parsed !== doubleVoteBonusTooManyCorrectPoints) {
+			gameServer.setDoubleVoteBonusTooManyCorrectPoints(parsed);
+		}
+	}
+
+	function updateDoubleVoteBonusTooManyCorrectFollowsNormal(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		if (!isModerator || !canChangeStorytellerScoringSettings) {
+			input.checked = doubleVoteBonusTooManyCorrectFollowsNormal;
+			return;
+		}
+		gameServer.setDoubleVoteBonusTooManyCorrectFollowsNormal(input.checked);
 	}
 
 	function updateVotesPerGuesser(event: Event) {
@@ -614,15 +712,6 @@
 			return;
 		}
 		gameServer.setBonusCorrectGuessOnThresholdCorrectLoss(input.checked);
-	}
-
-	function updateBonusDoubleVoteOnThresholdCorrectLoss(event: Event) {
-		const input = event.currentTarget as HTMLInputElement;
-		if (!isModerator || !canChangeStorytellerScoringSettings) {
-			input.checked = bonusDoubleVoteOnThresholdCorrectLoss;
-			return;
-		}
-		gameServer.setBonusDoubleVoteOnThresholdCorrectLoss(input.checked);
 	}
 
 	function updateBonusThresholdLossTogglesApplyToAllStorytellerLossRounds(event: Event) {
@@ -2261,18 +2350,99 @@
 						{/if}
 					</div>
 					<div class="mt-3 rounded border border-white/20 px-2 py-2">
-						<label class="flex items-start gap-3 text-sm">
-							<input
-								type="checkbox"
-								class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
-								checked={bonusDoubleVoteOnThresholdCorrectLoss}
-								on:change={updateBonusDoubleVoteOnThresholdCorrectLoss}
-								disabled={!isModerator || !canChangeStorytellerScoringSettings}
-							/>
-							<span> Give +1 double-vote bonus in storyteller-loss rounds covered below </span>
-						</label>
+						<p class="block text-sm font-semibold">Double-vote bonus</p>
+						<p class="mt-1 text-xs opacity-75">
+							Extra points when 2+ of your vote tokens hit the storyteller card.
+						</p>
+						<div class="mt-3 space-y-3">
+							<div class="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+								<div>
+									<p class="text-sm font-medium">Normal round</p>
+									<p class="text-xs opacity-75">Used whenever the storyteller wins the round.</p>
+								</div>
+								<div class="flex items-center gap-2">
+									<input
+										type="number"
+										class="w-24 rounded border px-2 py-1 text-gray-700 shadow"
+										min={doubleVoteBonusPointsMin}
+										max={doubleVoteBonusPointsMax}
+										step="1"
+										value={doubleVoteBonusNormalPoints}
+										on:change={updateDoubleVoteBonusNormalPoints}
+										disabled={!isModerator || !canChangeStorytellerScoringSettings}
+									/>
+									<span class="text-xs opacity-75">
+										Range: {doubleVoteBonusPointsMin}–{doubleVoteBonusPointsMax}
+									</span>
+								</div>
+							</div>
+							<div class="rounded border border-white/10 px-3 py-3">
+								<div class="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto_auto] md:items-center">
+									<div>
+										<p class="text-sm font-medium">Too many guessed wrong</p>
+										<p class="text-xs opacity-75">
+											Storyteller-loss rounds where too many players missed the storyteller card.
+										</p>
+									</div>
+									<label class="flex items-center gap-2 text-sm">
+										<input
+											type="checkbox"
+											class="h-4 w-4 cursor-pointer accent-primary-500"
+											checked={doubleVoteBonusTooManyWrongFollowsNormal}
+											on:change={updateDoubleVoteBonusTooManyWrongFollowsNormal}
+											disabled={!isModerator || !canChangeStorytellerScoringSettings}
+										/>
+										<span>Follow normal</span>
+									</label>
+									<input
+										type="number"
+										class="w-24 rounded border px-2 py-1 text-gray-700 shadow"
+										min={doubleVoteBonusPointsMin}
+										max={doubleVoteBonusPointsMax}
+										step="1"
+										value={effectiveDoubleVoteBonusTooManyWrongPoints}
+										on:change={updateDoubleVoteBonusTooManyWrongPoints}
+										disabled={!isModerator ||
+											!canChangeStorytellerScoringSettings ||
+											doubleVoteBonusTooManyWrongFollowsNormal}
+									/>
+								</div>
+							</div>
+							<div class="rounded border border-white/10 px-3 py-3">
+								<div class="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto_auto] md:items-center">
+									<div>
+										<p class="text-sm font-medium">Too many guessed correctly</p>
+										<p class="text-xs opacity-75">
+											Storyteller-loss rounds where too many players found the storyteller card.
+										</p>
+									</div>
+									<label class="flex items-center gap-2 text-sm">
+										<input
+											type="checkbox"
+											class="h-4 w-4 cursor-pointer accent-primary-500"
+											checked={doubleVoteBonusTooManyCorrectFollowsNormal}
+											on:change={updateDoubleVoteBonusTooManyCorrectFollowsNormal}
+											disabled={!isModerator || !canChangeStorytellerScoringSettings}
+										/>
+										<span>Follow normal</span>
+									</label>
+									<input
+										type="number"
+										class="w-24 rounded border px-2 py-1 text-gray-700 shadow"
+										min={doubleVoteBonusPointsMin}
+										max={doubleVoteBonusPointsMax}
+										step="1"
+										value={effectiveDoubleVoteBonusTooManyCorrectPoints}
+										on:change={updateDoubleVoteBonusTooManyCorrectPoints}
+										disabled={!isModerator ||
+											!canChangeStorytellerScoringSettings ||
+											doubleVoteBonusTooManyCorrectFollowsNormal}
+									/>
+								</div>
+							</div>
+						</div>
 						{#if !canChangeStorytellerScoringSettings}
-							<p class="mt-1 text-xs opacity-70">{LIVE_DIXIT_STAGE_HINT}</p>
+							<p class="mt-2 text-xs opacity-70">{LIVE_DIXIT_STAGE_HINT}</p>
 						{/if}
 					</div>
 					<div class="mt-3 rounded border border-white/20 px-2 py-2">
@@ -2284,7 +2454,7 @@
 								on:change={updateBonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 								disabled={!isModerator || !canChangeStorytellerScoringSettings}
 							/>
-							<span> Apply the two bonus toggles above in all storyteller-loss rounds </span>
+							<span> Apply the correct-guess +3 bonus above in all storyteller-loss rounds </span>
 						</label>
 						<p class="mt-1 text-xs opacity-70">
 							Includes rounds where the storyteller loses because too many guessers were wrong.

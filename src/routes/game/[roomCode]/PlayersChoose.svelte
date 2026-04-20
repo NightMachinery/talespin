@@ -60,7 +60,13 @@
 	export let nominationsPerGuesserMin = 1;
 	export let nominationsPerGuesserMax = 1;
 	export let bonusCorrectGuessOnThresholdCorrectLoss = true;
-	export let bonusDoubleVoteOnThresholdCorrectLoss = true;
+	export let doubleVoteBonusNormalPoints = 1;
+	export let doubleVoteBonusTooManyWrongPoints = 1;
+	export let doubleVoteBonusTooManyWrongFollowsNormal = true;
+	export let doubleVoteBonusTooManyCorrectPoints = 1;
+	export let doubleVoteBonusTooManyCorrectFollowsNormal = true;
+	export let doubleVoteBonusPointsMin = 0;
+	export let doubleVoteBonusPointsMax = 10;
 	export let bonusThresholdLossTogglesApplyToAllStorytellerLossRounds = true;
 	export let showVotingCardNumbers = true;
 	export let roundStartDiscardCount = 3;
@@ -237,7 +243,13 @@
 	{nominationsPerGuesserMin}
 	{nominationsPerGuesserMax}
 	{bonusCorrectGuessOnThresholdCorrectLoss}
-	{bonusDoubleVoteOnThresholdCorrectLoss}
+	{doubleVoteBonusNormalPoints}
+	{doubleVoteBonusTooManyWrongPoints}
+	{doubleVoteBonusTooManyWrongFollowsNormal}
+	{doubleVoteBonusTooManyCorrectPoints}
+	{doubleVoteBonusTooManyCorrectFollowsNormal}
+	{doubleVoteBonusPointsMin}
+	{doubleVoteBonusPointsMax}
 	{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 	{showVotingCardNumbers}
 	{roundStartDiscardCount}

@@ -219,6 +219,46 @@ class GameServer {
 		});
 	}
 
+	setDoubleVoteBonusNormalPoints(points: number) {
+		this.send({
+			SetDoubleVoteBonusNormalPoints: {
+				points
+			}
+		});
+	}
+
+	setDoubleVoteBonusTooManyWrongPoints(points: number) {
+		this.send({
+			SetDoubleVoteBonusTooManyWrongPoints: {
+				points
+			}
+		});
+	}
+
+	setDoubleVoteBonusTooManyWrongFollowsNormal(enabled: boolean) {
+		this.send({
+			SetDoubleVoteBonusTooManyWrongFollowsNormal: {
+				enabled
+			}
+		});
+	}
+
+	setDoubleVoteBonusTooManyCorrectPoints(points: number) {
+		this.send({
+			SetDoubleVoteBonusTooManyCorrectPoints: {
+				points
+			}
+		});
+	}
+
+	setDoubleVoteBonusTooManyCorrectFollowsNormal(enabled: boolean) {
+		this.send({
+			SetDoubleVoteBonusTooManyCorrectFollowsNormal: {
+				enabled
+			}
+		});
+	}
+
 	setVotesPerGuesser(votes: number) {
 		this.send({
 			SetVotesPerGuesser: {
@@ -334,14 +374,6 @@ class GameServer {
 	setBonusCorrectGuessOnThresholdCorrectLoss(enabled: boolean) {
 		this.send({
 			SetBonusCorrectGuessOnThresholdCorrectLoss: {
-				enabled
-			}
-		});
-	}
-
-	setBonusDoubleVoteOnThresholdCorrectLoss(enabled: boolean) {
-		this.send({
-			SetBonusDoubleVoteOnThresholdCorrectLoss: {
 				enabled
 			}
 		});

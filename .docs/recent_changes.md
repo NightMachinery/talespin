@@ -1,5 +1,7 @@
 # Recent changes
 
+- 2026-04-20: Dixit double-vote bonus is now split into three numeric settings: **Normal round**, **Too many guessed wrong**, and **Too many guessed correctly**. The two storyteller-loss rows default to **Follow normal**, the old double-vote storyteller-loss checkbox is gone, and the score cheatsheet / moderator sidebar now explain the branch-specific behavior.
+
 - 2026-04-18: Dixit now has an optional **Clue Rating** stage between storyteller / beauty voting
   and results. Non-storytellers can submit configurable star counts, the storyteller gets
   `max(round(avg) - 1, 0)` bonus points, Results shows the round clue-star summary, and the live /
