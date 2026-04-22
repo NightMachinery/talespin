@@ -116,21 +116,9 @@
 	function pickStars(stars: number) {
 		if (!canRate) return;
 		selectedStars = stars;
-	}
-
-	function submitRating() {
-		if (!canRate || selectedStars < 1) {
-			toastStore.trigger({
-				message: 'Pick a star rating first.',
-				autohide: true,
-				timeout: 2200
-			});
-			return;
-		}
-
-		gameServer.submitClueRating(selectedStars);
+		gameServer.submitClueRating(stars);
 		toastStore.trigger({
-			message: `🌟 Locked in ${selectedStars}/${maxStars}.`,
+			message: `🌟 Locked in ${stars}/${maxStars}.`,
 			autohide: true,
 			timeout: 2200
 		});
@@ -226,13 +214,14 @@
 	{darkPlayer}
 	{winCondition}
 	{gameMode}
+	showMobileActions={isModerator}
 >
 	<svelte:fragment slot="mobileTop">
 		<div class="card clue-rating-shell p-4">
 			<p class="text-xs font-semibold uppercase tracking-[0.3em] text-amber-200/80">Clue Rating</p>
 			<h2 class="mt-2 text-xl font-semibold text-white">{description}</h2>
 			<p class="mt-2 text-sm text-white/75">
-				Rate {activePlayer}&rsquo;s clue before results land.
+				Tap a star to rate {activePlayer}&rsquo;s clue instantly before results land.
 			</p>
 		</div>
 	</svelte:fragment>
@@ -253,7 +242,7 @@
 				</p>
 				<h1 class="mt-4 text-3xl font-black text-white sm:text-5xl">{description}</h1>
 				<p class="mx-auto mt-4 max-w-2xl text-sm text-white/75 sm:text-base">
-					Give the storyteller a little constellation of approval. Missing votes are skipped.
+					Tap or click a star to submit instantly. Missing votes are skipped.
 				</p>
 			</div>
 
@@ -279,22 +268,12 @@
 				<div class="mt-6 text-center">
 					<p class="text-sm text-white/75">
 						{#if selectedStars > 0}
-							You picked <span class="font-semibold text-amber-200">{selectedStars}</span> /
-							{maxStars}.
+							Locked in <span class="font-semibold text-amber-200">{selectedStars}</span> /
+							{maxStars}. Tap another star to change it before results.
 						{:else}
-							Choose from 1 to {maxStars} stars.
+							Tap or click from 1 to {maxStars} stars to submit instantly.
 						{/if}
 					</p>
-				</div>
-
-				<div class="mx-auto mt-8 max-w-sm">
-					<button
-						class="btn clue-submit-btn w-full"
-						disabled={selectedStars < 1}
-						on:click={submitRating}
-					>
-						Submit star rating
-					</button>
 				</div>
 			{:else}
 				<div class="mx-auto mt-10 max-w-2xl text-center">
@@ -320,16 +299,8 @@
 		</div>
 	</div>
 
-	<svelte:fragment slot="mobileActions">
-		{#if canRate}
-			<button
-				class="btn clue-submit-btn w-full"
-				disabled={selectedStars < 1}
-				on:click={submitRating}
-			>
-				Submit {selectedStars > 0 ? `${selectedStars}★` : 'rating'}
-			</button>
-		{:else if isModerator}
+	{#if isModerator}
+		<svelte:fragment slot="mobileActions">
 			<StageActionButtons
 				actions={[
 					{ label: 'Force Skip', onClick: () => gameServer.forceCurrentStage() },
@@ -340,8 +311,8 @@
 					}
 				]}
 			/>
-		{/if}
-	</svelte:fragment>
+		</svelte:fragment>
+	{/if}
 
 	<svelte:fragment slot="sidebarBottom">
 		{#if isModerator}
@@ -414,14 +385,6 @@
 		font-size: 0.8rem;
 		font-weight: 700;
 		opacity: 0.88;
-	}
-
-	.clue-submit-btn {
-		background: linear-gradient(135deg, rgb(250 204 21), rgb(245 158 11)),
-			linear-gradient(135deg, rgb(255 255 255 / 0.16), rgb(255 255 255 / 0));
-		color: rgb(17 24 39);
-		font-weight: 800;
-		box-shadow: 0 18px 40px rgb(245 158 11 / 0.25);
 	}
 
 	@media (prefers-reduced-motion: reduce) {

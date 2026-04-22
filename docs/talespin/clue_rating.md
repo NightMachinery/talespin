@@ -6,7 +6,8 @@ voting and results.
 ## What it does
 
 - Only **non-storytellers** can rate the clue.
-- Each rater submits **1..N stars**, where `N` is room-configurable.
+- Each rater taps/clicks **1..N stars**, where `N` is room-configurable, and the click submits
+  immediately.
 - The storyteller gets a round bonus of:
 
 `max(round(average submitted stars) - 1, 0)`
