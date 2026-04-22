@@ -62,6 +62,7 @@
 	export let leaderboardPointChangeOverride: { [key: string]: number } | null = null;
 	export let leaderboardStoryPointChangeOverride: { [key: string]: number } | null = null;
 	export let leaderboardBeautyPointChangeOverride: { [key: string]: number } | null = null;
+	export let leaderboardRoundClueRatingOverride: { [key: string]: number } | null = null;
 	export let winCondition: WinCondition = {
 		mode: 'points',
 		target_points: 10
@@ -306,16 +307,27 @@
 		return value === null ? 'NA' : value.toFixed(1);
 	}
 
+	function effectiveRoundClueRatings() {
+		return leaderboardRoundClueRatingOverride ?? $resultsPlayerClueRatings;
+	}
+
 	$: shouldShowResultsClueRatings = stage === 'Results' && supportsClueStarsMode;
+	$: shouldShowPreviewClueRatings = leaderboardRoundClueRatingOverride !== null;
+	$: shouldShowRoundClueRatings = shouldShowResultsClueRatings || shouldShowPreviewClueRatings;
 
 	function displayRoundClueRating(playerName: string, isObserverRow = false) {
-		if (isObserverRow || playerName === activePlayer) return '—';
-		const stars = $resultsPlayerClueRatings[playerName];
+		if (leaderboardRoundClueRatingOverride === null && (isObserverRow || playerName === activePlayer)) {
+			return '—';
+		}
+		const stars = effectiveRoundClueRatings()[playerName];
 		return typeof stars === 'number' ? `${stars}★` : '—';
 	}
 
-	function hasRoundClueRating(playerName: string) {
-		return typeof $resultsPlayerClueRatings[playerName] === 'number';
+	function hasRoundClueRating(playerName: string, isObserverRow = false) {
+		if (leaderboardRoundClueRatingOverride === null && (isObserverRow || playerName === activePlayer)) {
+			return false;
+		}
+		return typeof effectiveRoundClueRatings()[playerName] === 'number';
 	}
 </script>
 
@@ -407,7 +419,7 @@
 									{/if}
 								{/if}
 							</div>
-							{#if shouldShowResultsClueRatings}
+							{#if shouldShowRoundClueRatings}
 								<span
 									class={`result-clue-rating ${hasRoundClueRating(entry.name) ? 'active' : ''}`}
 									title="Round star rating"
@@ -504,8 +516,11 @@
 										<span class="opacity-70"> ({OFFLINE_STATUS_LABEL})</span>
 									{/if}
 								</div>
-								{#if shouldShowResultsClueRatings}
-									<span class="result-clue-rating" title="Round star rating">
+								{#if shouldShowRoundClueRatings}
+									<span
+										class={`result-clue-rating ${hasRoundClueRating(observerEntry.name, true) ? 'active' : ''}`}
+										title="Round star rating"
+									>
 										{displayRoundClueRating(observerEntry.name, true)}
 									</span>
 								{/if}

@@ -111,6 +111,7 @@
 	export let leaderboardPointChangeOverride: { [key: string]: number } | null = null;
 	export let leaderboardStoryPointChangeOverride: { [key: string]: number } | null = null;
 	export let leaderboardBeautyPointChangeOverride: { [key: string]: number } | null = null;
+	export let leaderboardRoundClueRatingOverride: { [key: string]: number } | null = null;
 
 	const hasMobileTop = !!$$slots.mobileTop;
 	const hasMobileActions = !!$$slots.mobileActions;
@@ -260,6 +261,7 @@
 						{leaderboardPointChangeOverride}
 						{leaderboardStoryPointChangeOverride}
 						{leaderboardBeautyPointChangeOverride}
+						{leaderboardRoundClueRatingOverride}
 					/>
 
 					{#if hasMobileBottom}

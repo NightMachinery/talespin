@@ -294,6 +294,8 @@
 	leaderboardStoryPointChangeOverride={previousResultsLeaderboardContext?.storyPointChange ?? null}
 	leaderboardBeautyPointChangeOverride={previousResultsLeaderboardContext?.beautyPointChange ??
 		null}
+	leaderboardRoundClueRatingOverride={previousResultsLeaderboardContext?.clueRatingOverride ??
+		null}
 	showMobileActions={isChooser || isModerator || canToggleResultsView}
 >
 	<svelte:fragment slot="leftRail">

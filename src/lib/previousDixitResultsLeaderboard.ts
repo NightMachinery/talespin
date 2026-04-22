@@ -5,6 +5,7 @@ export interface PreviousDixitResultsLeaderboardContext {
 	pointChange: Record<string, number>;
 	storyPointChange: Record<string, number>;
 	beautyPointChange: Record<string, number>;
+	clueRatingOverride: Record<string, number> | null;
 }
 
 export function previousDixitResultsLeaderboardContext(
@@ -17,7 +18,11 @@ export function previousDixitResultsLeaderboardContext(
 			stage: 'BeautyResults',
 			pointChange: snapshot.point_change ?? {},
 			storyPointChange: {},
-			beautyPointChange: snapshot.point_change ?? {}
+			beautyPointChange: snapshot.point_change ?? {},
+			clueRatingOverride:
+				Object.keys(snapshot.player_to_clue_rating ?? {}).length > 0
+					? snapshot.player_to_clue_rating
+					: null
 		};
 	}
 
@@ -25,6 +30,10 @@ export function previousDixitResultsLeaderboardContext(
 		stage: 'Results',
 		pointChange: snapshot.point_change ?? {},
 		storyPointChange: snapshot.storyteller_point_change ?? {},
-		beautyPointChange: snapshot.beauty_point_change ?? {}
+		beautyPointChange: snapshot.beauty_point_change ?? {},
+		clueRatingOverride:
+			Object.keys(snapshot.player_to_clue_rating ?? {}).length > 0
+				? snapshot.player_to_clue_rating
+				: null
 	};
 }

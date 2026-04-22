@@ -32,5 +32,8 @@ stages like the other stage timers.
   clue bonus.
 - During live `Results`, the sidebar leaderboard also shows a temporary **per-player star column**
   beside names for submitted clue ratings in that round. It disappears on the next stage.
+- If players switch to the **previous results** preview during the next storyteller-choosing /
+  nominations stages, that same temporary per-player star column is also shown there for the
+  previewed round when ratings were recorded.
 - A persistent **Clue Stars** leaderboard view shows each player's average recorded storyteller
   clue rating to **1 decimal**, or `NA` if they have never recorded one.

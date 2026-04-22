@@ -22,6 +22,8 @@ next storyteller is choosing and while nominations are happening.
   active players default to **Previous Results**.
 - While the preview is visible, the sidebar leaderboard also shows the **previous round's score
   deltas** instead of hiding them.
+- If the previewed round recorded clue-star submissions, the sidebar leaderboard also carries the
+  same temporary **per-player clue-star chips** from that previewed round.
 
 ## PlayersChoose behavior
 
@@ -31,6 +33,8 @@ next storyteller is choosing and while nominations are happening.
   highlight.
 - While the preview is visible, the sidebar leaderboard shows the same **previous round delta
   values** that were shown on the live results screen.
+- If the previewed round had clue-star submissions, those same sidebar **clue-star chips** stay
+  visible here too.
 
 ## What is shown
 
@@ -38,6 +42,8 @@ next storyteller is choosing and while nominations are happening.
   results board.
 - If Most Beautiful uses **separate** results, the next `ActiveChooses` preview mirrors the prior
   `BeautyResults` board instead.
+- Even when the preview mirrors prior separate `BeautyResults`, the sidebar leaderboard still
+  carries the previous round's clue-star chips from the storyteller results flow.
 - The data is sent in room state so reconnecting players can still see the same preview.
 - Preview card highlights mirror live Dixit results states: correct card = animated green sweep,
   beauty winner = silver border, overlap = green sweep with a moving silver glint.

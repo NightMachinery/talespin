@@ -100,6 +100,7 @@ pub enum PreviousDixitResultsView {
         center_cards: Vec<String>,
         player_to_votes: HashMap<String, Vec<String>>,
         player_to_beauty_votes: HashMap<String, Vec<String>>,
+        player_to_clue_rating: HashMap<String, u16>,
         player_to_current_cards: HashMap<String, Vec<String>>,
         active_card: String,
         beauty_results_display_mode: BeautyResultsDisplayMode,
@@ -112,6 +113,7 @@ pub enum PreviousDixitResultsView {
     BeautyResults {
         center_cards: Vec<String>,
         player_to_beauty_votes: HashMap<String, Vec<String>>,
+        player_to_clue_rating: HashMap<String, u16>,
         player_to_current_cards: HashMap<String, Vec<String>>,
         point_change: HashMap<String, i32>,
         beauty_vote_totals: HashMap<String, u16>,
@@ -3331,6 +3333,7 @@ impl Room {
             center_cards: self.get_center_cards(state),
             player_to_votes: state.player_to_votes.clone(),
             player_to_beauty_votes: state.player_to_beauty_votes.clone(),
+            player_to_clue_rating: state.player_to_clue_rating.clone(),
             player_to_current_cards: state.player_to_current_cards.clone(),
             active_card,
             beauty_results_display_mode: state.beauty_results_display_mode,
@@ -3356,6 +3359,7 @@ impl Room {
         PreviousDixitResultsView::BeautyResults {
             center_cards: self.get_center_cards(state),
             player_to_beauty_votes: state.player_to_beauty_votes.clone(),
+            player_to_clue_rating: state.player_to_clue_rating.clone(),
             player_to_current_cards: state.player_to_current_cards.clone(),
             point_change: state.beauty_point_change.clone(),
             beauty_vote_totals: self.compute_beauty_vote_totals(state),
@@ -7707,8 +7711,7 @@ impl Room {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
-                                "Only moderators can change double-vote bonus settings"
-                                    .to_string(),
+                                "Only moderators can change double-vote bonus settings".to_string(),
                             )
                             .into(),
                         )
@@ -7744,8 +7747,7 @@ impl Room {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
-                                "Only moderators can change double-vote bonus settings"
-                                    .to_string(),
+                                "Only moderators can change double-vote bonus settings".to_string(),
                             )
                             .into(),
                         )
@@ -7781,8 +7783,7 @@ impl Room {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
-                                "Only moderators can change double-vote bonus settings"
-                                    .to_string(),
+                                "Only moderators can change double-vote bonus settings".to_string(),
                             )
                             .into(),
                         )
@@ -7822,8 +7823,7 @@ impl Room {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
-                                "Only moderators can change double-vote bonus settings"
-                                    .to_string(),
+                                "Only moderators can change double-vote bonus settings".to_string(),
                             )
                             .into(),
                         )
@@ -7859,8 +7859,7 @@ impl Room {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
                             ServerMsg::ErrorMsg(
-                                "Only moderators can change double-vote bonus settings"
-                                    .to_string(),
+                                "Only moderators can change double-vote bonus settings".to_string(),
                             )
                             .into(),
                         )
@@ -11956,6 +11955,7 @@ mod tests {
             center_cards: vec!["ca".into(), "cb".into(), "cc".into(), "cd".into()],
             player_to_votes: HashMap::new(),
             player_to_beauty_votes: HashMap::new(),
+            player_to_clue_rating: HashMap::from([("b".into(), 3), ("c".into(), 2)]),
             player_to_current_cards: HashMap::from([
                 ("a".into(), vec!["ca".into()]),
                 ("b".into(), vec!["cb".into()]),
@@ -11989,6 +11989,7 @@ mod tests {
             Some(PreviousDixitResultsView::Results {
                 point_change,
                 beauty_point_change,
+                player_to_clue_rating,
                 ..
             }) => {
                 assert_eq!(
@@ -12005,6 +12006,11 @@ mod tests {
                     point_change.get("c").copied(),
                     Some(3),
                     "storyteller deltas should stay unchanged while the beauty delta is rescored"
+                );
+                assert_eq!(
+                    player_to_clue_rating.get("b").copied(),
+                    Some(3),
+                    "refreshing previous results should preserve cached clue-star chips"
                 );
             }
             other => panic!("expected refreshed previous results, got {other:?}"),
@@ -13336,8 +13342,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn threshold_correct_loss_bonus_and_branch_double_bonus_adjust_rewards() -> Result<()>
-    {
+    async fn threshold_correct_loss_bonus_and_branch_double_bonus_adjust_rewards() -> Result<()> {
         let setup_threshold_correct_state =
             |state: &mut RwLockWriteGuard<'_, RoomState>,
              correct_bonus_enabled: bool,
@@ -13353,7 +13358,8 @@ mod tests {
                 state.votes_per_guesser = 2;
                 state.bonus_correct_guess_on_threshold_correct_loss = correct_bonus_enabled;
                 state.double_vote_bonus_too_many_correct_follows_normal = false;
-                state.double_vote_bonus_too_many_correct_points = correct_branch_double_bonus_points;
+                state.double_vote_bonus_too_many_correct_points =
+                    correct_branch_double_bonus_points;
 
                 state
                     .player_to_current_cards
@@ -13425,7 +13431,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn all_storyteller_loss_bonus_scope_toggle_only_changes_correct_base_bonus() -> Result<()> {
+    async fn all_storyteller_loss_bonus_scope_toggle_only_changes_correct_base_bonus() -> Result<()>
+    {
         let setup_wrong_loss_state =
             |state: &mut RwLockWriteGuard<'_, RoomState>,
              scope_enabled: bool,
@@ -16017,9 +16024,7 @@ alpha
         room.handle_client_msg(
             "host",
             115,
-            to_ws(ClientMsg::SetDoubleVoteBonusTooManyWrongFollowsNormal {
-                enabled: false,
-            }),
+            to_ws(ClientMsg::SetDoubleVoteBonusTooManyWrongFollowsNormal { enabled: false }),
         )
         .await?;
 
@@ -16497,6 +16502,7 @@ alpha
             state.round = 2;
             state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into()];
             state.active_player = 0;
+            state.player_to_clue_rating = HashMap::from([("b".into(), 2), ("c".into(), 3)]);
             set_storyteller_count(&mut state, "a", 2);
             set_storyteller_count(&mut state, "b", 1);
             set_storyteller_count(&mut state, "c", 1);
@@ -16543,10 +16549,16 @@ alpha
                     Some(PreviousDixitResultsView::Results {
                         active_card,
                         center_cards,
+                        player_to_clue_rating,
                         ..
                     }) => {
                         assert_eq!(active_card, "a-card");
                         assert_eq!(center_cards.len(), 4);
+                        assert_eq!(
+                            player_to_clue_rating.get("b").copied(),
+                            Some(2),
+                            "previous storyteller results preview should carry cached clue stars"
+                        );
                     }
                     other => {
                         return Err(anyhow!(
@@ -16575,6 +16587,7 @@ alpha
                 center_cards: vec!["a".into(), "b".into(), "c".into()],
                 player_to_votes: HashMap::new(),
                 player_to_beauty_votes: HashMap::new(),
+                player_to_clue_rating: HashMap::from([("guesser".into(), 2)]),
                 player_to_current_cards: HashMap::from([
                     ("storyteller".into(), vec!["a".into()]),
                     ("guesser".into(), vec!["b".into()]),
@@ -16601,10 +16614,86 @@ alpha
                     matches!(stage, RoomStage::PlayersChoose),
                     "room state should stay in PlayersChoose"
                 );
+                match previous_dixit_results {
+                    Some(PreviousDixitResultsView::Results {
+                        player_to_clue_rating,
+                        ..
+                    }) => {
+                        assert_eq!(
+                            player_to_clue_rating.get("guesser").copied(),
+                            Some(2),
+                            "players choose preview should retain cached clue-star chips"
+                        );
+                    }
+                    other => {
+                        return Err(anyhow!(
+                            "expected previous storyteller results preview, got {:?}",
+                            other
+                        ))
+                    }
+                }
+            }
+            other => return Err(anyhow!("Expected RoomState, got {:?}", other)),
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn active_chooses_room_state_exposes_previous_beauty_results_clue_ratings() -> Result<()>
+    {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "storyteller", 0);
+            add_player(&mut state, "guesser", 0);
+            add_player(&mut state, "guesser2", 0);
+            state.stage = RoomStage::ActiveChooses;
+            state.game_mode = GameMode::DixitPlus;
+            state.previous_dixit_results = Some(PreviousDixitResultsView::BeautyResults {
+                center_cards: vec!["a".into(), "b".into(), "c".into()],
+                player_to_beauty_votes: HashMap::new(),
+                player_to_clue_rating: HashMap::from([("guesser".into(), 3)]),
+                player_to_current_cards: HashMap::from([
+                    ("storyteller".into(), vec!["a".into()]),
+                    ("guesser".into(), vec!["b".into()]),
+                    ("guesser2".into(), vec!["c".into()]),
+                ]),
+                point_change: HashMap::new(),
+                beauty_vote_totals: HashMap::new(),
+                beauty_winning_cards: Vec::new(),
+            });
+        }
+
+        let state = room.state.write().await;
+        match room.room_state(&state) {
+            ServerMsg::RoomState {
+                stage,
+                previous_dixit_results,
+                ..
+            } => {
                 assert!(
-                    previous_dixit_results.is_some(),
-                    "players choose room state should expose previous Dixit results preview"
+                    matches!(stage, RoomStage::ActiveChooses),
+                    "room state should stay in ActiveChooses"
                 );
+                match previous_dixit_results {
+                    Some(PreviousDixitResultsView::BeautyResults {
+                        player_to_clue_rating,
+                        ..
+                    }) => {
+                        assert_eq!(
+                            player_to_clue_rating.get("guesser").copied(),
+                            Some(3),
+                            "beauty-results preview should still carry cached clue-star chips"
+                        );
+                    }
+                    other => {
+                        return Err(anyhow!(
+                            "expected previous beauty results preview, got {:?}",
+                            other
+                        ))
+                    }
+                }
             }
             other => return Err(anyhow!("Expected RoomState, got {:?}", other)),
         }
