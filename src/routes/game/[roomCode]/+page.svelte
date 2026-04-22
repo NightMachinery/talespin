@@ -1512,7 +1512,9 @@
 			{roundNum}
 			{cardsRemaining}
 			{deckRefillFlashToken}
+			darkPlayer={stellaDarkPlayer}
 			{winCondition}
+			{gameMode}
 			maxStars={clueRatingStageMaxStars}
 		/>
 	{:else if stage === 'Results'}

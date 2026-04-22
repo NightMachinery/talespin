@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { getToastStore } from '@skeletonlabs/skeleton';
 	import type GameServer from '$lib/gameServer';
-	import type { ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
+	import type { GameMode, ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
 	import StageActionButtons from './StageActionButtons.svelte';
 	import StageShell from './StageShell.svelte';
 
@@ -91,11 +91,13 @@
 	export let roundNum = 0;
 	export let cardsRemaining = 0;
 	export let deckRefillFlashToken = 0;
+	export let darkPlayer = '';
 	export let maxStars = 3;
 	export let winCondition: WinCondition = {
 		mode: 'points',
 		target_points: 10
 	};
+	export let gameMode: GameMode = 'dixit_plus';
 
 	const toastStore = getToastStore();
 	let selectedStars = 0;
@@ -221,7 +223,9 @@
 	{roundNum}
 	{cardsRemaining}
 	{deckRefillFlashToken}
+	{darkPlayer}
 	{winCondition}
+	{gameMode}
 >
 	<svelte:fragment slot="mobileTop">
 		<div class="card clue-rating-shell p-4">
