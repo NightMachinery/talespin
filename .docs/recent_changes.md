@@ -1,5 +1,7 @@
 # Recent changes
 
+- 2026-04-22: Shared stage timers now resync immediately on live stage changes and reconnects. Stage-specific room payloads carry the same timer metadata as `RoomState`, and untimed stages clear the countdown without needing a page refresh.
+
 - 2026-04-20: Dixit double-vote bonus is now split into three numeric settings: **Normal round**, **Too many guessed wrong**, and **Too many guessed correctly**. The two storyteller-loss rows default to **Follow normal**, the old double-vote storyteller-loss checkbox is gone, and the score cheatsheet / moderator sidebar now explain the branch-specific behavior.
 
 - 2026-04-18: Dixit now has an optional **Clue Rating** stage between storyteller / beauty voting

@@ -19,6 +19,7 @@ Deploy note: routine Talespin redeploys now keep benign Browserslist/Caddy noise
 - `docs/talespin/dixit_randomized_voting_layout.md`: Dixit per-viewer randomized voting layout with canonical number badges
 - `docs/talespin/sticky_card_navigator.md`: local sticky card-number navigator for Dixit voting and results
 - `docs/talespin/stage_change_cues.md`: local stage-change sound + visual cues, supported stages, and persistence
+- `docs/talespin/stage_timers.md`: shared countdown sync behavior for live stage changes, reconnects, and untimed stages
 - `docs/most-beautiful/README.md`: Most Beautiful settings, leaderboard modes, tie splitting, and audit history
 
 # Unrelated Docs for Other Projects

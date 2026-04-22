@@ -117,16 +117,17 @@
 	const hasMobileActions = !!$$slots.mobileActions;
 	const hasMobileBottom = !!$$slots.mobileBottom;
 	const hasSidebarBottom = !!$$slots.sidebarBottom;
-	let nowPerfMs = 0;
+	const getPerfNow = () => (typeof performance === 'undefined' ? 0 : performance.now());
+	let nowPerfMs = getPerfNow();
 	let timerInterval: number | undefined;
 	let lastServerTimeMs: number | null = null;
 	let syncedServerTimeMs: number | null = null;
-	let syncedAtPerfMs = 0;
+	let syncedAtPerfMs = nowPerfMs;
 
 	onMount(() => {
-		nowPerfMs = performance.now();
+		nowPerfMs = getPerfNow();
 		timerInterval = window.setInterval(() => {
-			nowPerfMs = performance.now();
+			nowPerfMs = getPerfNow();
 		}, 250);
 
 		return () => {
@@ -147,9 +148,11 @@
 		$cardsFitToHeight ? 'lg:h-full' : ''
 	}`;
 	$: if (serverTimeMs !== lastServerTimeMs) {
+		const syncPerfMs = getPerfNow();
 		lastServerTimeMs = serverTimeMs;
 		syncedServerTimeMs = serverTimeMs;
-		syncedAtPerfMs = nowPerfMs;
+		nowPerfMs = syncPerfMs;
+		syncedAtPerfMs = syncPerfMs;
 	}
 	$: hasStageTimer = currentStageDeadlineS !== null;
 	$: estimatedServerNowMs =

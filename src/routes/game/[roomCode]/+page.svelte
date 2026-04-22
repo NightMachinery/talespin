@@ -278,6 +278,18 @@
 		}, 1100);
 	}
 
+	function syncStageTimer(
+		nextServerTimeMs: number | null | undefined,
+		nextDeadlineS: number | null | undefined
+	) {
+		serverTimeMs = nextServerTimeMs ?? null;
+		currentStageDeadlineS = nextDeadlineS ?? null;
+	}
+
+	function clearStageTimer() {
+		currentStageDeadlineS = null;
+	}
+
 	$: scoutTurnCueKey =
 		stage === 'StellaReveal' && activePlayer === name
 			? `${roundNum}:${activePlayer}:${stellaRevealedCards.length}`
@@ -520,8 +532,7 @@
 					memberAverage: data.RoomState.member_to_clue_rating_average ?? {},
 					memberRounds: data.RoomState.member_to_clue_rating_rounds ?? {}
 				});
-				serverTimeMs = data.RoomState.server_time_ms ?? null;
-				currentStageDeadlineS = data.RoomState.current_stage_deadline_s ?? null;
+				syncStageTimer(data.RoomState.server_time_ms, data.RoomState.current_stage_deadline_s);
 				votingWrongCardDisableDistribution = data.RoomState
 					.voting_wrong_card_disable_distribution ?? [
 					...DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION
@@ -578,6 +589,7 @@
 					rejoin = true;
 				}
 			} else if (data.StartRound) {
+				syncStageTimer(data.StartRound.server_time_ms, data.StartRound.current_stage_deadline_s);
 				setStage('ActiveChooses');
 				votingLayoutSeed = null;
 				stageImages = data.StartRound.hand;
@@ -592,6 +604,10 @@
 				storytellerChosenCard = '';
 				clearClueRatingResults();
 			} else if (data.PlayersChoose) {
+				syncStageTimer(
+					data.PlayersChoose.server_time_ms,
+					data.PlayersChoose.current_stage_deadline_s
+				);
 				setStage('PlayersChoose');
 				votingLayoutSeed = null;
 				stageImages = data.PlayersChoose.hand;
@@ -607,6 +623,7 @@
 				storytellerChosenCard = data.PlayersChoose.chosen_card || '';
 				clearClueRatingResults();
 			} else if (data.BeginVoting) {
+				syncStageTimer(data.BeginVoting.server_time_ms, data.BeginVoting.current_stage_deadline_s);
 				setStage('Voting');
 				votingLayoutSeed = data.BeginVoting.voting_layout_seed || votingLayoutSeed;
 				stageImages = data.BeginVoting.center_cards;
@@ -622,6 +639,10 @@
 				storytellerChosenCard = '';
 				clearClueRatingResults();
 			} else if (data.BeginBeautyVoting) {
+				syncStageTimer(
+					data.BeginBeautyVoting.server_time_ms,
+					data.BeginBeautyVoting.current_stage_deadline_s
+				);
 				setStage('BeautyVoting');
 				votingLayoutSeed = data.BeginBeautyVoting.voting_layout_seed || votingLayoutSeed;
 				stageImages = data.BeginBeautyVoting.center_cards;
@@ -635,6 +656,10 @@
 				votingDisabledCards = [];
 				clearClueRatingResults();
 			} else if (data.BeginClueRating) {
+				syncStageTimer(
+					data.BeginClueRating.server_time_ms,
+					data.BeginClueRating.current_stage_deadline_s
+				);
 				setStage('ClueRating');
 				description = data.BeginClueRating.description || description;
 				clueRatingStageMaxStars = data.BeginClueRating.max_stars ?? clueRatingStageMaxStars;
@@ -642,8 +667,9 @@
 				beautyLeaderboardPointChange.set({});
 				clearClueRatingResults();
 			} else if (data.Results) {
+				syncStageTimer(data.Results.server_time_ms, data.Results.current_stage_deadline_s);
 				setStage('Results');
-				currentStageDeadlineS = null;
+				clearStageTimer();
 				playerToCurrentCards = data.Results.player_to_current_cards || {};
 				stageImages = data.Results.center_cards || Object.values(playerToCurrentCards).flat();
 				playerToVotes = data.Results.player_to_votes || {};
@@ -672,8 +698,12 @@
 					void refreshMostBeautifulStats();
 				}
 			} else if (data.BeautyResults) {
+				syncStageTimer(
+					data.BeautyResults.server_time_ms,
+					data.BeautyResults.current_stage_deadline_s
+				);
 				setStage('BeautyResults');
-				currentStageDeadlineS = null;
+				clearStageTimer();
 				playerToCurrentCards = data.BeautyResults.player_to_current_cards || {};
 				stageImages = data.BeautyResults.center_cards || Object.values(playerToCurrentCards).flat();
 				playerToBeautyVotes = data.BeautyResults.player_to_beauty_votes || {};
@@ -691,6 +721,10 @@
 					void refreshMostBeautifulStats();
 				}
 			} else if (data.StellaAssociate) {
+				syncStageTimer(
+					data.StellaAssociate.server_time_ms,
+					data.StellaAssociate.current_stage_deadline_s
+				);
 				setStage('StellaAssociate');
 				votingLayoutSeed = null;
 				stageImages = data.StellaAssociate.board_cards || [];
@@ -705,6 +739,10 @@
 				beautyLeaderboardPointChange.set({});
 				clearClueRatingResults();
 			} else if (data.StellaReveal) {
+				syncStageTimer(
+					data.StellaReveal.server_time_ms,
+					data.StellaReveal.current_stage_deadline_s
+				);
 				setStage('StellaReveal');
 				votingLayoutSeed = null;
 				stageImages = data.StellaReveal.board_cards || [];
@@ -721,6 +759,10 @@
 				activePlayer = data.StellaReveal.scout || activePlayer;
 				stellaDarkPlayer = data.StellaReveal.dark_player || stellaDarkPlayer;
 			} else if (data.StellaResults) {
+				syncStageTimer(
+					data.StellaResults.server_time_ms,
+					data.StellaResults.current_stage_deadline_s
+				);
 				setStage('StellaResults');
 				votingLayoutSeed = null;
 				stageImages = data.StellaResults.board_cards || [];
@@ -777,7 +819,7 @@
 				goto('/');
 			} else if (data.EndGame) {
 				setStage('End');
-				currentStageDeadlineS = null;
+				clearStageTimer();
 				storytellerChosenCard = '';
 				clearClueRatingResults();
 				if (gameMode === 'dixit_plus') {

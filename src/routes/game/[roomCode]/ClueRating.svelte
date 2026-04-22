@@ -299,8 +299,8 @@
 		</div>
 	</div>
 
-	{#if isModerator}
-		<svelte:fragment slot="mobileActions">
+	<svelte:fragment slot="mobileActions">
+		{#if isModerator}
 			<StageActionButtons
 				actions={[
 					{ label: 'Force Skip', onClick: () => gameServer.forceCurrentStage() },
@@ -311,8 +311,8 @@
 					}
 				]}
 			/>
-		</svelte:fragment>
-	{/if}
+		{/if}
+	</svelte:fragment>
 
 	<svelte:fragment slot="sidebarBottom">
 		{#if isModerator}

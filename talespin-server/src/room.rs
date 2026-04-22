@@ -321,11 +321,15 @@ pub enum ServerMsg {
     },
     StartRound {
         hand: Vec<String>,
+        server_time_ms: u64,
+        current_stage_deadline_s: Option<u64>,
     },
     PlayersChoose {
         description: String,
         hand: Vec<String>,
         chosen_card: Option<String>,
+        server_time_ms: u64,
+        current_stage_deadline_s: Option<u64>,
     },
     BeginVoting {
         center_cards: Vec<String>,
@@ -333,6 +337,8 @@ pub enum ServerMsg {
         disabled_cards: Vec<String>,
         votes_per_guesser: u16,
         voting_layout_seed: String,
+        server_time_ms: u64,
+        current_stage_deadline_s: Option<u64>,
     },
     BeginBeautyVoting {
         center_cards: Vec<String>,
@@ -341,10 +347,14 @@ pub enum ServerMsg {
         votes_per_player: u16,
         allow_duplicate_votes: bool,
         voting_layout_seed: String,
+        server_time_ms: u64,
+        current_stage_deadline_s: Option<u64>,
     },
     BeginClueRating {
         description: String,
         max_stars: u16,
+        server_time_ms: u64,
+        current_stage_deadline_s: Option<u64>,
     },
     Results {
         center_cards: Vec<String>,
@@ -361,6 +371,8 @@ pub enum ServerMsg {
         clue_rating_average: Option<f64>,
         clue_rating_count: u16,
         clue_rating_bonus: u16,
+        server_time_ms: u64,
+        current_stage_deadline_s: Option<u64>,
     },
     BeautyResults {
         center_cards: Vec<String>,
@@ -369,11 +381,15 @@ pub enum ServerMsg {
         point_change: HashMap<String, i32>,
         beauty_vote_totals: HashMap<String, u16>,
         beauty_winning_cards: Vec<String>,
+        server_time_ms: u64,
+        current_stage_deadline_s: Option<u64>,
     },
     StellaAssociate {
         board_cards: Vec<String>,
         clue_word: String,
         selected_cards: Vec<String>,
+        server_time_ms: u64,
+        current_stage_deadline_s: Option<u64>,
     },
     StellaReveal {
         board_cards: Vec<String>,
@@ -386,6 +402,8 @@ pub enum ServerMsg {
         point_change: HashMap<String, u16>,
         scout: Option<String>,
         dark_player: Option<String>,
+        server_time_ms: u64,
+        current_stage_deadline_s: Option<u64>,
     },
     StellaResults {
         board_cards: Vec<String>,
@@ -396,6 +414,8 @@ pub enum ServerMsg {
         card_points: HashMap<String, u16>,
         dark_player: Option<String>,
         point_change: HashMap<String, u16>,
+        server_time_ms: u64,
+        current_stage_deadline_s: Option<u64>,
     },
     ErrorMsg(String),
     LeftRoom {
@@ -5004,14 +5024,22 @@ impl Room {
         Ok(())
     }
 
+    fn stage_timer_sync(&self, state: &RwLockWriteGuard<'_, RoomState>) -> (u64, Option<u64>) {
+        (get_time_ms(), state.current_stage_deadline_s)
+    }
+
     fn get_msg(
         &self,
         name: Option<&str>,
         state: &RwLockWriteGuard<RoomState>,
     ) -> Result<ServerMsg> {
+        let (server_time_ms, current_stage_deadline_s) = self.stage_timer_sync(state);
+
         match state.stage {
             RoomStage::ActiveChooses => Ok(ServerMsg::StartRound {
                 hand: state.player_hand[name.ok_or_else(|| anyhow!("No name provided"))?].clone(),
+                server_time_ms,
+                current_stage_deadline_s,
             }),
             RoomStage::StellaAssociate => Ok(ServerMsg::StellaAssociate {
                 board_cards: state.stella_board_cards.clone(),
@@ -5021,6 +5049,8 @@ impl Room {
                         state.stella_player_selections.get(player_name).cloned()
                     })
                     .unwrap_or_default(),
+                server_time_ms,
+                current_stage_deadline_s,
             }),
             RoomStage::PlayersChoose => Ok(ServerMsg::PlayersChoose {
                 description: state.current_description.clone(),
@@ -5040,6 +5070,8 @@ impl Room {
                         None
                     }
                 }),
+                server_time_ms,
+                current_stage_deadline_s,
             }),
             RoomStage::StellaReveal => Ok(ServerMsg::StellaReveal {
                 board_cards: state.stella_board_cards.clone(),
@@ -5056,6 +5088,8 @@ impl Room {
                 point_change: self.effective_stella_point_change(state),
                 scout: self.active_player_name(state).map(str::to_string),
                 dark_player: state.stella_dark_player.clone(),
+                server_time_ms,
+                current_stage_deadline_s,
             }),
             RoomStage::Voting => Ok(ServerMsg::BeginVoting {
                 center_cards: self.get_center_cards(state),
@@ -5076,6 +5110,8 @@ impl Room {
                 voting_layout_seed: self
                     .voting_layout_seed(state)
                     .unwrap_or_else(|| "0000000000000000".to_string()),
+                server_time_ms,
+                current_stage_deadline_s,
             }),
             RoomStage::BeautyVoting => Ok(ServerMsg::BeginBeautyVoting {
                 center_cards: self.get_center_cards(state),
@@ -5091,10 +5127,14 @@ impl Room {
                 voting_layout_seed: self
                     .voting_layout_seed(state)
                     .unwrap_or_else(|| "0000000000000000".to_string()),
+                server_time_ms,
+                current_stage_deadline_s,
             }),
             RoomStage::ClueRating => Ok(ServerMsg::BeginClueRating {
                 description: state.current_description.clone(),
                 max_stars: self.effective_clue_rating_max_stars(state),
+                server_time_ms,
+                current_stage_deadline_s,
             }),
             RoomStage::Results => Ok(ServerMsg::Results {
                 center_cards: self.get_center_cards(state),
@@ -5123,6 +5163,8 @@ impl Room {
                 clue_rating_average: self.clue_rating_summary(state).0,
                 clue_rating_count: self.clue_rating_summary(state).1,
                 clue_rating_bonus: self.clue_rating_summary(state).2,
+                server_time_ms,
+                current_stage_deadline_s,
             }),
             RoomStage::BeautyResults => Ok(ServerMsg::BeautyResults {
                 center_cards: self.get_center_cards(state),
@@ -5131,6 +5173,8 @@ impl Room {
                 point_change: state.beauty_point_change.clone(),
                 beauty_vote_totals: self.compute_beauty_vote_totals(state),
                 beauty_winning_cards: self.compute_beauty_winning_cards(state),
+                server_time_ms,
+                current_stage_deadline_s,
             }),
             RoomStage::StellaResults => Ok(ServerMsg::StellaResults {
                 board_cards: state.stella_board_cards.clone(),
@@ -5141,6 +5185,8 @@ impl Room {
                 card_points: state.stella_card_points.clone(),
                 dark_player: state.stella_dark_player.clone(),
                 point_change: state.stella_point_change.clone(),
+                server_time_ms,
+                current_stage_deadline_s,
             }),
             RoomStage::Paused => Err(anyhow!("No stage-specific paused message")),
             RoomStage::End => Ok(ServerMsg::EndGame {}),
@@ -10214,6 +10260,8 @@ impl Room {
             Vec::new()
         };
 
+        let (server_time_ms, current_stage_deadline_s) = self.stage_timer_sync(state);
+
         ServerMsg::RoomState {
             room_id: state.room_id.clone(),
             game_mode: state.game_mode,
@@ -10312,8 +10360,8 @@ impl Room {
             force_voting_timer: state.force_voting_timer,
             force_beauty_timer: state.force_beauty_timer,
             force_clue_rating_timer: state.force_clue_rating_timer,
-            server_time_ms: get_time_ms(),
-            current_stage_deadline_s: state.current_stage_deadline_s,
+            server_time_ms,
+            current_stage_deadline_s,
             voting_wrong_card_disable_distribution,
             member_to_beauty_points: state.member_to_beauty_points.clone(),
             member_to_clue_rating_average: Box::new(
@@ -16352,6 +16400,170 @@ alpha
                 );
             }
             _ => return Err(anyhow!("Expected RoomState")),
+        }
+
+        Ok(())
+    }
+
+    fn stage_msg_timer_sync(msg: &ServerMsg) -> Result<(u64, Option<u64>)> {
+        match msg {
+            ServerMsg::StartRound {
+                server_time_ms,
+                current_stage_deadline_s,
+                ..
+            }
+            | ServerMsg::PlayersChoose {
+                server_time_ms,
+                current_stage_deadline_s,
+                ..
+            }
+            | ServerMsg::BeginVoting {
+                server_time_ms,
+                current_stage_deadline_s,
+                ..
+            }
+            | ServerMsg::BeginBeautyVoting {
+                server_time_ms,
+                current_stage_deadline_s,
+                ..
+            }
+            | ServerMsg::BeginClueRating {
+                server_time_ms,
+                current_stage_deadline_s,
+                ..
+            }
+            | ServerMsg::Results {
+                server_time_ms,
+                current_stage_deadline_s,
+                ..
+            }
+            | ServerMsg::BeautyResults {
+                server_time_ms,
+                current_stage_deadline_s,
+                ..
+            }
+            | ServerMsg::StellaAssociate {
+                server_time_ms,
+                current_stage_deadline_s,
+                ..
+            }
+            | ServerMsg::StellaReveal {
+                server_time_ms,
+                current_stage_deadline_s,
+                ..
+            }
+            | ServerMsg::StellaResults {
+                server_time_ms,
+                current_stage_deadline_s,
+                ..
+            } => Ok((*server_time_ms, *current_stage_deadline_s)),
+            other => Err(anyhow!(
+                "Expected stage payload with timer sync, got {other:?}"
+            )),
+        }
+    }
+
+    fn room_state_timer_sync(msg: ServerMsg) -> Result<(u64, Option<u64>)> {
+        match msg {
+            ServerMsg::RoomState {
+                server_time_ms,
+                current_stage_deadline_s,
+                ..
+            } => Ok((server_time_ms, current_stage_deadline_s)),
+            other => Err(anyhow!("Expected RoomState, got {other:?}")),
+        }
+    }
+
+    #[tokio::test]
+    async fn stage_messages_expose_timer_sync_matching_room_state() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        for player in ["a", "b", "c"] {
+            add_player(&mut state, player, 0);
+            state
+                .player_hand
+                .insert(player.to_string(), vec![format!("{player}-card")]);
+        }
+        state.game_mode = GameMode::DixitPlus;
+        state.player_order = vec!["a".into(), "b".into(), "c".into()];
+        state.active_player = 0;
+        state.current_description = "clue".to_string();
+        state
+            .player_to_current_cards
+            .insert("a".into(), vec!["a-card".into()]);
+        state
+            .player_to_current_cards
+            .insert("b".into(), vec!["b-card".into()]);
+        state
+            .player_to_current_cards
+            .insert("c".into(), vec!["c-card".into()]);
+        state.stella_board_cards = vec!["s1".into(), "s2".into()];
+        state.stella_clue_word = "spark".to_string();
+        state
+            .stella_player_selections
+            .insert("a".into(), vec!["s1".into()]);
+        state.stella_player_selection_counts.insert("a".into(), 1);
+        state.stella_dark_player = Some("c".to_string());
+
+        let timed_cases = [
+            (RoomStage::ActiveChooses, Some("a"), Some(1_001)),
+            (RoomStage::PlayersChoose, Some("b"), Some(1_002)),
+            (RoomStage::Voting, Some("b"), Some(1_003)),
+            (RoomStage::BeautyVoting, Some("b"), Some(1_004)),
+            (RoomStage::ClueRating, None, Some(1_005)),
+            (RoomStage::StellaAssociate, Some("a"), Some(1_006)),
+            (RoomStage::StellaReveal, Some("a"), Some(1_007)),
+        ];
+
+        for (stage, viewer, expected_deadline) in timed_cases {
+            state.stage = stage;
+            state.current_stage_deadline_s = expected_deadline;
+
+            let (stage_server_time_ms, stage_deadline) =
+                stage_msg_timer_sync(&room.get_msg(viewer, &state)?)?;
+            let (room_state_server_time_ms, room_state_deadline) =
+                room_state_timer_sync(room.room_state(&state))?;
+
+            assert!(
+                stage_server_time_ms > 0,
+                "stage payload should include server time for {stage:?}"
+            );
+            assert!(
+                room_state_server_time_ms > 0,
+                "room state should include server time for {stage:?}"
+            );
+            assert_eq!(
+                stage_deadline, room_state_deadline,
+                "stage payload deadline should match room state for {stage:?}"
+            );
+            assert_eq!(
+                stage_deadline, expected_deadline,
+                "stage payload should expose the current deadline for {stage:?}"
+            );
+        }
+
+        let untimed_cases = [
+            (RoomStage::Results, None),
+            (RoomStage::BeautyResults, None),
+            (RoomStage::StellaResults, None),
+        ];
+
+        for (stage, expected_deadline) in untimed_cases {
+            state.stage = stage;
+            state.current_stage_deadline_s = expected_deadline;
+
+            let (_, stage_deadline) = stage_msg_timer_sync(&room.get_msg(None, &state)?)?;
+            let (_, room_state_deadline) = room_state_timer_sync(room.room_state(&state))?;
+
+            assert_eq!(
+                stage_deadline, room_state_deadline,
+                "untimed stage payload deadline should match room state for {stage:?}"
+            );
+            assert_eq!(
+                stage_deadline, expected_deadline,
+                "untimed stages should expose no active deadline for {stage:?}"
+            );
         }
 
         Ok(())
