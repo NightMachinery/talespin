@@ -1434,8 +1434,79 @@
 			{gameServer}
 			{description}
 			{players}
+			{allowNewPlayersMidgame}
+			{storytellerLossComplement}
+			{storytellerLossComplementMin}
+			{storytellerLossComplementMax}
+			{storytellerLossComplementAuto}
+			{storytellerPoolEnabled}
+			{storytellerPoolActive}
+			{storytellerPoolPlayers}
+			{storytellerSuccessPoints}
+			{storytellerSuccessPointsMin}
+			{storytellerSuccessPointsMax}
+			{votesPerGuesser}
+			{votesPerGuesserMin}
+			{votesPerGuesserMax}
+			{beautyEnabled}
+			{beautyVotesPerPlayer}
+			{beautyVotesPerPlayerMin}
+			{beautyVotesPerPlayerMax}
+			{beautyAllowDuplicateVotes}
+			{beautySplitPointsOnTie}
+			{beautyPointsBonus}
+			{beautyPointsBonusMin}
+			{beautyPointsBonusMax}
+			{beautyResultsDisplayMode}
+			{showPreviousResultsDuringStorytellerChoosing}
+			{randomizeVotingCardOrderPerViewer}
+			{cardsPerHand}
+			{cardsPerHandMin}
+			{cardsPerHandMax}
+			{nominationsPerGuesser}
+			{nominationsPerGuesserMin}
+			{nominationsPerGuesserMax}
+			{bonusCorrectGuessOnThresholdCorrectLoss}
+			{doubleVoteBonusNormalPoints}
+			{doubleVoteBonusTooManyWrongPoints}
+			{doubleVoteBonusTooManyWrongFollowsNormal}
+			{doubleVoteBonusTooManyCorrectPoints}
+			{doubleVoteBonusTooManyCorrectFollowsNormal}
+			{doubleVoteBonusPointsMin}
+			{doubleVoteBonusPointsMax}
+			{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
+			{showVotingCardNumbers}
+			{roundStartDiscardCount}
+			{hintChoosingTimerEnabled}
+			{hintChoosingTimerDurationS}
+			{forceHintChoosingTimer}
+			{cardChoosingTimerEnabled}
+			{cardChoosingTimerDurationS}
+			{votingTimerEnabled}
+			{votingTimerDurationS}
+			{beautyTimerEnabled}
+			{beautyTimerDurationS}
+			{forceCardChoosingTimer}
+			{forceVotingTimer}
+			{forceBeautyTimer}
+			{stellaBoardSize}
+			{stellaBoardSizeMin}
+			{stellaBoardSizeMax}
+			{stellaSelectionMin}
+			{stellaSelectionMax}
+			{stellaSelectionCountMin}
+			{stellaSelectionCountMax}
+			{stellaWordPackPresetNames}
+			{stellaSelectedWordPackName}
+			{stellaWordPackIsUnsaved}
+			{stellaQueueDuringAssociation}
+			{stellaQueuedRevealMode}
+			{stellaScoutTimerEnabled}
+			{stellaScoutTimerDurationS}
+			{forceStellaScoutTimer}
 			{serverTimeMs}
 			{currentStageDeadlineS}
+			{votingWrongCardDisableDistribution}
 			{stage}
 			{pointChange}
 			{roundNum}

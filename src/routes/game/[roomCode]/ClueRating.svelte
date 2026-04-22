@@ -13,8 +13,79 @@
 	export let gameServer: GameServer;
 	export let description = '';
 	export let players: { [key: string]: PlayerInfo } = {};
+	export let allowNewPlayersMidgame = true;
+	export let storytellerLossComplement = 0;
+	export let storytellerLossComplementMin = 0;
+	export let storytellerLossComplementMax = 0;
+	export let storytellerLossComplementAuto = true;
+	export let storytellerPoolEnabled = false;
+	export let storytellerPoolActive = false;
+	export let storytellerPoolPlayers: string[] = [];
+	export let storytellerSuccessPoints = 3;
+	export let storytellerSuccessPointsMin = 0;
+	export let storytellerSuccessPointsMax = 10;
+	export let votesPerGuesser = 1;
+	export let votesPerGuesserMin = 1;
+	export let votesPerGuesserMax = 1;
+	export let beautyEnabled = false;
+	export let beautyVotesPerPlayer = 2;
+	export let beautyVotesPerPlayerMin = 1;
+	export let beautyVotesPerPlayerMax = 1;
+	export let beautyAllowDuplicateVotes = false;
+	export let beautySplitPointsOnTie = true;
+	export let beautyPointsBonus = 2;
+	export let beautyPointsBonusMin = 0;
+	export let beautyPointsBonusMax = 10;
+	export let beautyResultsDisplayMode: import('$lib/types').BeautyResultsDisplayMode = 'combined';
+	export let showPreviousResultsDuringStorytellerChoosing = true;
+	export let randomizeVotingCardOrderPerViewer = false;
+	export let cardsPerHand = 12;
+	export let cardsPerHandMin = 1;
+	export let cardsPerHandMax = 18;
+	export let nominationsPerGuesser = 1;
+	export let nominationsPerGuesserMin = 1;
+	export let nominationsPerGuesserMax = 1;
+	export let bonusCorrectGuessOnThresholdCorrectLoss = true;
+	export let doubleVoteBonusNormalPoints = 1;
+	export let doubleVoteBonusTooManyWrongPoints = 1;
+	export let doubleVoteBonusTooManyWrongFollowsNormal = true;
+	export let doubleVoteBonusTooManyCorrectPoints = 1;
+	export let doubleVoteBonusTooManyCorrectFollowsNormal = true;
+	export let doubleVoteBonusPointsMin = 0;
+	export let doubleVoteBonusPointsMax = 10;
+	export let bonusThresholdLossTogglesApplyToAllStorytellerLossRounds = true;
+	export let showVotingCardNumbers = true;
+	export let roundStartDiscardCount = 3;
+	export let hintChoosingTimerEnabled = true;
+	export let hintChoosingTimerDurationS = 60;
+	export let forceHintChoosingTimer = false;
+	export let cardChoosingTimerEnabled = true;
+	export let cardChoosingTimerDurationS = 30;
+	export let votingTimerEnabled = true;
+	export let votingTimerDurationS = 180;
+	export let beautyTimerEnabled = true;
+	export let beautyTimerDurationS = 60;
+	export let forceCardChoosingTimer = false;
+	export let forceVotingTimer = false;
+	export let forceBeautyTimer = false;
+	export let stellaBoardSize = 15;
+	export let stellaBoardSizeMin = 1;
+	export let stellaBoardSizeMax = 100;
+	export let stellaSelectionMin = 1;
+	export let stellaSelectionMax = 10;
+	export let stellaSelectionCountMin = 1;
+	export let stellaSelectionCountMax = 15;
+	export let stellaWordPackPresetNames: string[] = [];
+	export let stellaSelectedWordPackName = '';
+	export let stellaWordPackIsUnsaved = false;
+	export let stellaQueueDuringAssociation = true;
+	export let stellaQueuedRevealMode: 'animated' | 'fast' = 'animated';
+	export let stellaScoutTimerEnabled = true;
+	export let stellaScoutTimerDurationS = 10;
+	export let forceStellaScoutTimer = false;
 	export let serverTimeMs: number | null = null;
 	export let currentStageDeadlineS: number | null = null;
+	export let votingWrongCardDisableDistribution: number[] = [1];
 	export let stage = 'ClueRating';
 	export let pointChange: { [key: string]: number } = {};
 	export let roundNum = 0;
@@ -72,9 +143,80 @@
 	{observers}
 	{gameServer}
 	{stage}
+	{allowNewPlayersMidgame}
+	{storytellerLossComplement}
+	{storytellerLossComplementMin}
+	{storytellerLossComplementMax}
+	{storytellerLossComplementAuto}
+	{storytellerPoolEnabled}
+	{storytellerPoolActive}
+	{storytellerPoolPlayers}
+	{storytellerSuccessPoints}
+	{storytellerSuccessPointsMin}
+	{storytellerSuccessPointsMax}
+	{votesPerGuesser}
+	{votesPerGuesserMin}
+	{votesPerGuesserMax}
+	{beautyEnabled}
+	{beautyVotesPerPlayer}
+	{beautyVotesPerPlayerMin}
+	{beautyVotesPerPlayerMax}
+	{beautyAllowDuplicateVotes}
+	{beautySplitPointsOnTie}
+	{beautyPointsBonus}
+	{beautyPointsBonusMin}
+	{beautyPointsBonusMax}
+	{beautyResultsDisplayMode}
+	{showPreviousResultsDuringStorytellerChoosing}
+	{randomizeVotingCardOrderPerViewer}
+	{cardsPerHand}
+	{cardsPerHandMin}
+	{cardsPerHandMax}
+	{nominationsPerGuesser}
+	{nominationsPerGuesserMin}
+	{nominationsPerGuesserMax}
+	{bonusCorrectGuessOnThresholdCorrectLoss}
+	{doubleVoteBonusNormalPoints}
+	{doubleVoteBonusTooManyWrongPoints}
+	{doubleVoteBonusTooManyWrongFollowsNormal}
+	{doubleVoteBonusTooManyCorrectPoints}
+	{doubleVoteBonusTooManyCorrectFollowsNormal}
+	{doubleVoteBonusPointsMin}
+	{doubleVoteBonusPointsMax}
+	{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
+	{showVotingCardNumbers}
+	{roundStartDiscardCount}
+	{hintChoosingTimerEnabled}
+	{hintChoosingTimerDurationS}
+	{forceHintChoosingTimer}
+	{cardChoosingTimerEnabled}
+	{cardChoosingTimerDurationS}
+	{votingTimerEnabled}
+	{votingTimerDurationS}
+	{beautyTimerEnabled}
+	{beautyTimerDurationS}
+	{forceCardChoosingTimer}
+	{forceVotingTimer}
+	{forceBeautyTimer}
+	{stellaBoardSize}
+	{stellaBoardSizeMin}
+	{stellaBoardSizeMax}
+	{stellaSelectionMin}
+	{stellaSelectionMax}
+	{stellaSelectionCountMin}
+	{stellaSelectionCountMax}
+	{stellaWordPackPresetNames}
+	{stellaSelectedWordPackName}
+	{stellaWordPackIsUnsaved}
+	{stellaQueueDuringAssociation}
+	{stellaQueuedRevealMode}
+	{stellaScoutTimerEnabled}
+	{stellaScoutTimerDurationS}
+	{forceStellaScoutTimer}
 	{activePlayer}
 	{serverTimeMs}
 	{currentStageDeadlineS}
+	{votingWrongCardDisableDistribution}
 	{pointChange}
 	{roundNum}
 	{cardsRemaining}

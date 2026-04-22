@@ -26,6 +26,9 @@ voting and results.
 Entry settings lock when `ClueRating` starts. Timer settings stay editable through live Dixit
 stages like the other stage timers.
 
+When Most Beautiful is enabled for the room, the clue-rating stage keeps the normal Dixit sidebar
+leaderboard modes available too, including the **Combined** view.
+
 ## Results + leaderboards
 
 - Live `Results` now shows the round's **average clue stars**, submitted count, and storyteller
