@@ -299,20 +299,19 @@
 		</div>
 	</div>
 
-	<svelte:fragment slot="mobileActions">
-		{#if isModerator}
-			<StageActionButtons
-				actions={[
-					{ label: 'Force Skip', onClick: () => gameServer.forceCurrentStage() },
-					{
-						label: 'Auto-observerify offline',
-						disabled: !canAutoObserverify,
-						onClick: () => gameServer.autoObserverifyOfflinePendingPlayers()
-					}
-				]}
-			/>
-		{/if}
-	</svelte:fragment>
+	{#if isModerator}
+		<StageActionButtons
+			slot="mobileActions"
+			actions={[
+				{ label: 'Force Skip', onClick: () => gameServer.forceCurrentStage() },
+				{
+					label: 'Auto-observerify offline',
+					disabled: !canAutoObserverify,
+					onClick: () => gameServer.autoObserverifyOfflinePendingPlayers()
+				}
+			]}
+		/>
+	{/if}
 
 	<svelte:fragment slot="sidebarBottom">
 		{#if isModerator}
