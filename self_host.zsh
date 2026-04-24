@@ -44,8 +44,27 @@ require_cmd() {
 }
 
 tmuxnew () {
-	tmux kill-session -t "$1" &> /dev/null || true
-	tmux new -d -s "$@"
+	local session="$1"
+	shift
+
+	tmux kill-session -t "$session" &> /dev/null || true
+	tmux new-session -d -s "$session" "$@"
+}
+
+tmuxnew_with_env() {
+	local session="$1"
+	shift
+	local command="$1"
+	shift
+	local -a tmux_args=(-d -s "$session")
+	local env_assignment
+
+	for env_assignment in "$@"; do
+		tmux_args+=(-e "$env_assignment")
+	done
+
+	tmux kill-session -t "$session" &> /dev/null || true
+	tmux new-session "${tmux_args[@]}" "$command"
 }
 
 is_yes() {
@@ -222,9 +241,9 @@ prepare_talespin_env() {
 	export TALESPIN_AUTO_DOWNLOAD_EXTRA_IMAGES_P
 }
 
-launch_exports() {
+launch_env_assignments() {
 	local -a env_vars=(
-		ALL_PROXY all_proxy http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
+		ALL_PROXY all_proxy http_proxy https_proxy HTTP_PROXY HTTPS_PROXY NO_PROXY no_proxy
 		TALESPIN_PRODUCTION_P
 		TALESPIN_DISABLE_BUILTIN_IMAGES_P
 		TALESPIN_AUTO_DOWNLOAD_EXTRA_IMAGES_P
@@ -240,14 +259,15 @@ launch_exports() {
 		TALESPIN_DEFAULT_WIN_POINTS
 		TALESPIN_MAX_MEMBERS
 	)
-	local var_name value exports=''
+	local var_name value
+	local -a assignments=()
 	for var_name in "${env_vars[@]}"; do
 		if [[ -v "$var_name" ]]; then
 			value="${(P)var_name}"
-			exports+="export ${var_name}=${(q)value}; "
+			assignments+=("${var_name}=${value}")
 		fi
 	done
-	print -r -- "$exports"
+	print -r -- "${(F)assignments}"
 }
 
 port_is_busy() {
@@ -413,18 +433,22 @@ stop_app() {
 }
 
 start_backend() {
-	local exports cmd
-	exports="$(launch_exports)"
-	cmd="${exports}cd ${(q)ROOT_DIR}/talespin-server; exec ./target/release/talespin-server"
-	tmuxnew "$BACKEND_SESSION" zsh -lc "$cmd"
+	local -a env_assignments=()
+	local env_assignment
+	while IFS= read -r env_assignment; do
+		[[ -n "$env_assignment" ]] && env_assignments+=("$env_assignment")
+	done < <(launch_env_assignments)
+	tmuxnew_with_env "$BACKEND_SESSION" "zsh -lc 'cd ${(q)ROOT_DIR}/talespin-server; exec ./target/release/talespin-server'" "${env_assignments[@]}"
 	note "Started tmux session: $BACKEND_SESSION"
 }
 
 start_frontend_dev() {
-	local exports cmd
-	exports="$(launch_exports)"
-	cmd="${exports}source ~/.shared.sh >/dev/null 2>&1 || true; nvm-load >/dev/null 2>&1; nvm use ${(q)DEFAULT_NODE_VERSION} >/dev/null; cd ${(q)ROOT_DIR}; exec npm run dev -- --host 127.0.0.1 --port ${FRONTEND_PORT} --debug"
-	tmuxnew "$FRONTEND_SESSION" zsh -lc "$cmd"
+	local -a env_assignments=()
+	local env_assignment
+	while IFS= read -r env_assignment; do
+		[[ -n "$env_assignment" ]] && env_assignments+=("$env_assignment")
+	done < <(launch_env_assignments)
+	tmuxnew_with_env "$FRONTEND_SESSION" "zsh -lc 'source ~/.shared.sh >/dev/null 2>&1 || true; nvm-load >/dev/null 2>&1; nvm use ${(q)DEFAULT_NODE_VERSION} >/dev/null; cd ${(q)ROOT_DIR}; exec npm run dev -- --host 127.0.0.1 --port ${FRONTEND_PORT} --debug'" "${env_assignments[@]}"
 	note "Started tmux session: $FRONTEND_SESSION"
 }
 
