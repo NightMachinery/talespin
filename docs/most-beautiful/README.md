@@ -51,9 +51,9 @@ leaderboard falls back to **Total** only and the view picker is hidden.
 
 Moderators can force-push the current leaderboard view to everyone in the room. In Resonance/Stella mode, or whenever **Enable Most Beautiful** is off, Most Beautiful leaderboard controls are hidden and ignored.
 
-## End-game history
+## Since-joined leaderboard filter
 
-The end-game Dixit leaderboard can be filtered to start from the first round where the current viewer became an active player.
+Dixit leaderboards can be filtered live and at game end to start from the first round where the current viewer became an active player. Later joiners receive the simulated filtered minimum score, matching normal mid-game join behavior. See `docs/talespin/leaderboards.md` for the shared Dixit/Stella behavior.
 
 ## Ranking panel
 

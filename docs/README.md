@@ -11,6 +11,7 @@ Deploy note: routine Talespin redeploys now keep benign Browserslist/Caddy noise
 - `docs/user_auth.md`: player identity persistence, room-scoped device migration links, and password-carrying migrate URLs
 - `docs/fit_to_height_cards.md`: fit-to-height option notes and caveats
 - `docs/talespin/dixit_previous_results_preview.md`: Dixit storyteller-stage previous-results preview and next-round auto-advance
+- `docs/talespin/leaderboards.md`: live and end-game leaderboard views, including since-joined filtering for Dixit and Stella
 - `docs/talespin/clue_rating.md`: Dixit clue-rating stage, storyteller star bonus, and clue-stars leaderboard
 - `docs/talespin/mod/options.md`: Dixit moderator option lock windows after storyteller clue lock
 - `docs/talespin/mod/force_actions.md`: current-stage moderator force buttons, including auto-observerify for offline blockers

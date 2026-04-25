@@ -163,6 +163,16 @@ pub struct DixitEndRoundHistoryEntry {
     results_display_mode: BeautyResultsDisplayMode,
 }
 
+#[derive(Debug, Serialize, Clone, PartialEq, Eq)]
+pub struct LeaderboardRoundHistoryEntry {
+    round_num: u16,
+    active_players: Vec<String>,
+    total_deltas: HashMap<String, i32>,
+    beauty_deltas: HashMap<String, i32>,
+    total_after_round: HashMap<String, u16>,
+    beauty_total_after_round: HashMap<String, u16>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct StellaWordPackPreset {
     pub name: String,
@@ -299,6 +309,7 @@ pub enum ServerMsg {
         leaderboard_view_mode_default: LeaderboardViewMode,
         leaderboard_view_mode_default_version: u64,
         dixit_end_round_history: Vec<DixitEndRoundHistoryEntry>,
+        leaderboard_round_history: Vec<LeaderboardRoundHistoryEntry>,
         stella_board_size: u16,
         stella_board_size_min: u16,
         stella_board_size_max: u16,
@@ -930,6 +941,8 @@ struct RoomState {
     dixit_end_round_history: Vec<DixitEndRoundHistoryEntry>,
     // previous Dixit results snapshot shown during the following storyteller-choosing stage
     previous_dixit_results: Option<PreviousDixitResultsView>,
+    // generic per-round score history used by Stella leaderboard filters
+    stella_leaderboard_round_history: Vec<LeaderboardRoundHistoryEntry>,
     // stella shared board cards for the current round
     stella_board_cards: Vec<String>,
     // current stella clue word
@@ -1155,6 +1168,7 @@ impl Room {
             current_dixit_game_started_at_s: None,
             dixit_end_round_history: Vec::new(),
             previous_dixit_results: None,
+            stella_leaderboard_round_history: Vec::new(),
             stella_board_cards: Vec::new(),
             stella_clue_word: String::new(),
             stella_word_pack: (*default_stella_word_pack).clone(),
@@ -3336,6 +3350,83 @@ impl Room {
             .iter()
             .map(|(player, points)| (player.clone(), i32::from(*points)))
             .collect()
+    }
+
+    fn live_member_total_points(state: &RwLockWriteGuard<'_, RoomState>) -> HashMap<String, u16> {
+        let mut totals = HashMap::new();
+        for (member_name, info) in &state.players {
+            totals.insert(member_name.clone(), info.points);
+        }
+        for (member_name, info) in &state.observers {
+            if let Some(points) = info.points {
+                totals.insert(member_name.clone(), points);
+            }
+        }
+        totals
+    }
+
+    fn live_member_beauty_points(state: &RwLockWriteGuard<'_, RoomState>) -> HashMap<String, u16> {
+        state
+            .member_to_beauty_points
+            .iter()
+            .map(|(member_name, points)| (member_name.clone(), *points))
+            .collect()
+    }
+
+    fn dixit_leaderboard_round_history(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+    ) -> Vec<LeaderboardRoundHistoryEntry> {
+        let latest_has_pending_separate_beauty = matches!(state.stage, RoomStage::Results)
+            && self.uses_separate_beauty_results_stage(state);
+        let latest_history_index = state.dixit_end_round_history.len().checked_sub(1);
+
+        state
+            .dixit_end_round_history
+            .iter()
+            .enumerate()
+            .map(|(history_index, entry)| {
+                let include_beauty = !(latest_has_pending_separate_beauty
+                    && Some(history_index) == latest_history_index);
+                let total_deltas = if include_beauty {
+                    self.merge_point_changes(&entry.story_deltas, &entry.beauty_deltas)
+                } else {
+                    Self::signed_point_change(&entry.story_deltas)
+                };
+                let beauty_deltas = if include_beauty {
+                    entry.beauty_deltas.clone()
+                } else {
+                    HashMap::new()
+                };
+
+                LeaderboardRoundHistoryEntry {
+                    round_num: entry.round_num,
+                    active_players: entry.active_players.clone(),
+                    total_deltas,
+                    beauty_deltas,
+                    total_after_round: if include_beauty {
+                        entry.total_after_round.clone()
+                    } else {
+                        Self::live_member_total_points(state)
+                    },
+                    beauty_total_after_round: if include_beauty {
+                        entry.beauty_total_after_round.clone()
+                    } else {
+                        Self::live_member_beauty_points(state)
+                    },
+                }
+            })
+            .collect()
+    }
+
+    fn leaderboard_round_history(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+    ) -> Vec<LeaderboardRoundHistoryEntry> {
+        match state.game_mode {
+            GameMode::DixitPlus => self.dixit_leaderboard_round_history(state),
+            GameMode::Stella => state.stella_leaderboard_round_history.clone(),
+        }
     }
 
     fn previous_dixit_results_from_results(
@@ -6486,6 +6577,7 @@ impl Room {
     fn init_stella_results(&self, state: &mut RwLockWriteGuard<'_, RoomState>) -> Result<()> {
         self.set_stage(state, RoomStage::StellaResults);
         let point_change = self.effective_stella_point_change(state);
+        self.record_stella_leaderboard_round_history(state, &point_change);
 
         for (player, info) in state.players.iter_mut() {
             if let Some(delta) = point_change.get(player) {
@@ -6502,6 +6594,50 @@ impl Room {
         self.broadcast_msg(self.get_msg(None, state)?)?;
         self.broadcast_msg(self.room_state(state))?;
         Ok(())
+    }
+
+    fn record_stella_leaderboard_round_history(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+        point_change: &HashMap<String, u16>,
+    ) {
+        let mut member_names = state
+            .players
+            .keys()
+            .chain(state.observers.keys())
+            .cloned()
+            .collect::<Vec<_>>();
+        member_names.sort();
+
+        let mut total_after_round = HashMap::new();
+        for member_name in member_names {
+            let current_total = state
+                .players
+                .get(&member_name)
+                .map(|player| player.points)
+                .or_else(|| {
+                    state
+                        .observers
+                        .get(&member_name)
+                        .and_then(|observer| observer.points)
+                })
+                .unwrap_or(0);
+            let delta = point_change.get(&member_name).copied().unwrap_or(0);
+            total_after_round.insert(member_name, current_total.saturating_add(delta));
+        }
+
+        let history_entry = LeaderboardRoundHistoryEntry {
+            round_num: state.round,
+            active_players: state.player_order.clone(),
+            total_deltas: point_change
+                .iter()
+                .map(|(member_name, delta)| (member_name.clone(), i32::from(*delta)))
+                .collect(),
+            beauty_deltas: HashMap::new(),
+            total_after_round,
+            beauty_total_after_round: HashMap::new(),
+        };
+        state.stella_leaderboard_round_history.push(history_entry);
     }
 
     fn effective_stella_point_change(
@@ -6547,6 +6683,10 @@ impl Room {
         self.sync_player_order_with_players(state);
         if state.player_order.is_empty() {
             return Err(anyhow!("No players available to start Stella round"));
+        }
+
+        if state.round == 0 {
+            state.stella_leaderboard_round_history.clear();
         }
 
         self.clamp_stella_settings(state);
@@ -10377,6 +10517,7 @@ impl Room {
             } else {
                 Vec::new()
             },
+            leaderboard_round_history: self.leaderboard_round_history(state),
             stella_board_size: state
                 .stella_board_size
                 .clamp(stella_board_size_min, stella_board_size_max),
@@ -14339,6 +14480,102 @@ alpha
             state.leaderboard_view_mode_default_version, 1,
             "changing the room-wide default should bump its version"
         );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn dixit_room_state_exposes_live_leaderboard_round_history() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+        state.stage = RoomStage::ActiveChooses;
+        state.game_mode = GameMode::DixitPlus;
+        state
+            .dixit_end_round_history
+            .push(DixitEndRoundHistoryEntry {
+                round_num: 1,
+                storyteller: "a".to_string(),
+                clue: "clue".to_string(),
+                active_players: vec!["a".to_string(), "b".to_string(), "c".to_string()],
+                story_deltas: HashMap::from([("a".to_string(), 3), ("b".to_string(), 1)]),
+                beauty_deltas: HashMap::from([("c".to_string(), 2)]),
+                clue_rating_sum: 0,
+                clue_rating_count: 0,
+                clue_rating_bonus: 0,
+                player_clue_ratings: HashMap::new(),
+                total_after_round: HashMap::from([
+                    ("a".to_string(), 3),
+                    ("b".to_string(), 1),
+                    ("c".to_string(), 2),
+                ]),
+                beauty_total_after_round: HashMap::from([("c".to_string(), 2)]),
+                results_display_mode: BeautyResultsDisplayMode::Combined,
+            });
+
+        match room.room_state(&state) {
+            ServerMsg::RoomState {
+                leaderboard_round_history,
+                ..
+            } => {
+                assert_eq!(leaderboard_round_history.len(), 1);
+                let entry = &leaderboard_round_history[0];
+                assert_eq!(entry.round_num, 1);
+                assert_eq!(
+                    entry.total_deltas,
+                    HashMap::from([
+                        ("a".to_string(), 3),
+                        ("b".to_string(), 1),
+                        ("c".to_string(), 2)
+                    ]),
+                    "Dixit generic leaderboard history should merge story and applied beauty deltas"
+                );
+                assert_eq!(entry.beauty_deltas, HashMap::from([("c".to_string(), 2)]));
+            }
+            _ => return Err(anyhow!("Expected RoomState")),
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stella_room_state_exposes_leaderboard_round_history() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+        state.stage = RoomStage::StellaResults;
+        state.game_mode = GameMode::Stella;
+        state.round = 2;
+        add_player(&mut state, "a", 5);
+        add_player(&mut state, "b", 7);
+        add_player(&mut state, "c", 4);
+        state.player_order = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        let point_change = HashMap::from([("a".to_string(), 2), ("c".to_string(), 3)]);
+
+        room.record_stella_leaderboard_round_history(&mut state, &point_change);
+
+        match room.room_state(&state) {
+            ServerMsg::RoomState {
+                leaderboard_round_history,
+                ..
+            } => {
+                assert_eq!(leaderboard_round_history.len(), 1);
+                let entry = &leaderboard_round_history[0];
+                assert_eq!(entry.round_num, 2);
+                assert_eq!(entry.active_players, state.player_order);
+                assert_eq!(
+                    entry.total_deltas,
+                    HashMap::from([("a".to_string(), 2), ("c".to_string(), 3)])
+                );
+                assert_eq!(
+                    entry.total_after_round,
+                    HashMap::from([
+                        ("a".to_string(), 7),
+                        ("b".to_string(), 7),
+                        ("c".to_string(), 7)
+                    ])
+                );
+            }
+            _ => return Err(anyhow!("Expected RoomState")),
+        }
 
         Ok(())
     }

@@ -52,7 +52,6 @@
 		BeautyResultsDisplayMode,
 		BeautyScoringMode,
 		BeautyVotePointsDivisorMode,
-		DixitEndRoundHistoryEntry,
 		GameMode,
 		LeaderboardViewMode,
 		ObserverInfo,
@@ -63,6 +62,7 @@
 	} from '$lib/types';
 	import { stageChangeSoundCuesEnabled, stageChangeVisualCuesEnabled } from '$lib/viewOptions';
 	import GameServer from '$lib/gameServer';
+	import { leaderboardRoundHistory } from '$lib/leaderboard';
 	import { DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION } from '$lib/votingWrongCardDisableDistribution';
 
 	import Joining from './Joining.svelte';
@@ -190,7 +190,6 @@
 	let hasReceivedRoomState = false;
 	let leaderboardViewModeDefault: LeaderboardViewMode = 'combined';
 	let leaderboardExcludeBeautyDefaultVersion = 0;
-	let dixitEndRoundHistory: DixitEndRoundHistoryEntry[] = [];
 	let winCondition: WinCondition = {
 		mode: 'points',
 		target_points: 10
@@ -363,6 +362,7 @@
 		}
 		resetMostBeautifulClientState();
 		resetClueRatingClientState();
+		leaderboardRoundHistory.set([]);
 		resetCurrentRoomMigration();
 		if (gameServer) {
 			rejoin = false;
@@ -546,7 +546,7 @@
 					leaderboardViewModeDefault,
 					leaderboardExcludeBeautyDefaultVersion
 				);
-				dixitEndRoundHistory = data.RoomState.dixit_end_round_history ?? [];
+				leaderboardRoundHistory.set(data.RoomState.leaderboard_round_history ?? []);
 				stellaBoardSize = data.RoomState.stella_board_size ?? 15;
 				stellaBoardSizeMin = data.RoomState.stella_board_size_min ?? 1;
 				stellaBoardSizeMax = data.RoomState.stella_board_size_max ?? 100;
@@ -1943,7 +1943,6 @@
 				{beautyEnabled}
 				{name}
 				{roundNum}
-				{dixitEndRoundHistory}
 				{storytellerPoolActive}
 				{storytellerPoolPlayers}
 			/>

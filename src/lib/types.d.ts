@@ -71,6 +71,15 @@ export interface DixitEndRoundHistoryEntry {
 	results_display_mode: BeautyResultsDisplayMode;
 }
 
+export interface LeaderboardRoundHistoryEntry {
+	round_num: number;
+	active_players: string[];
+	total_deltas: Record<string, number>;
+	beauty_deltas: Record<string, number>;
+	total_after_round: Record<string, number>;
+	beauty_total_after_round: Record<string, number>;
+}
+
 export type WinCondition =
 	| {
 			mode: 'points';

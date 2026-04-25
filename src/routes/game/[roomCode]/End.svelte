@@ -10,23 +10,30 @@
 		memberClueRatingRounds
 	} from '$lib/clueRating';
 	import {
+		firstActiveRoundForPlayer,
 		leaderboardDigitWidths,
+		leaderboardRoundHistory,
 		resolveLeaderboardMode,
 		rankEntriesByMode,
 		scoreBreakdown,
+		sinceJoinedScoreBreakdowns,
 		type RankedLeaderboardEntry
 	} from '$lib/leaderboard';
 	import MigrateDeviceButton from '$lib/MigrateDeviceButton.svelte';
-	import type {
-		DixitEndRoundHistoryEntry,
-		GameMode,
-		LeaderboardViewMode,
-		ObserverInfo,
-		PlayerInfo
-	} from '$lib/types';
+	import type { GameMode, LeaderboardViewMode, ObserverInfo, PlayerInfo } from '$lib/types';
 	import MostBeautifulStatsPanel from './MostBeautifulStatsPanel.svelte';
 
 	type CombinedScoreKey = 'total' | 'story' | 'beauty';
+	type EndLeaderboardPlayerEntry = {
+		name: string;
+		breakdown: ReturnType<typeof scoreBreakdown>;
+		clueStars: number | null;
+	};
+	type EndLeaderboardObserverEntry = {
+		name: string;
+		breakdown: ReturnType<typeof scoreBreakdown> | null;
+		clueStars: number | null;
+	};
 
 	const COMBINED_SCORE_KEYS: CombinedScoreKey[] = ['total', 'story', 'beauty'];
 	const COMBINED_SCORE_LABELS: Record<CombinedScoreKey, string> = {
@@ -41,7 +48,6 @@
 	export let beautyEnabled = false;
 	export let name = '';
 	export let roundNum = 0;
-	export let dixitEndRoundHistory: DixitEndRoundHistoryEntry[] = [];
 	export let storytellerPoolActive = false;
 	export let storytellerPoolPlayers: string[] = [];
 
@@ -51,6 +57,13 @@
 		breakdown: ReturnType<typeof scoreBreakdown> | null;
 		clueStars: number | null;
 	}> = [];
+	let activeEntries: {
+		players: EndLeaderboardPlayerEntry[];
+		observers: EndLeaderboardObserverEntry[];
+	} = {
+		players: [],
+		observers: []
+	};
 	let digitWidths = { total: 1, story: 1, beauty: 1 };
 	let showSinceJoined = false;
 	let activeLeaderboardViewMode: LeaderboardViewMode = 'total';
@@ -66,15 +79,21 @@
 	$: if ($leaderboardViewMode !== activeLeaderboardViewMode) {
 		setLeaderboardViewModePreference(activeLeaderboardViewMode);
 	}
-	$: viewerJoinedRound = firstActiveRoundForPlayer(name);
-	$: canShowSinceJoined = supportsBeautyModes && viewerJoinedRound !== null;
-	$: if (!canShowSinceJoined) {
+	$: viewerJoinedRound = firstActiveRoundForPlayer($leaderboardRoundHistory, name);
+	$: canShowSinceJoined = viewerJoinedRound !== null;
+	$: if (!canShowSinceJoined || activeLeaderboardViewMode === 'clue_stars') {
 		showSinceJoined = false;
 	}
-	$: activeEntries =
-		showSinceJoined && viewerJoinedRound !== null
-			? cutoffEntries(viewerJoinedRound)
-			: fullGameEntries();
+	$: {
+		$leaderboardRoundHistory;
+		players;
+		observers;
+		$memberBeautyPoints;
+		activeEntries =
+			showSinceJoined && viewerJoinedRound !== null
+				? sinceJoinedEntries(viewerJoinedRound)
+				: fullGameEntries();
+	}
 	$: rankedPlayers = rankEntriesByMode(activeEntries.players, activeLeaderboardViewMode);
 	$: sortedObserverEntries = activeEntries.observers;
 	$: digitWidths = leaderboardDigitWidths([
@@ -84,21 +103,12 @@
 		)
 	]);
 
-	function firstActiveRoundForPlayer(playerName: string) {
-		for (const round of dixitEndRoundHistory) {
-			if (round.active_players.includes(playerName)) {
-				return round.round_num;
-			}
-		}
-		return null;
-	}
-
 	function allKnownNames() {
 		return Array.from(
 			new Set([
 				...Object.keys(players),
 				...Object.keys(observers),
-				...dixitEndRoundHistory.flatMap((round) => Object.keys(round.total_after_round))
+				...$leaderboardRoundHistory.flatMap((round) => Object.keys(round.total_after_round))
 			])
 		).sort((a, b) => a.localeCompare(b));
 	}
@@ -135,43 +145,43 @@
 		};
 	}
 
-	function cutoffEntries(cutoffRound: number) {
-		const totals = new Map<string, { total: number; beauty: number }>();
-		for (const round of dixitEndRoundHistory) {
-			if (round.round_num < cutoffRound) continue;
-			for (const [playerName, delta] of Object.entries(round.story_deltas)) {
-				const current = totals.get(playerName) ?? { total: 0, beauty: 0 };
-				current.total += delta;
-				totals.set(playerName, current);
-			}
-			for (const [playerName, delta] of Object.entries(round.beauty_deltas)) {
-				const current = totals.get(playerName) ?? { total: 0, beauty: 0 };
-				current.total += delta;
-				current.beauty += delta;
-				totals.set(playerName, current);
-			}
-		}
-		const names = allKnownNames();
-		const playerEntries = names
-			.filter((playerName) => playerName in players)
-			.map((playerName) => {
-				const current = totals.get(playerName) ?? { total: 0, beauty: 0 };
-				return {
-					name: playerName,
-					breakdown: scoreBreakdown(current.total, current.beauty),
-					clueStars: clueStarsForPlayer(playerName)
-				};
-			});
-		const observerEntries = names
-			.filter((playerName) => playerName in observers)
-			.map((playerName) => {
-				const current = totals.get(playerName) ?? { total: 0, beauty: 0 };
-				return {
-					name: playerName,
-					breakdown: scoreBreakdown(current.total, current.beauty),
-					clueStars: clueStarsForPlayer(playerName)
-				};
-			});
+	function sinceJoinedEntries(cutoffRound: number) {
+		const currentScoreEntries = [
+			...Object.entries(players).map(([playerName, info]) => ({
+				name: playerName,
+				total: info.points,
+				beauty: $memberBeautyPoints[playerName] ?? 0,
+				isPlayer: true,
+				hasScore: true
+			})),
+			...Object.entries(observers).map(([observerName, info]) => ({
+				name: observerName,
+				total: info.points ?? 0,
+				beauty: $memberBeautyPoints[observerName] ?? 0,
+				isPlayer: false,
+				hasScore: info.points !== null
+			}))
+		];
+		const breakdowns = sinceJoinedScoreBreakdowns(
+			currentScoreEntries,
+			$leaderboardRoundHistory,
+			cutoffRound
+		);
+		const playerEntries = Object.keys(players)
+			.sort((a, b) => a.localeCompare(b))
+			.map((playerName) => ({
+				name: playerName,
+				breakdown: breakdowns.get(playerName) ?? scoreBreakdown(0, 0),
+				clueStars: clueStarsForPlayer(playerName)
+			}));
+		const observerEntries = Object.entries(observers)
+			.sort(([a], [b]) => a.localeCompare(b))
+			.map(([observerName, info]) => ({
+				name: observerName,
+				breakdown:
+					info.points === null ? null : breakdowns.get(observerName) ?? scoreBreakdown(0, 0),
+				clueStars: clueStarsForPlayer(observerName)
+			}));
 		return {
 			players: playerEntries,
 			observers: observerEntries
@@ -240,18 +250,19 @@
 							{/if}
 						</select>
 					</label>
-					{#if canShowSinceJoined && viewerJoinedRound !== null && activeLeaderboardViewMode !== 'clue_stars'}
-						<label class="mx-auto flex max-w-xs items-start gap-3 text-left text-sm">
-							<input
-								type="checkbox"
-								class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
-								bind:checked={showSinceJoined}
-							/>
-							<span
-								>Show leaderboard starting from round {viewerJoinedRound}, when you first joined.</span
-							>
-						</label>
-					{/if}
+				{/if}
+				{#if canShowSinceJoined && viewerJoinedRound !== null && activeLeaderboardViewMode !== 'clue_stars'}
+					<label class="mx-auto flex max-w-xs items-start gap-3 text-left text-sm">
+						<input
+							type="checkbox"
+							class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
+							bind:checked={showSinceJoined}
+						/>
+						<span
+							>Show leaderboard as if the game started from round {viewerJoinedRound}, when you
+							first joined.</span
+						>
+					</label>
 				{/if}
 				<p class="text-sm opacity-80">Rounds played: {roundNum}</p>
 				<div class="flex justify-center">
