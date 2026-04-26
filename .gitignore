@@ -11,3 +11,4 @@ vite.config.ts.timestamp-*
 static/assets/cards/extra_dir__*
 tmp/
 /.self_host
+.worktrees/
