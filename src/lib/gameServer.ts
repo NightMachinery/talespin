@@ -411,6 +411,23 @@ class GameServer {
 		});
 	}
 
+	setRoundStartDiscardAllUnpinned(enabled: boolean) {
+		this.send({
+			SetRoundStartDiscardAllUnpinned: {
+				enabled
+			}
+		});
+	}
+
+	setHandCardPinned(card: string, pinned: boolean) {
+		this.send({
+			SetHandCardPinned: {
+				card,
+				pinned
+			}
+		});
+	}
+
 	setHintChoosingTimerEnabled(enabled: boolean) {
 		this.send({
 			SetHintChoosingTimerEnabled: {

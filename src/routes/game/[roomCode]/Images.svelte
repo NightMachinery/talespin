@@ -13,6 +13,7 @@
 
 	const dispatch = createEventDispatcher<{
 		select: string;
+		pinToggle: string;
 	}>();
 
 	type ImageAnnotation = {
@@ -40,6 +41,9 @@
 	export let imageSecondaryBadges: Record<string, string | number> = {};
 	export let secondaryBadgePosition: 'left' | 'right' = 'left';
 	export let desktopFitToHeight = false;
+	export let pinnedImages: string[] = [];
+	export let showPinBadges = false;
+	export let pinTogglesEnabled = false;
 
 	$: isHandMode = mode === 'hand';
 	$: desktopFitEnabled = $cardsFitToHeight && (isHandMode || desktopFitToHeight);
@@ -65,10 +69,26 @@
 	);
 	$: indexOverlayPositionClass = indexOverlayPosition === 'left' ? 'left-2' : 'right-2';
 	$: secondaryBadgePositionClass = secondaryBadgePosition === 'left' ? 'left-2' : 'right-2';
+	$: pinnedImageSet = new Set(pinnedImages.filter((image) => visibleImageSet.has(image)));
 
 	function selectImage(image: string, isDisabled: boolean, canSelect: boolean) {
 		if (!selectable || isDisabled || !canSelect) return;
 		dispatch('select', image);
+	}
+
+	function togglePin(event: MouseEvent, image: string) {
+		event.preventDefault();
+		event.stopPropagation();
+		if (!pinTogglesEnabled) return;
+		dispatch('pinToggle', image);
+	}
+
+	function handlePinKeydown(event: KeyboardEvent, image: string) {
+		if (event.key !== 'Enter' && event.key !== ' ') return;
+		event.preventDefault();
+		event.stopPropagation();
+		if (!pinTogglesEnabled) return;
+		dispatch('pinToggle', image);
 	}
 </script>
 
@@ -81,6 +101,7 @@
 		{@const highlightClass = imageHighlightClasses[image] ?? ''}
 		{@const indexOverlayLabel = indexOverlayLabels[imageIndex] ?? imageIndex + 1}
 		{@const secondaryBadgeLabel = imageSecondaryBadges[image]}
+		{@const isPinned = pinnedImageSet.has(image)}
 		{@const shouldDim = selectedImageSet.size > 0 && !isSelected}
 		{@const canSelect =
 			selectable &&
@@ -128,6 +149,26 @@
 						Q{secondaryBadgeLabel}
 					</div>
 				{/if}
+				{#if showPinBadges}
+					<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
+					<span
+						role={pinTogglesEnabled ? 'button' : 'img'}
+						tabindex={-1}
+						aria-label={isPinned ? 'Unpin card' : 'Pin card'}
+						title={isPinned ? 'Pinned card' : 'Pin this card'}
+						class={`absolute left-2 top-2 z-30 rounded-full px-2 py-1 text-xs font-bold shadow ${
+							isPinned
+								? 'bg-warning-400 text-black'
+								: pinTogglesEnabled
+									? 'bg-black/60 text-white opacity-80'
+									: 'bg-black/45 text-white/70'
+						}`}
+						on:click={(event) => togglePin(event, image)}
+						on:keydown={(event) => handlePinKeydown(event, image)}
+					>
+						📌
+					</span>
+				{/if}
 				<ChooserNameOverlay entries={chooserEntries} />
 				{#if annotation}
 					<div
@@ -157,6 +198,26 @@
 					>
 						Q{secondaryBadgeLabel}
 					</div>
+				{/if}
+				{#if showPinBadges}
+					<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
+					<span
+						role={pinTogglesEnabled ? 'button' : 'img'}
+						tabindex={-1}
+						aria-label={isPinned ? 'Unpin card' : 'Pin card'}
+						title={isPinned ? 'Pinned card' : 'Pin this card'}
+						class={`absolute left-2 top-2 z-30 rounded-full px-2 py-1 text-xs font-bold shadow ${
+							isPinned
+								? 'bg-warning-400 text-black'
+								: pinTogglesEnabled
+									? 'bg-black/60 text-white opacity-80'
+									: 'bg-black/45 text-white/70'
+						}`}
+						on:click={(event) => togglePin(event, image)}
+						on:keydown={(event) => handlePinKeydown(event, image)}
+					>
+						📌
+					</span>
 				{/if}
 				<ChooserNameOverlay entries={chooserEntries} />
 				{#if annotation}

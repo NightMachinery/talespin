@@ -116,6 +116,7 @@
 	export let doubleVoteBonusPointsMax = 10;
 	export let bonusThresholdLossTogglesApplyToAllStorytellerLossRounds = true;
 	export let showVotingCardNumbers = true;
+	export let roundStartDiscardAllUnpinned = true;
 	export let roundStartDiscardCount = 3;
 	export let hintChoosingTimerEnabled = true;
 	export let hintChoosingTimerDurationS = 60;
@@ -744,7 +745,7 @@
 	function updateRoundStartDiscardCount(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
 		const parsed = Number(input.value);
-		if (!isModerator || !canChangeLiveDixitSettings) {
+		if (!isModerator || !canChangeLiveDixitSettings || roundStartDiscardAllUnpinned) {
 			input.value = `${roundStartDiscardCount}`;
 			return;
 		}
@@ -755,6 +756,15 @@
 		if (parsed !== roundStartDiscardCount) {
 			gameServer.setRoundStartDiscardCount(parsed);
 		}
+	}
+
+	function updateRoundStartDiscardAllUnpinned(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		if (!isModerator || !canChangeLiveDixitSettings) {
+			input.checked = roundStartDiscardAllUnpinned;
+			return;
+		}
+		gameServer.setRoundStartDiscardAllUnpinned(input.checked);
 	}
 
 	function updateStageTimerToggle(
@@ -2313,10 +2323,26 @@
 						{/if}
 					</div>
 					<div class="mt-3 rounded border border-white/20 px-2 py-2">
-						<p class="block text-sm font-semibold">Round-start random discards</p>
+						<p class="block text-sm font-semibold">Round-start discards</p>
 						<p class="mt-1 text-xs opacity-75">
-							Discard N random cards from each active hand at round start, then top up.
+							Pinned cards stay in hand. Unpinned cards are discarded at round start, then hands top
+							up.
 						</p>
+						<label class="mt-2 flex items-start gap-3 text-sm">
+							<input
+								type="checkbox"
+								class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
+								checked={roundStartDiscardAllUnpinned}
+								on:change={updateRoundStartDiscardAllUnpinned}
+								disabled={!isModerator || !canChangeLiveDixitSettings}
+							/>
+							<span>
+								<span class="font-semibold">Discard all unpinned cards at round start</span>
+								<span class="block text-xs opacity-75">
+									When unchecked, use the random discard count below instead.
+								</span>
+							</span>
+						</label>
 						<div class="mt-2 flex items-center gap-2">
 							<input
 								type="number"
@@ -2326,7 +2352,9 @@
 								step="1"
 								value={roundStartDiscardCount}
 								on:change={updateRoundStartDiscardCount}
-								disabled={!isModerator || !canChangeLiveDixitSettings}
+								disabled={!isModerator ||
+									!canChangeLiveDixitSettings ||
+									roundStartDiscardAllUnpinned}
 							/>
 							<span class="text-xs opacity-75">Range: 0–{roundStartDiscardCountMax}</span>
 						</div>

@@ -18,6 +18,7 @@
 	import type { ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
 	import CardNumberNavigator from './CardNumberNavigator.svelte';
 	import ChooserNameOverlay from './ChooserNameOverlay.svelte';
+	import MyCardsPanel from './MyCardsPanel.svelte';
 	import StageShell from './StageShell.svelte';
 
 	export let displayImages: string[] = [];
@@ -75,6 +76,7 @@
 	export let doubleVoteBonusPointsMax = 10;
 	export let bonusThresholdLossTogglesApplyToAllStorytellerLossRounds = true;
 	export let showVotingCardNumbers = true;
+	export let roundStartDiscardAllUnpinned = true;
 	export let roundStartDiscardCount = 3;
 	export let hintChoosingTimerEnabled = true;
 	export let hintChoosingTimerDurationS = 60;
@@ -117,6 +119,8 @@
 		mode: 'points',
 		target_points: 10
 	};
+	export let myHandImages: string[] = [];
+	export let pinnedCards: string[] = [];
 
 	let cardToPlayer: { [key: string]: string } = {};
 	let cardToVoterCounts: { [key: string]: { [key: string]: number } } = {};
@@ -128,6 +132,7 @@
 	let isObserver = false;
 	let isModerator = false;
 	let canForceStartNextRound = false;
+	let viewMode: 'results' | 'hand' = 'results';
 	$: isObserver = !!observers[name];
 	$: isModerator = new Set(moderators).has(name);
 	$: canForceStartNextRound = stage === 'Results';
@@ -267,6 +272,7 @@
 	{doubleVoteBonusPointsMax}
 	{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 	{showVotingCardNumbers}
+	{roundStartDiscardAllUnpinned}
 	{roundStartDiscardCount}
 	{hintChoosingTimerEnabled}
 	{hintChoosingTimerDurationS}
@@ -408,66 +414,84 @@
 	</svelte:fragment>
 
 	<div class="flex h-full min-h-0 flex-col">
-		<h2 class="mb-2 hidden text-lg font-semibold lg:block">Round cards</h2>
-		<CardNumberNavigator
-			{cardNumberLabels}
-			targetIdScope="results"
-			collapsedLabel="round card navigator"
-		/>
-		<section class={resultsSectionClass} style={resultsDesktopFitStyle}>
-			{#each displayImages as image, cardIndex}
-				{@const cardNumberLabel = cardNumberLabels[cardIndex] ?? cardIndex + 1}
-				<div
-					id={buildCardNumberNavigatorTargetId('results', cardNumberLabel)}
-					class={resultsCardClass(image)}
-					style:scroll-margin-top={CARD_NUMBER_NAVIGATOR_SCROLL_MARGIN_TOP}
+		{#if myHandImages.length > 0}
+			<div class="mb-2 grid grid-cols-2 gap-2 lg:max-w-md">
+				<button
+					type="button"
+					class={`btn w-full ${viewMode === 'results' ? 'variant-filled' : 'variant-ghost'}`}
+					on:click={() => (viewMode = 'results')}>Results</button
 				>
-					<CardImage
-						src={`${http_host}/cards/${image}`}
-						alt={CARD_IMAGE_ALT_TEXT}
-						className={resultsImageClass}
-					/>
-					{#if showVotingCardNumbers}
-						<div
-							class="absolute left-2 top-2 z-20 rounded bg-black/70 px-2 py-0.5 text-xs font-bold text-white shadow"
-						>
-							#{cardNumberLabel}
-						</div>
-					{/if}
-					{#if cardToVoterCounts[image]}
-						<ChooserNameOverlay
-							entries={cardToChooserEntries[image]}
-							label={beautyEnabled && beautyResultsDisplayMode === 'combined' ? 'Guess' : ''}
-							avoidTopLeftBadge={showVotingCardNumbers}
-							tone="story"
-						/>
-					{/if}
-					{#if beautyEnabled && beautyResultsDisplayMode === 'combined' && beautyBadges[image]}
-						<ChooserNameOverlay
-							entries={beautyCardToChooserEntries[image] ?? []}
-							label={beautyBadges[image].label}
-							labelTier={beautyBadges[image].tier}
-							position="bottom-right"
-							tone="beauty"
-						/>
-					{:else if beautyEnabled && beautyResultsDisplayMode === 'summary' && beautyBadges[image]}
-						<ChooserNameOverlay
-							label={beautyBadges[image].label}
-							labelTier={beautyBadges[image].tier}
-							position="bottom-left"
-							tone="beauty"
-						/>
-					{/if}
+				<button
+					type="button"
+					class={`btn w-full ${viewMode === 'hand' ? 'variant-filled' : 'variant-ghost'}`}
+					on:click={() => (viewMode = 'hand')}>My Cards</button
+				>
+			</div>
+		{/if}
+		{#if viewMode === 'hand'}
+			<MyCardsPanel hand={myHandImages} {pinnedCards} {gameServer} />
+		{:else}
+			<h2 class="mb-2 hidden text-lg font-semibold lg:block">Round cards</h2>
+			<CardNumberNavigator
+				{cardNumberLabels}
+				targetIdScope="results"
+				collapsedLabel="round card navigator"
+			/>
+			<section class={resultsSectionClass} style={resultsDesktopFitStyle}>
+				{#each displayImages as image, cardIndex}
+					{@const cardNumberLabel = cardNumberLabels[cardIndex] ?? cardIndex + 1}
 					<div
-						style="bottom: 0;"
-						class="rounded-tr w-full absolute bg-primary-200 p-0.5 px-2 text-black font-bold"
+						id={buildCardNumberNavigatorTargetId('results', cardNumberLabel)}
+						class={resultsCardClass(image)}
+						style:scroll-margin-top={CARD_NUMBER_NAVIGATOR_SCROLL_MARGIN_TOP}
 					>
-						<span class={image === activeCard ? 'boujee-text' : ''}>{cardToPlayer[image]}</span>'s
-						card
+						<CardImage
+							src={`${http_host}/cards/${image}`}
+							alt={CARD_IMAGE_ALT_TEXT}
+							className={resultsImageClass}
+						/>
+						{#if showVotingCardNumbers}
+							<div
+								class="absolute left-2 top-2 z-20 rounded bg-black/70 px-2 py-0.5 text-xs font-bold text-white shadow"
+							>
+								#{cardNumberLabel}
+							</div>
+						{/if}
+						{#if cardToVoterCounts[image]}
+							<ChooserNameOverlay
+								entries={cardToChooserEntries[image]}
+								label={beautyEnabled && beautyResultsDisplayMode === 'combined' ? 'Guess' : ''}
+								avoidTopLeftBadge={showVotingCardNumbers}
+								tone="story"
+							/>
+						{/if}
+						{#if beautyEnabled && beautyResultsDisplayMode === 'combined' && beautyBadges[image]}
+							<ChooserNameOverlay
+								entries={beautyCardToChooserEntries[image] ?? []}
+								label={beautyBadges[image].label}
+								labelTier={beautyBadges[image].tier}
+								position="bottom-right"
+								tone="beauty"
+							/>
+						{:else if beautyEnabled && beautyResultsDisplayMode === 'summary' && beautyBadges[image]}
+							<ChooserNameOverlay
+								label={beautyBadges[image].label}
+								labelTier={beautyBadges[image].tier}
+								position="bottom-left"
+								tone="beauty"
+							/>
+						{/if}
+						<div
+							style="bottom: 0;"
+							class="rounded-tr w-full absolute bg-primary-200 p-0.5 px-2 text-black font-bold"
+						>
+							<span class={image === activeCard ? 'boujee-text' : ''}>{cardToPlayer[image]}</span>'s
+							card
+						</div>
 					</div>
-				</div>
-			{/each}
-		</section>
+				{/each}
+			</section>
+		{/if}
 	</div>
 </StageShell>
 

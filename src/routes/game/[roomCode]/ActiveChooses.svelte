@@ -17,6 +17,7 @@
 	import StageShell from './StageShell.svelte';
 
 	export let displayImages: string[] = [];
+	export let pinnedCards: string[] = [];
 	export let activePlayer = '';
 	export let name = '';
 	export let creator = '';
@@ -67,6 +68,7 @@
 	export let doubleVoteBonusPointsMax = 10;
 	export let bonusThresholdLossTogglesApplyToAllStorytellerLossRounds = true;
 	export let showVotingCardNumbers = true;
+	export let roundStartDiscardAllUnpinned = true;
 	export let roundStartDiscardCount = 3;
 	export let hintChoosingTimerEnabled = true;
 	export let hintChoosingTimerDurationS = 60;
@@ -217,6 +219,7 @@
 	{doubleVoteBonusPointsMax}
 	{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 	{showVotingCardNumbers}
+	{roundStartDiscardAllUnpinned}
 	{roundStartDiscardCount}
 	{hintChoosingTimerEnabled}
 	{hintChoosingTimerDurationS}
@@ -259,8 +262,7 @@
 	leaderboardStoryPointChangeOverride={previousResultsLeaderboardContext?.storyPointChange ?? null}
 	leaderboardBeautyPointChangeOverride={previousResultsLeaderboardContext?.beautyPointChange ??
 		null}
-	leaderboardRoundClueRatingOverride={previousResultsLeaderboardContext?.clueRatingOverride ??
-		null}
+	leaderboardRoundClueRatingOverride={previousResultsLeaderboardContext?.clueRatingOverride ?? null}
 	showMobileActions={isActivePlayer || isModerator || canToggleResultsView}
 >
 	<svelte:fragment slot="leftRail">
@@ -467,6 +469,8 @@
 					selectedImages={selectedImage ? [selectedImage] : []}
 					selectable={isActivePlayer}
 					mode="hand"
+					pinnedImages={pinnedCards}
+					showPinBadges
 					on:select={handleCardSelect}
 				/>
 			</div>

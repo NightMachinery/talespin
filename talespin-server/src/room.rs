@@ -280,6 +280,7 @@ pub enum ServerMsg {
         bonus_correct_guess_on_threshold_correct_loss: bool,
         bonus_threshold_loss_toggles_apply_to_all_storyteller_loss_rounds: bool,
         show_voting_card_numbers: bool,
+        round_start_discard_all_unpinned: bool,
         round_start_discard_count: u16,
         hint_choosing_timer_enabled: bool,
         hint_choosing_timer_duration_s: u16,
@@ -332,18 +333,22 @@ pub enum ServerMsg {
     },
     StartRound {
         hand: Vec<String>,
+        pinned_cards: Vec<String>,
         server_time_ms: u64,
         current_stage_deadline_s: Option<u64>,
     },
     PlayersChoose {
         description: String,
         hand: Vec<String>,
+        pinned_cards: Vec<String>,
         chosen_card: Option<String>,
         server_time_ms: u64,
         current_stage_deadline_s: Option<u64>,
     },
     BeginVoting {
         center_cards: Vec<String>,
+        hand: Vec<String>,
+        pinned_cards: Vec<String>,
         description: String,
         disabled_cards: Vec<String>,
         votes_per_guesser: u16,
@@ -353,6 +358,8 @@ pub enum ServerMsg {
     },
     BeginBeautyVoting {
         center_cards: Vec<String>,
+        hand: Vec<String>,
+        pinned_cards: Vec<String>,
         description: String,
         disabled_cards: Vec<String>,
         votes_per_player: u16,
@@ -363,12 +370,16 @@ pub enum ServerMsg {
     },
     BeginClueRating {
         description: String,
+        hand: Vec<String>,
+        pinned_cards: Vec<String>,
         max_stars: u16,
         server_time_ms: u64,
         current_stage_deadline_s: Option<u64>,
     },
     Results {
         center_cards: Vec<String>,
+        hand: Vec<String>,
+        pinned_cards: Vec<String>,
         player_to_votes: HashMap<String, Vec<String>>,
         player_to_beauty_votes: HashMap<String, Vec<String>>,
         player_to_clue_rating: Box<HashMap<String, u16>>,
@@ -387,6 +398,8 @@ pub enum ServerMsg {
     },
     BeautyResults {
         center_cards: Vec<String>,
+        hand: Vec<String>,
+        pinned_cards: Vec<String>,
         player_to_beauty_votes: HashMap<String, Vec<String>>,
         player_to_current_cards: HashMap<String, Vec<String>>,
         point_change: HashMap<String, i32>,
@@ -559,8 +572,15 @@ pub enum ClientMsg {
     SetRandomizeVotingCardOrderPerViewer {
         enabled: bool,
     },
+    SetRoundStartDiscardAllUnpinned {
+        enabled: bool,
+    },
     SetRoundStartDiscardCount {
         count: u16,
+    },
+    SetHandCardPinned {
+        card: String,
+        pinned: bool,
     },
     SetHintChoosingTimerEnabled {
         enabled: bool,
@@ -835,6 +855,8 @@ struct RoomState {
     bonus_threshold_loss_toggles_apply_to_all_storyteller_loss_rounds: bool,
     // show deterministic numbers on voting cards
     show_voting_card_numbers: bool,
+    // when true, every unpinned active-hand card is discarded at the start of each Dixit round
+    round_start_discard_all_unpinned: bool,
     // random cards discarded from each active hand at round start (then topped up)
     round_start_discard_count: u16,
     // whether to show a countdown during storyteller clue/card choosing
@@ -877,6 +899,8 @@ struct RoomState {
     players: HashMap<String, PlayerInfo>,
     // store 6 cards in hand per player
     player_hand: HashMap<String, Vec<String>>,
+    // private per-player pins for cards currently in player/observer hands
+    player_pinned_cards: HashMap<String, HashSet<String>>,
     // cards preserved while a member is observing
     observer_hand: HashMap<String, Vec<String>>,
     // remaining deck; pop from this to players hands
@@ -1116,6 +1140,7 @@ impl Room {
             bonus_correct_guess_on_threshold_correct_loss: true,
             bonus_threshold_loss_toggles_apply_to_all_storyteller_loss_rounds: true,
             show_voting_card_numbers: true,
+            round_start_discard_all_unpinned: true,
             round_start_discard_count: 3,
             hint_choosing_timer_enabled: true,
             hint_choosing_timer_duration_s: DEFAULT_HINT_CHOOSING_TIMER_DURATION_S,
@@ -1143,6 +1168,7 @@ impl Room {
             current_stage_deadline_s: None,
             player_order: Vec::new(),
             player_hand: HashMap::new(),
+            player_pinned_cards: HashMap::new(),
             observer_hand: HashMap::new(),
             player_to_socket: HashMap::new(),
             discard_pile: Vec::new(),
@@ -3939,14 +3965,69 @@ impl Room {
         usize::from(state.cards_per_hand.clamp(min_cards, max_cards))
     }
 
+    fn pinned_cards_for_player(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+        player: &str,
+    ) -> Vec<String> {
+        let Some(pinned) = state.player_pinned_cards.get(player) else {
+            return Vec::new();
+        };
+        state
+            .player_hand
+            .get(player)
+            .into_iter()
+            .flat_map(|hand| hand.iter())
+            .filter(|card| pinned.contains(*card))
+            .cloned()
+            .collect()
+    }
+
+    fn remove_card_pin(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+        player: &str,
+        card: &str,
+    ) {
+        if let Some(pinned) = state.player_pinned_cards.get_mut(player) {
+            pinned.remove(card);
+            if pinned.is_empty() {
+                state.player_pinned_cards.remove(player);
+            }
+        }
+    }
+
+    fn clean_pins_for_player_hand(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+        player: &str,
+    ) {
+        let hand_cards = state
+            .player_hand
+            .get(player)
+            .or_else(|| state.observer_hand.get(player))
+            .map(|hand| hand.iter().cloned().collect::<HashSet<_>>())
+            .unwrap_or_default();
+        if let Some(pinned) = state.player_pinned_cards.get_mut(player) {
+            pinned.retain(|card| hand_cards.contains(card));
+            if pinned.is_empty() {
+                state.player_pinned_cards.remove(player);
+            }
+        }
+    }
+
     fn clamp_hand_to_target(
         &self,
         state: &mut RwLockWriteGuard<'_, RoomState>,
+        owner: Option<&str>,
         hand: &mut Vec<String>,
     ) {
         let target = self.target_cards_per_hand(state);
         while hand.len() > target {
             if let Some(card) = hand.pop() {
+                if let Some(player) = owner {
+                    self.remove_card_pin(state, player, &card);
+                }
                 state.discard_pile.push(card);
             }
         }
@@ -3980,7 +4061,9 @@ impl Room {
 
     fn discard_random_cards_from_hand(
         &self,
+        player: &str,
         hand: &mut Vec<String>,
+        pinned_cards: &HashSet<String>,
         discard_count: usize,
         discard_pile: &mut Vec<String>,
     ) {
@@ -3989,10 +4072,23 @@ impl Room {
         }
 
         let mut rng = rand::thread_rng();
-        let mut remaining = discard_count.min(hand.len());
-        while remaining > 0 && !hand.is_empty() {
-            let idx = rng.gen_range(0..hand.len());
+        let mut remaining = discard_count.min(
+            hand.iter()
+                .filter(|card| !pinned_cards.contains(*card))
+                .count(),
+        );
+        while remaining > 0 && hand.iter().any(|card| !pinned_cards.contains(card)) {
+            let unpinned_indices = hand
+                .iter()
+                .enumerate()
+                .filter_map(|(idx, card)| (!pinned_cards.contains(card)).then_some(idx))
+                .collect::<Vec<_>>();
+            let idx = unpinned_indices[rng.gen_range(0..unpinned_indices.len())];
             let card = hand.swap_remove(idx);
+            debug_assert!(
+                !pinned_cards.contains(&card),
+                "discard_random_cards_from_hand discarded pinned card {card} for {player}"
+            );
             discard_pile.push(card);
             remaining -= 1;
         }
@@ -4004,16 +4100,47 @@ impl Room {
     ) -> Result<bool> {
         let active_players = state.players.keys().cloned().collect::<Vec<_>>();
         let target_cards_per_hand = self.target_cards_per_hand(state);
-        let required_draws = target_cards_per_hand.saturating_mul(active_players.len());
+        let required_draws = active_players
+            .iter()
+            .map(|player| {
+                let pinned_count = state
+                    .player_hand
+                    .get(player)
+                    .into_iter()
+                    .flat_map(|hand| hand.iter())
+                    .filter(|card| {
+                        state
+                            .player_pinned_cards
+                            .get(player)
+                            .map(|pinned| pinned.contains(*card))
+                            .unwrap_or(false)
+                    })
+                    .count();
+                target_cards_per_hand.saturating_sub(pinned_count)
+            })
+            .sum::<usize>();
 
         if !self.ensure_deck_size(state, required_draws) {
             return Ok(false);
         }
 
         for player in active_players.iter() {
+            let pinned_cards = state
+                .player_pinned_cards
+                .get(player)
+                .cloned()
+                .unwrap_or_default();
+            let mut kept = Vec::new();
             let discarded = state.player_hand.remove(player).unwrap_or_default();
-            state.discard_pile.extend(discarded);
-            state.player_hand.insert(player.clone(), Vec::new());
+            for card in discarded {
+                if pinned_cards.contains(&card) {
+                    kept.push(card);
+                } else {
+                    state.discard_pile.push(card);
+                }
+            }
+            state.player_hand.insert(player.clone(), kept);
+            self.clean_pins_for_player_hand(state, player);
         }
 
         for player in active_players.iter() {
@@ -4036,6 +4163,10 @@ impl Room {
         state
             .player_hand
             .retain(|player, _| active_players.contains(player));
+        let observer_players = state.observer_hand.keys().cloned().collect::<HashSet<_>>();
+        state.player_pinned_cards.retain(|player, _| {
+            active_players.contains(player) || observer_players.contains(player)
+        });
 
         let protected_cards: HashMap<String, HashSet<String>> = state
             .player_to_current_cards
@@ -4046,6 +4177,7 @@ impl Room {
         let mut removed_cards = Vec::new();
         for player in state.players.keys().cloned().collect::<Vec<_>>() {
             state.player_hand.entry(player.clone()).or_default();
+            let mut removed_for_player = Vec::new();
             if let Some(hand) = state.player_hand.get_mut(&player) {
                 while hand.len() > target {
                     let protected = protected_cards
@@ -4059,15 +4191,22 @@ impl Room {
                                 .map(|cards| cards.contains(card))
                                 .unwrap_or(false)
                         }) {
-                            removed_cards.push(hand.remove(idx));
+                            let removed = hand.remove(idx);
+                            removed_for_player.push(removed);
                         } else {
-                            removed_cards.push(hand.pop().unwrap());
+                            let removed = hand.pop().unwrap();
+                            removed_for_player.push(removed);
                         }
                     } else {
-                        removed_cards.push(hand.pop().unwrap());
+                        let removed = hand.pop().unwrap();
+                        removed_for_player.push(removed);
                     }
                 }
             }
+            for removed in removed_for_player.iter() {
+                self.remove_card_pin(state, &player, removed);
+            }
+            removed_cards.extend(removed_for_player);
             self.top_up_player_hand_to_target(state, &player);
         }
 
@@ -4449,7 +4588,7 @@ impl Room {
                     .storyteller_counts
                     .insert(name.clone(), promoted_storyteller_count);
                 let mut restored_hand = state.observer_hand.remove(&name).unwrap_or_default();
-                self.clamp_hand_to_target(state, &mut restored_hand);
+                self.clamp_hand_to_target(state, Some(&name), &mut restored_hand);
                 state.player_hand.insert(name.clone(), restored_hand);
                 promoted += 1;
             }
@@ -4531,7 +4670,7 @@ impl Room {
             .observer_hand
             .remove(observer_name)
             .unwrap_or_default();
-        self.clamp_hand_to_target(state, &mut restored_hand);
+        self.clamp_hand_to_target(state, Some(observer_name), &mut restored_hand);
         state
             .player_hand
             .insert(observer_name.to_string(), restored_hand);
@@ -4601,6 +4740,7 @@ impl Room {
         for played_card in played_cards {
             if let Some(pos) = hand.iter().position(|card| card == &played_card) {
                 hand.remove(pos);
+                self.remove_card_pin(state, player_name, &played_card);
             }
         }
         state.observer_hand.insert(player_name.to_string(), hand);
@@ -4681,6 +4821,7 @@ impl Room {
         }
 
         state.observers.remove(name);
+        state.player_pinned_cards.remove(name);
         state.observer_since_round.remove(name);
         state.storyteller_counts.remove(name);
         state.moderators.remove(name);
@@ -4773,6 +4914,7 @@ impl Room {
         };
 
         state.players.remove(player_name);
+        state.player_pinned_cards.remove(player_name);
         state.observer_since_round.remove(player_name);
         state.storyteller_counts.remove(player_name);
         state.member_to_beauty_points.remove(player_name);
@@ -5129,6 +5271,10 @@ impl Room {
         match state.stage {
             RoomStage::ActiveChooses => Ok(ServerMsg::StartRound {
                 hand: state.player_hand[name.ok_or_else(|| anyhow!("No name provided"))?].clone(),
+                pinned_cards: self.pinned_cards_for_player(
+                    state,
+                    name.ok_or_else(|| anyhow!("No name provided"))?,
+                ),
                 server_time_ms,
                 current_stage_deadline_s,
             }),
@@ -5146,6 +5292,10 @@ impl Room {
             RoomStage::PlayersChoose => Ok(ServerMsg::PlayersChoose {
                 description: state.current_description.clone(),
                 hand: state.player_hand[name.ok_or_else(|| anyhow!("No name provided"))?].clone(),
+                pinned_cards: self.pinned_cards_for_player(
+                    state,
+                    name.ok_or_else(|| anyhow!("No name provided"))?,
+                ),
                 chosen_card: name.and_then(|player_name| {
                     if state
                         .player_order
@@ -5184,6 +5334,12 @@ impl Room {
             }),
             RoomStage::Voting => Ok(ServerMsg::BeginVoting {
                 center_cards: self.get_center_cards(state),
+                hand: name
+                    .and_then(|player_name| state.player_hand.get(player_name).cloned())
+                    .unwrap_or_default(),
+                pinned_cards: name
+                    .map(|player_name| self.pinned_cards_for_player(state, player_name))
+                    .unwrap_or_default(),
                 description: state.current_description.clone(),
                 disabled_cards: name
                     .map(|player_name| {
@@ -5206,6 +5362,12 @@ impl Room {
             }),
             RoomStage::BeautyVoting => Ok(ServerMsg::BeginBeautyVoting {
                 center_cards: self.get_center_cards(state),
+                hand: name
+                    .and_then(|player_name| state.player_hand.get(player_name).cloned())
+                    .unwrap_or_default(),
+                pinned_cards: name
+                    .map(|player_name| self.pinned_cards_for_player(state, player_name))
+                    .unwrap_or_default(),
                 description: state.current_description.clone(),
                 disabled_cards: name
                     .map(|player_name| self.beauty_disabled_cards_for_player(state, player_name))
@@ -5223,12 +5385,24 @@ impl Room {
             }),
             RoomStage::ClueRating => Ok(ServerMsg::BeginClueRating {
                 description: state.current_description.clone(),
+                hand: name
+                    .and_then(|player_name| state.player_hand.get(player_name).cloned())
+                    .unwrap_or_default(),
+                pinned_cards: name
+                    .map(|player_name| self.pinned_cards_for_player(state, player_name))
+                    .unwrap_or_default(),
                 max_stars: self.effective_clue_rating_max_stars(state),
                 server_time_ms,
                 current_stage_deadline_s,
             }),
             RoomStage::Results => Ok(ServerMsg::Results {
                 center_cards: self.get_center_cards(state),
+                hand: name
+                    .and_then(|player_name| state.player_hand.get(player_name).cloned())
+                    .unwrap_or_default(),
+                pinned_cards: name
+                    .map(|player_name| self.pinned_cards_for_player(state, player_name))
+                    .unwrap_or_default(),
                 player_to_votes: state.player_to_votes.clone(),
                 player_to_beauty_votes: state.player_to_beauty_votes.clone(),
                 player_to_clue_rating: Box::new(state.player_to_clue_rating.clone()),
@@ -5259,6 +5433,12 @@ impl Room {
             }),
             RoomStage::BeautyResults => Ok(ServerMsg::BeautyResults {
                 center_cards: self.get_center_cards(state),
+                hand: name
+                    .and_then(|player_name| state.player_hand.get(player_name).cloned())
+                    .unwrap_or_default(),
+                pinned_cards: name
+                    .map(|player_name| self.pinned_cards_for_player(state, player_name))
+                    .unwrap_or_default(),
                 player_to_beauty_votes: state.player_to_beauty_votes.clone(),
                 player_to_current_cards: state.player_to_current_cards.clone(),
                 point_change: state.beauty_point_change.clone(),
@@ -5869,16 +6049,19 @@ impl Room {
 
         // remove cards from hand that were put in the center
         for (player, cards) in state.player_to_current_cards.clone().iter() {
+            let mut removed_for_player = Vec::new();
             if let Some(hand) = state.player_hand.get_mut(player) {
-                let mut removed_for_player = Vec::new();
                 for card in cards {
                     if let Some(pos) = hand.iter().position(|e| e == card) {
                         let played_card = hand.remove(pos);
                         removed_for_player.push(played_card);
                     }
                 }
-                state.discard_pile.extend(removed_for_player);
             }
+            for played_card in removed_for_player.iter() {
+                self.remove_card_pin(state, player, played_card);
+            }
+            state.discard_pile.extend(removed_for_player);
         }
 
         for player in state.player_order.iter() {
@@ -6817,10 +7000,40 @@ impl Room {
             player_hand.entry(player.clone()).or_default();
         }
 
-        let discard_count = usize::from(state.round_start_discard_count);
-        if discard_count > 0 {
-            for hand in player_hand.values_mut() {
-                self.discard_random_cards_from_hand(hand, discard_count, &mut state.discard_pile);
+        if state.round_start_discard_all_unpinned {
+            for (player, hand) in player_hand.iter_mut() {
+                let pinned_cards = state
+                    .player_pinned_cards
+                    .get(player)
+                    .cloned()
+                    .unwrap_or_default();
+                let mut kept = Vec::with_capacity(hand.len());
+                for card in hand.drain(..) {
+                    if pinned_cards.contains(&card) {
+                        kept.push(card);
+                    } else {
+                        state.discard_pile.push(card);
+                    }
+                }
+                *hand = kept;
+            }
+        } else {
+            let discard_count = usize::from(state.round_start_discard_count);
+            if discard_count > 0 {
+                for (player, hand) in player_hand.iter_mut() {
+                    let pinned_cards = state
+                        .player_pinned_cards
+                        .get(player)
+                        .cloned()
+                        .unwrap_or_default();
+                    self.discard_random_cards_from_hand(
+                        player,
+                        hand,
+                        &pinned_cards,
+                        discard_count,
+                        &mut state.discard_pile,
+                    );
+                }
             }
         }
 
@@ -6859,6 +7072,9 @@ impl Room {
         state.active_player = next_active_player;
         state.deck = deck;
         state.player_hand = player_hand;
+        for player in state.players.keys().cloned().collect::<Vec<_>>() {
+            self.clean_pins_for_player_hand(state, &player);
+        }
         self.set_stage(state, RoomStage::ActiveChooses);
 
         for player in state.player_order.iter() {
@@ -8850,6 +9066,79 @@ impl Room {
                 self.clamp_round_start_discard_count(&mut state);
                 self.broadcast_msg(self.room_state(&state))?;
             }
+            ClientMsg::SetRoundStartDiscardAllUnpinned { enabled } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change round-start discard mode".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if matches!(state.stage, RoomStage::End) {
+                    return Ok(());
+                }
+
+                if !Self::is_joining_or_live_dixit_stage(state.stage) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Round-start discard mode can only be changed during live Dixit stages"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                state.round_start_discard_all_unpinned = enabled;
+                self.broadcast_msg(self.room_state(&state))?;
+            }
+            ClientMsg::SetHandCardPinned { card, pinned } => {
+                if !state.players.contains_key(name) {
+                    return Ok(());
+                }
+
+                if !matches!(state.game_mode, GameMode::DixitPlus) {
+                    return Ok(());
+                }
+
+                if matches!(state.stage, RoomStage::ActiveChooses) {
+                    return Ok(());
+                }
+
+                if !state
+                    .player_hand
+                    .get(name)
+                    .map(|hand| hand.contains(&card))
+                    .unwrap_or(false)
+                {
+                    return Ok(());
+                }
+
+                if pinned {
+                    state
+                        .player_pinned_cards
+                        .entry(name.to_string())
+                        .or_default()
+                        .insert(card);
+                } else {
+                    self.remove_card_pin(&mut state, name, &card);
+                }
+
+                if let Some(tx) = state.player_to_socket.get(name) {
+                    if let Ok(msg) = self.get_msg(Some(name), &state) {
+                        let _ = tx.send(msg.into()).await;
+                    }
+                }
+            }
             ClientMsg::SetHintChoosingTimerEnabled { enabled } => {
                 if !self.is_moderator(&state, name) {
                     if let Some(tx) = state.player_to_socket.get(name) {
@@ -10480,6 +10769,7 @@ impl Room {
             bonus_threshold_loss_toggles_apply_to_all_storyteller_loss_rounds: state
                 .bonus_threshold_loss_toggles_apply_to_all_storyteller_loss_rounds,
             show_voting_card_numbers: state.show_voting_card_numbers,
+            round_start_discard_all_unpinned: state.round_start_discard_all_unpinned,
             round_start_discard_count,
             hint_choosing_timer_enabled: state.hint_choosing_timer_enabled,
             hint_choosing_timer_duration_s,
@@ -18296,6 +18586,7 @@ alpha
             state.round = 1;
             state.stage = RoomStage::Results;
             state.cards_per_hand = 4;
+            state.round_start_discard_all_unpinned = false;
             state.round_start_discard_count = 2;
             state.player_hand.insert(
                 "a".to_string(),
@@ -18335,6 +18626,333 @@ alpha
                 "round-start discard must be followed by top-up"
             );
         }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn room_state_defaults_to_discard_all_unpinned_at_round_start() -> Result<()> {
+        let room = test_room();
+        let state = room.state.write().await;
+
+        match room.room_state(&state) {
+            ServerMsg::RoomState {
+                round_start_discard_all_unpinned,
+                ..
+            } => assert!(
+                round_start_discard_all_unpinned,
+                "new rooms should default to discarding every unpinned card at round start"
+            ),
+            other => panic!("expected RoomState, got {other:?}"),
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn round_start_discards_all_unpinned_cards_and_preserves_pins() -> Result<()> {
+        let room = test_room();
+
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "a", 0);
+            add_player(&mut state, "b", 0);
+            add_player(&mut state, "c", 0);
+            state.player_order = vec!["a".into(), "b".into(), "c".into()];
+            state.active_player = 0;
+            state.round = 1;
+            state.stage = RoomStage::Results;
+            state.cards_per_hand = 4;
+            state.round_start_discard_all_unpinned = true;
+            state.round_start_discard_count = 0;
+            state
+                .player_hand
+                .insert("a".into(), vec!["a-pin".into(), "a1".into(), "a2".into()]);
+            state
+                .player_hand
+                .insert("b".into(), vec!["b-pin".into(), "b1".into(), "b2".into()]);
+            state
+                .player_hand
+                .insert("c".into(), vec!["c-pin".into(), "c1".into(), "c2".into()]);
+            state
+                .player_pinned_cards
+                .insert("a".into(), HashSet::from(["a-pin".to_string()]));
+            state
+                .player_pinned_cards
+                .insert("b".into(), HashSet::from(["b-pin".to_string()]));
+            state
+                .player_pinned_cards
+                .insert("c".into(), HashSet::from(["c-pin".to_string()]));
+            state.deck = (0..200).map(|i| format!("draw-{}", i)).collect();
+            state.discard_pile.clear();
+        }
+
+        {
+            let mut state = room.state.write().await;
+            room.init_round(&mut state).await?;
+        }
+
+        let state = room.state.read().await;
+        for (player, pinned, unpinned) in [
+            ("a", "a-pin", vec!["a1", "a2"]),
+            ("b", "b-pin", vec!["b1", "b2"]),
+            ("c", "c-pin", vec!["c1", "c2"]),
+        ] {
+            let hand = state
+                .player_hand
+                .get(player)
+                .expect("player should have hand");
+            assert!(
+                hand.contains(&pinned.to_string()),
+                "pinned card should stay in {player}'s hand"
+            );
+            assert_eq!(hand.len(), 4, "{player}'s hand should be topped up");
+            for card in unpinned {
+                assert!(
+                    state.discard_pile.contains(&card.to_string()),
+                    "unpinned card {card} should be discarded at round start"
+                );
+                assert!(
+                    !hand.contains(&card.to_string()),
+                    "unpinned card {card} should leave {player}'s hand"
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn numeric_round_start_discard_never_discards_pinned_cards_and_clamps() -> Result<()> {
+        let room = test_room();
+
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "a", 0);
+            add_player(&mut state, "b", 0);
+            add_player(&mut state, "c", 0);
+            state.player_order = vec!["a".into(), "b".into(), "c".into()];
+            state.active_player = 0;
+            state.round = 1;
+            state.stage = RoomStage::Results;
+            state.cards_per_hand = 4;
+            state.round_start_discard_all_unpinned = false;
+            state.round_start_discard_count = 3;
+            state.player_hand.insert(
+                "a".into(),
+                vec!["a-pin-1".into(), "a-pin-2".into(), "a-free".into()],
+            );
+            state.player_hand.insert(
+                "b".into(),
+                vec!["b-pin-1".into(), "b-pin-2".into(), "b-free".into()],
+            );
+            state.player_hand.insert(
+                "c".into(),
+                vec!["c-pin-1".into(), "c-pin-2".into(), "c-free".into()],
+            );
+            state.player_pinned_cards.insert(
+                "a".into(),
+                HashSet::from(["a-pin-1".to_string(), "a-pin-2".to_string()]),
+            );
+            state.player_pinned_cards.insert(
+                "b".into(),
+                HashSet::from(["b-pin-1".to_string(), "b-pin-2".to_string()]),
+            );
+            state.player_pinned_cards.insert(
+                "c".into(),
+                HashSet::from(["c-pin-1".to_string(), "c-pin-2".to_string()]),
+            );
+            state.deck = (0..200).map(|i| format!("draw-{}", i)).collect();
+            state.discard_pile.clear();
+        }
+
+        {
+            let mut state = room.state.write().await;
+            room.init_round(&mut state).await?;
+        }
+
+        let state = room.state.read().await;
+        for (player, pinned, free) in [
+            ("a", vec!["a-pin-1", "a-pin-2"], "a-free"),
+            ("b", vec!["b-pin-1", "b-pin-2"], "b-free"),
+            ("c", vec!["c-pin-1", "c-pin-2"], "c-free"),
+        ] {
+            let hand = state
+                .player_hand
+                .get(player)
+                .expect("player should have hand");
+            for card in pinned {
+                assert!(
+                    hand.contains(&card.to_string()),
+                    "numeric discard must preserve pinned card {card}"
+                );
+            }
+            assert!(
+                state.discard_pile.contains(&free.to_string()),
+                "numeric discard should discard the only unpinned card for {player}"
+            );
+            assert_eq!(hand.len(), 4, "{player}'s hand should be topped up");
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn refresh_hands_preserves_pinned_cards_and_redraws_unpinned_only() -> Result<()> {
+        let room = test_room();
+
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            add_player(&mut state, "p2", 0);
+            add_player(&mut state, "p3", 0);
+            state.player_order = vec!["host".into(), "p2".into(), "p3".into()];
+            state.stage = RoomStage::ActiveChooses;
+            state.cards_per_hand = 3;
+            state.player_hand.insert(
+                "host".into(),
+                vec!["h-pin".into(), "h1".into(), "h2".into()],
+            );
+            state.player_hand.insert(
+                "p2".into(),
+                vec!["p2-pin".into(), "p21".into(), "p22".into()],
+            );
+            state.player_hand.insert(
+                "p3".into(),
+                vec!["p3-pin".into(), "p31".into(), "p32".into()],
+            );
+            state
+                .player_pinned_cards
+                .insert("host".into(), HashSet::from(["h-pin".to_string()]));
+            state
+                .player_pinned_cards
+                .insert("p2".into(), HashSet::from(["p2-pin".to_string()]));
+            state
+                .player_pinned_cards
+                .insert("p3".into(), HashSet::from(["p3-pin".to_string()]));
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 118);
+        }
+
+        room.handle_client_msg("host", 118, to_ws(ClientMsg::RefreshHands {}))
+            .await?;
+
+        let state = room.state.read().await;
+        for (player, pinned, discarded) in [
+            ("host", "h-pin", vec!["h1", "h2"]),
+            ("p2", "p2-pin", vec!["p21", "p22"]),
+            ("p3", "p3-pin", vec!["p31", "p32"]),
+        ] {
+            let hand = state
+                .player_hand
+                .get(player)
+                .expect("player should have hand");
+            assert!(hand.contains(&pinned.to_string()));
+            assert_eq!(hand.len(), 3);
+            for card in discarded {
+                assert!(
+                    state.discard_pile.contains(&card.to_string()),
+                    "refresh should discard unpinned card {card}"
+                );
+                assert!(
+                    !hand.contains(&card.to_string()),
+                    "refresh should remove unpinned card {card} from {player}'s hand"
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn pin_changes_are_rejected_while_storyteller_is_choosing() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "a", 0);
+            add_player(&mut state, "b", 0);
+            add_player(&mut state, "c", 0);
+            state.stage = RoomStage::ActiveChooses;
+            state.player_order = vec!["a".into(), "b".into(), "c".into()];
+            state.active_player = 0;
+            setup_connected_member(&mut state, "a", "t-a", 119);
+        }
+
+        room.handle_client_msg(
+            "a",
+            119,
+            to_ws(ClientMsg::SetHandCardPinned {
+                card: "a-1".to_string(),
+                pinned: true,
+            }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert!(
+            state
+                .player_pinned_cards
+                .get("a")
+                .map(|cards| cards.is_empty())
+                .unwrap_or(true),
+            "pin changes should be ignored during ActiveChooses"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn played_pinned_cards_leave_hand_and_are_unpinned_when_voting_begins() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "a", 0);
+            add_player(&mut state, "b", 0);
+            add_player(&mut state, "c", 0);
+            state.stage = RoomStage::PlayersChoose;
+            state.player_order = vec!["a".into(), "b".into(), "c".into()];
+            state.active_player = 0;
+            state.cards_per_hand = 3;
+            state.player_hand.insert(
+                "a".into(),
+                vec!["a-played".into(), "a-stays".into(), "a-free".into()],
+            );
+            state
+                .player_pinned_cards
+                .insert("a".into(), HashSet::from(["a-played".to_string()]));
+            state
+                .player_to_current_cards
+                .insert("a".into(), vec!["a-played".into()]);
+            state
+                .player_to_current_cards
+                .insert("b".into(), vec!["b-1".into()]);
+            state
+                .player_to_current_cards
+                .insert("c".into(), vec!["c-1".into()]);
+        }
+
+        {
+            let mut state = room.state.write().await;
+            room.init_voting(&mut state).await?;
+        }
+
+        let state = room.state.read().await;
+        assert!(
+            !state
+                .player_hand
+                .get("a")
+                .map(|hand| hand.contains(&"a-played".to_string()))
+                .unwrap_or(false),
+            "played pinned card should leave the player's hand"
+        );
+        assert!(
+            state
+                .player_pinned_cards
+                .get("a")
+                .map(|cards| !cards.contains("a-played"))
+                .unwrap_or(true),
+            "played card should be unpinned when it leaves the hand"
+        );
 
         Ok(())
     }

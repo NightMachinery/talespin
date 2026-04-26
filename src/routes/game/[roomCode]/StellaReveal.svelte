@@ -58,6 +58,7 @@
 	export let doubleVoteBonusPointsMax = 10;
 	export let bonusThresholdLossTogglesApplyToAllStorytellerLossRounds = true;
 	export let showVotingCardNumbers = true;
+	export let roundStartDiscardAllUnpinned = true;
 	export let roundStartDiscardCount = 3;
 	export let hintChoosingTimerEnabled = true;
 	export let hintChoosingTimerDurationS = 60;
@@ -255,6 +256,7 @@
 	{doubleVoteBonusPointsMax}
 	{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 	{showVotingCardNumbers}
+	{roundStartDiscardAllUnpinned}
 	{roundStartDiscardCount}
 	{hintChoosingTimerEnabled}
 	{hintChoosingTimerDurationS}

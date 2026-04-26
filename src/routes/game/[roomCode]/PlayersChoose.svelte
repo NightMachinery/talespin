@@ -17,6 +17,7 @@
 	import { getToastStore } from '@skeletonlabs/skeleton';
 
 	export let displayImages: string[] = [];
+	export let pinnedCards: string[] = [];
 	export let name = '';
 	export let creator = '';
 	export let moderators: string[] = [];
@@ -69,6 +70,7 @@
 	export let doubleVoteBonusPointsMax = 10;
 	export let bonusThresholdLossTogglesApplyToAllStorytellerLossRounds = true;
 	export let showVotingCardNumbers = true;
+	export let roundStartDiscardAllUnpinned = true;
 	export let roundStartDiscardCount = 3;
 	export let hintChoosingTimerEnabled = true;
 	export let hintChoosingTimerDurationS = 60;
@@ -200,6 +202,13 @@
 	function handleCardSelect(event: CustomEvent<string>) {
 		toggleCard(event.detail);
 	}
+
+	$: pinnedCardSet = new Set(pinnedCards);
+
+	function handlePinToggle(event: CustomEvent<string>) {
+		const card = event.detail;
+		gameServer.setHandCardPinned(card, !pinnedCardSet.has(card));
+	}
 </script>
 
 <StageShell
@@ -252,6 +261,7 @@
 	{doubleVoteBonusPointsMax}
 	{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 	{showVotingCardNumbers}
+	{roundStartDiscardAllUnpinned}
 	{roundStartDiscardCount}
 	{hintChoosingTimerEnabled}
 	{hintChoosingTimerDurationS}
@@ -294,8 +304,7 @@
 	leaderboardStoryPointChangeOverride={previousResultsLeaderboardContext?.storyPointChange ?? null}
 	leaderboardBeautyPointChangeOverride={previousResultsLeaderboardContext?.beautyPointChange ??
 		null}
-	leaderboardRoundClueRatingOverride={previousResultsLeaderboardContext?.clueRatingOverride ??
-		null}
+	leaderboardRoundClueRatingOverride={previousResultsLeaderboardContext?.clueRatingOverride ?? null}
 	showMobileActions={isChooser || isModerator || canToggleResultsView}
 >
 	<svelte:fragment slot="leftRail">
@@ -476,7 +485,11 @@
 					selectedImages={highlightedImages}
 					selectable={isChooser}
 					mode="hand"
+					pinnedImages={pinnedCards}
+					showPinBadges
+					pinTogglesEnabled={isChooser || isStoryteller}
 					on:select={handleCardSelect}
+					on:pinToggle={handlePinToggle}
 				/>
 			</div>
 		</div>

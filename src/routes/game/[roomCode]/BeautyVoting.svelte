@@ -13,6 +13,7 @@
 	import type { ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
 	import { cardsFitToHeight } from '$lib/viewOptions';
 	import CardNumberNavigator from './CardNumberNavigator.svelte';
+	import MyCardsPanel from './MyCardsPanel.svelte';
 	import StageActionButtons from './StageActionButtons.svelte';
 	import StageShell from './StageShell.svelte';
 
@@ -68,6 +69,7 @@
 	export let doubleVoteBonusPointsMax = 10;
 	export let bonusThresholdLossTogglesApplyToAllStorytellerLossRounds = true;
 	export let showVotingCardNumbers = true;
+	export let roundStartDiscardAllUnpinned = true;
 	export let roundStartDiscardCount = 3;
 	export let hintChoosingTimerEnabled = true;
 	export let hintChoosingTimerDurationS = 60;
@@ -109,6 +111,8 @@
 		target_points: 10
 	};
 	export let disabledCards: string[] = [];
+	export let myHandImages: string[] = [];
+	export let pinnedCards: string[] = [];
 
 	let selectedVotes: string[] = [];
 	let selectedVoteCounts: Record<string, number> = {};
@@ -117,6 +121,7 @@
 	let isObserver = false;
 	let isModerator = false;
 	let canAutoObserverify = false;
+	let viewMode: 'table' | 'hand' = 'table';
 	$: isObserver = !!observers[name];
 	$: isModerator = new Set(moderators).has(name);
 	$: canAutoObserverify =
@@ -284,6 +289,7 @@
 	{doubleVoteBonusPointsMax}
 	{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 	{showVotingCardNumbers}
+	{roundStartDiscardAllUnpinned}
 	{roundStartDiscardCount}
 	{hintChoosingTimerEnabled}
 	{hintChoosingTimerDurationS}
@@ -429,53 +435,71 @@
 	</svelte:fragment>
 
 	<div class="flex h-full min-h-0 flex-col">
-		<h2 class="mb-2 hidden text-lg font-semibold lg:block">Cards on table</h2>
-		<CardNumberNavigator
-			{cardNumberLabels}
-			targetIdScope="beauty-voting"
-			selectedLabels={selectedCardNumberLabels}
-			mutedLabels={mutedCardNumberLabels}
-			collapsedLabel="beauty card navigator"
-		/>
-		<section class={tableSectionClass} style={tableDesktopFitStyle}>
-			{#each displayImages as image, cardIndex}
-				{@const cardNumberLabel = cardNumberLabels[cardIndex] ?? cardIndex + 1}
-				{@const selectedCount = selectedVoteCounts[image] ?? 0}
-				{@const isDisabled = disabledCards.includes(image)}
+		{#if myHandImages.length > 0}
+			<div class="mb-2 grid grid-cols-2 gap-2 lg:max-w-md">
 				<button
 					type="button"
-					id={buildCardNumberNavigatorTargetId('beauty-voting', cardNumberLabel)}
-					class={`${tableButtonClass} ${isDisabled || isObserver ? 'cursor-default' : ''}`}
-					style:scroll-margin-top={CARD_NUMBER_NAVIGATOR_SCROLL_MARGIN_TOP}
-					disabled={isObserver || isDisabled}
-					on:click={() => cycleCardVote(image)}
+					class={`btn w-full ${viewMode === 'table' ? 'variant-filled' : 'variant-ghost'}`}
+					on:click={() => (viewMode = 'table')}>Table</button
 				>
-					<CardImage
-						className={`${tableImageClass} ${voteImageClass(selectedCount, isDisabled)}`}
-						src={`${http_host}/cards/${image}`}
-						alt={CARD_IMAGE_ALT_TEXT}
-					/>
-					{#if showVotingCardNumbers}
-						<div
-							class="absolute right-2 top-2 z-20 rounded bg-black/70 px-2 py-0.5 text-xs font-bold text-white shadow"
-						>
-							#{cardNumberLabel}
-						</div>
-					{/if}
-					{#if selectedCount > 0}
-						<div
-							class={`absolute left-2 top-2 z-20 rounded px-2 py-0.5 text-xs font-bold text-white ${
-								selectedCount >= 2
-									? 'bg-success-500 shadow-[0_0_0_2px_rgba(255,255,255,0.3)]'
-									: 'bg-primary-500 shadow-[0_0_0_1px_rgba(255,255,255,0.25)]'
-							}`}
-						>
-							×{selectedCount}
-						</div>
-					{/if}
-				</button>
-			{/each}
-		</section>
+				<button
+					type="button"
+					class={`btn w-full ${viewMode === 'hand' ? 'variant-filled' : 'variant-ghost'}`}
+					on:click={() => (viewMode = 'hand')}>My Cards</button
+				>
+			</div>
+		{/if}
+		{#if viewMode === 'hand'}
+			<MyCardsPanel hand={myHandImages} {pinnedCards} {gameServer} />
+		{:else}
+			<h2 class="mb-2 hidden text-lg font-semibold lg:block">Cards on table</h2>
+			<CardNumberNavigator
+				{cardNumberLabels}
+				targetIdScope="beauty-voting"
+				selectedLabels={selectedCardNumberLabels}
+				mutedLabels={mutedCardNumberLabels}
+				collapsedLabel="beauty card navigator"
+			/>
+			<section class={tableSectionClass} style={tableDesktopFitStyle}>
+				{#each displayImages as image, cardIndex}
+					{@const cardNumberLabel = cardNumberLabels[cardIndex] ?? cardIndex + 1}
+					{@const selectedCount = selectedVoteCounts[image] ?? 0}
+					{@const isDisabled = disabledCards.includes(image)}
+					<button
+						type="button"
+						id={buildCardNumberNavigatorTargetId('beauty-voting', cardNumberLabel)}
+						class={`${tableButtonClass} ${isDisabled || isObserver ? 'cursor-default' : ''}`}
+						style:scroll-margin-top={CARD_NUMBER_NAVIGATOR_SCROLL_MARGIN_TOP}
+						disabled={isObserver || isDisabled}
+						on:click={() => cycleCardVote(image)}
+					>
+						<CardImage
+							className={`${tableImageClass} ${voteImageClass(selectedCount, isDisabled)}`}
+							src={`${http_host}/cards/${image}`}
+							alt={CARD_IMAGE_ALT_TEXT}
+						/>
+						{#if showVotingCardNumbers}
+							<div
+								class="absolute right-2 top-2 z-20 rounded bg-black/70 px-2 py-0.5 text-xs font-bold text-white shadow"
+							>
+								#{cardNumberLabel}
+							</div>
+						{/if}
+						{#if selectedCount > 0}
+							<div
+								class={`absolute left-2 top-2 z-20 rounded px-2 py-0.5 text-xs font-bold text-white ${
+									selectedCount >= 2
+										? 'bg-success-500 shadow-[0_0_0_2px_rgba(255,255,255,0.3)]'
+										: 'bg-primary-500 shadow-[0_0_0_1px_rgba(255,255,255,0.25)]'
+								}`}
+							>
+								×{selectedCount}
+							</div>
+						{/if}
+					</button>
+				{/each}
+			</section>
+		{/if}
 	</div>
 </StageShell>
 

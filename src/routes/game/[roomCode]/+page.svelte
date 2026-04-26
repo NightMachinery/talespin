@@ -147,6 +147,7 @@
 	let doubleVoteBonusPointsMax = 10;
 	let bonusThresholdLossTogglesApplyToAllStorytellerLossRounds = true;
 	let showVotingCardNumbers = true;
+	let roundStartDiscardAllUnpinned = true;
 	let roundStartDiscardCount = 3;
 	let hintChoosingTimerEnabled = true;
 	let hintChoosingTimerDurationS = 60;
@@ -198,6 +199,8 @@
 	// UI state
 	let stageImages: string[] = [];
 	let displayImages: string[] = [];
+	let myHandImages: string[] = [];
+	let pinnedCards: string[] = [];
 	let displayImageBadgeLabels: number[] = [];
 	let votingDisabledCards: string[] = [];
 	let beautyDisabledCards: string[] = [];
@@ -508,6 +511,7 @@
 				bonusThresholdLossTogglesApplyToAllStorytellerLossRounds =
 					data.RoomState.bonus_threshold_loss_toggles_apply_to_all_storyteller_loss_rounds ?? true;
 				showVotingCardNumbers = data.RoomState.show_voting_card_numbers ?? true;
+				roundStartDiscardAllUnpinned = data.RoomState.round_start_discard_all_unpinned ?? true;
 				roundStartDiscardCount = data.RoomState.round_start_discard_count ?? 3;
 				hintChoosingTimerEnabled = data.RoomState.hint_choosing_timer_enabled ?? true;
 				hintChoosingTimerDurationS = data.RoomState.hint_choosing_timer_duration_s ?? 60;
@@ -593,6 +597,8 @@
 				setStage('ActiveChooses');
 				votingLayoutSeed = null;
 				stageImages = data.StartRound.hand;
+				myHandImages = data.StartRound.hand || [];
+				pinnedCards = data.StartRound.pinned_cards || [];
 				playerToVotes = {};
 				playerToBeautyVotes = {};
 				storytellerPointChange = {};
@@ -611,6 +617,8 @@
 				setStage('PlayersChoose');
 				votingLayoutSeed = null;
 				stageImages = data.PlayersChoose.hand;
+				myHandImages = data.PlayersChoose.hand || [];
+				pinnedCards = data.PlayersChoose.pinned_cards || [];
 				description = data.PlayersChoose.description;
 				playerToVotes = {};
 				playerToBeautyVotes = {};
@@ -627,6 +635,8 @@
 				setStage('Voting');
 				votingLayoutSeed = data.BeginVoting.voting_layout_seed || votingLayoutSeed;
 				stageImages = data.BeginVoting.center_cards;
+				myHandImages = data.BeginVoting.hand || [];
+				pinnedCards = data.BeginVoting.pinned_cards || [];
 				description = data.BeginVoting.description;
 				votingDisabledCards = data.BeginVoting.disabled_cards || [];
 				votesPerGuesser = data.BeginVoting.votes_per_guesser ?? votesPerGuesser;
@@ -646,6 +656,8 @@
 				setStage('BeautyVoting');
 				votingLayoutSeed = data.BeginBeautyVoting.voting_layout_seed || votingLayoutSeed;
 				stageImages = data.BeginBeautyVoting.center_cards;
+				myHandImages = data.BeginBeautyVoting.hand || [];
+				pinnedCards = data.BeginBeautyVoting.pinned_cards || [];
 				description = data.BeginBeautyVoting.description;
 				beautyDisabledCards = data.BeginBeautyVoting.disabled_cards || [];
 				beautyVotesPerPlayer = data.BeginBeautyVoting.votes_per_player ?? beautyVotesPerPlayer;
@@ -662,6 +674,8 @@
 				);
 				setStage('ClueRating');
 				description = data.BeginClueRating.description || description;
+				myHandImages = data.BeginClueRating.hand || [];
+				pinnedCards = data.BeginClueRating.pinned_cards || [];
 				clueRatingStageMaxStars = data.BeginClueRating.max_stars ?? clueRatingStageMaxStars;
 				storytellerLeaderboardPointChange.set({});
 				beautyLeaderboardPointChange.set({});
@@ -672,6 +686,8 @@
 				clearStageTimer();
 				playerToCurrentCards = data.Results.player_to_current_cards || {};
 				stageImages = data.Results.center_cards || Object.values(playerToCurrentCards).flat();
+				myHandImages = data.Results.hand || [];
+				pinnedCards = data.Results.pinned_cards || [];
 				playerToVotes = data.Results.player_to_votes || {};
 				playerToBeautyVotes = data.Results.player_to_beauty_votes || {};
 				activeCard = data.Results.active_card;
@@ -706,6 +722,8 @@
 				clearStageTimer();
 				playerToCurrentCards = data.BeautyResults.player_to_current_cards || {};
 				stageImages = data.BeautyResults.center_cards || Object.values(playerToCurrentCards).flat();
+				myHandImages = data.BeautyResults.hand || [];
+				pinnedCards = data.BeautyResults.pinned_cards || [];
 				playerToBeautyVotes = data.BeautyResults.player_to_beauty_votes || {};
 				pointChange = data.BeautyResults.point_change || {};
 				storytellerPointChange = {};
@@ -728,6 +746,8 @@
 				setStage('StellaAssociate');
 				votingLayoutSeed = null;
 				stageImages = data.StellaAssociate.board_cards || [];
+				myHandImages = [];
+				pinnedCards = [];
 				stellaActiveClue = data.StellaAssociate.clue_word || '';
 				stellaSelectedCards = data.StellaAssociate.selected_cards || [];
 				stellaSelectedCounts = {};
@@ -746,6 +766,8 @@
 				setStage('StellaReveal');
 				votingLayoutSeed = null;
 				stageImages = data.StellaReveal.board_cards || [];
+				myHandImages = [];
+				pinnedCards = [];
 				stellaActiveClue = data.StellaReveal.clue_word || '';
 				stellaSelectedCards = data.StellaReveal.selected_cards || [];
 				stellaSelectedCounts = data.StellaReveal.selected_counts || {};
@@ -766,6 +788,8 @@
 				setStage('StellaResults');
 				votingLayoutSeed = null;
 				stageImages = data.StellaResults.board_cards || [];
+				myHandImages = [];
+				pinnedCards = [];
 				stellaActiveClue = data.StellaResults.clue_word || '';
 				stellaSelectedCounts = data.StellaResults.selected_counts || {};
 				stellaRevealedCards = data.StellaResults.revealed_cards || [];
@@ -958,6 +982,7 @@
 			{doubleVoteBonusPointsMax}
 			{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 			{showVotingCardNumbers}
+			{roundStartDiscardAllUnpinned}
 			{roundStartDiscardCount}
 			{hintChoosingTimerEnabled}
 			{hintChoosingTimerDurationS}
@@ -1051,6 +1076,7 @@
 			{doubleVoteBonusPointsMax}
 			{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 			{showVotingCardNumbers}
+			{roundStartDiscardAllUnpinned}
 			{roundStartDiscardCount}
 			{hintChoosingTimerEnabled}
 			{hintChoosingTimerDurationS}
@@ -1100,6 +1126,7 @@
 	{:else if stage === 'ActiveChooses'}
 		<ActiveChooses
 			{displayImages}
+			{pinnedCards}
 			{activePlayer}
 			{name}
 			{creator}
@@ -1149,6 +1176,7 @@
 			{doubleVoteBonusPointsMax}
 			{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 			{showVotingCardNumbers}
+			{roundStartDiscardAllUnpinned}
 			{roundStartDiscardCount}
 			{hintChoosingTimerEnabled}
 			{hintChoosingTimerDurationS}
@@ -1190,6 +1218,7 @@
 	{:else if stage === 'PlayersChoose'}
 		<PlayersChoose
 			{displayImages}
+			{pinnedCards}
 			{name}
 			{creator}
 			{moderators}
@@ -1241,6 +1270,7 @@
 			{doubleVoteBonusPointsMax}
 			{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 			{showVotingCardNumbers}
+			{roundStartDiscardAllUnpinned}
 			{roundStartDiscardCount}
 			{hintChoosingTimerEnabled}
 			{hintChoosingTimerDurationS}
@@ -1283,6 +1313,8 @@
 	{:else if stage === 'Voting'}
 		<Voting
 			{displayImages}
+			{myHandImages}
+			{pinnedCards}
 			{activePlayer}
 			{name}
 			{creator}
@@ -1333,6 +1365,7 @@
 			{doubleVoteBonusPointsMax}
 			{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 			{showVotingCardNumbers}
+			{roundStartDiscardAllUnpinned}
 			{roundStartDiscardCount}
 			{hintChoosingTimerEnabled}
 			{hintChoosingTimerDurationS}
@@ -1376,6 +1409,8 @@
 	{:else if stage === 'BeautyVoting'}
 		<BeautyVoting
 			{displayImages}
+			{myHandImages}
+			{pinnedCards}
 			{activePlayer}
 			{name}
 			{creator}
@@ -1426,6 +1461,7 @@
 			{doubleVoteBonusPointsMax}
 			{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 			{showVotingCardNumbers}
+			{roundStartDiscardAllUnpinned}
 			{roundStartDiscardCount}
 			{hintChoosingTimerEnabled}
 			{hintChoosingTimerDurationS}
@@ -1468,6 +1504,8 @@
 		/>
 	{:else if stage === 'ClueRating'}
 		<ClueRating
+			{myHandImages}
+			{pinnedCards}
 			{name}
 			{creator}
 			{moderators}
@@ -1518,6 +1556,7 @@
 			{doubleVoteBonusPointsMax}
 			{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 			{showVotingCardNumbers}
+			{roundStartDiscardAllUnpinned}
 			{roundStartDiscardCount}
 			{hintChoosingTimerEnabled}
 			{hintChoosingTimerDurationS}
@@ -1562,6 +1601,8 @@
 	{:else if stage === 'Results'}
 		<Results
 			{displayImages}
+			{myHandImages}
+			{pinnedCards}
 			cardNumberLabels={displayImageBadgeLabels}
 			{name}
 			{creator}
@@ -1616,6 +1657,7 @@
 			{doubleVoteBonusPointsMax}
 			{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 			{showVotingCardNumbers}
+			{roundStartDiscardAllUnpinned}
 			{roundStartDiscardCount}
 			{hintChoosingTimerEnabled}
 			{hintChoosingTimerDurationS}
@@ -1659,6 +1701,8 @@
 	{:else if stage === 'BeautyResults'}
 		<BeautyResults
 			{displayImages}
+			{myHandImages}
+			{pinnedCards}
 			cardNumberLabels={displayImageBadgeLabels}
 			{name}
 			{creator}
@@ -1711,6 +1755,7 @@
 			{doubleVoteBonusPointsMax}
 			{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 			{showVotingCardNumbers}
+			{roundStartDiscardAllUnpinned}
 			{roundStartDiscardCount}
 			{hintChoosingTimerEnabled}
 			{hintChoosingTimerDurationS}
@@ -1803,6 +1848,7 @@
 			{doubleVoteBonusPointsMax}
 			{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 			{showVotingCardNumbers}
+			{roundStartDiscardAllUnpinned}
 			{roundStartDiscardCount}
 			{hintChoosingTimerEnabled}
 			{hintChoosingTimerDurationS}
@@ -1896,6 +1942,7 @@
 			{doubleVoteBonusPointsMax}
 			{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 			{showVotingCardNumbers}
+			{roundStartDiscardAllUnpinned}
 			{roundStartDiscardCount}
 			{hintChoosingTimerEnabled}
 			{hintChoosingTimerDurationS}

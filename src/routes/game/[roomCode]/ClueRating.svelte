@@ -2,6 +2,7 @@
 	import { getToastStore } from '@skeletonlabs/skeleton';
 	import type GameServer from '$lib/gameServer';
 	import type { GameMode, ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
+	import MyCardsPanel from './MyCardsPanel.svelte';
 	import StageActionButtons from './StageActionButtons.svelte';
 	import StageShell from './StageShell.svelte';
 
@@ -55,6 +56,7 @@
 	export let doubleVoteBonusPointsMax = 10;
 	export let bonusThresholdLossTogglesApplyToAllStorytellerLossRounds = true;
 	export let showVotingCardNumbers = true;
+	export let roundStartDiscardAllUnpinned = true;
 	export let roundStartDiscardCount = 3;
 	export let hintChoosingTimerEnabled = true;
 	export let hintChoosingTimerDurationS = 60;
@@ -98,10 +100,13 @@
 		target_points: 10
 	};
 	export let gameMode: GameMode = 'dixit_plus';
+	export let myHandImages: string[] = [];
+	export let pinnedCards: string[] = [];
 
 	const toastStore = getToastStore();
 	let selectedStars = 0;
 	let hoverStars = 0;
+	let viewMode: 'rating' | 'hand' = 'rating';
 
 	$: isObserver = !!observers[name];
 	$: isStoryteller = activePlayer === name;
@@ -175,6 +180,7 @@
 	{doubleVoteBonusPointsMax}
 	{bonusThresholdLossTogglesApplyToAllStorytellerLossRounds}
 	{showVotingCardNumbers}
+	{roundStartDiscardAllUnpinned}
 	{roundStartDiscardCount}
 	{hintChoosingTimerEnabled}
 	{hintChoosingTimerDurationS}
@@ -234,69 +240,87 @@
 		</div>
 	</svelte:fragment>
 
-	<div class="flex h-full flex-col justify-center">
-		<div class="clue-rating-shell mx-auto w-full max-w-4xl rounded-[2rem] p-6 sm:p-8">
-			<div class="mx-auto max-w-3xl text-center">
-				<p class="text-xs font-semibold uppercase tracking-[0.35em] text-amber-200/80">
-					How radiant was that clue?
-				</p>
-				<h1 class="mt-4 text-3xl font-black text-white sm:text-5xl">{description}</h1>
-				<p class="mx-auto mt-4 max-w-2xl text-sm text-white/75 sm:text-base">
-					Tap or click a star to submit instantly. Missing votes are skipped.
-				</p>
+	<div class="flex h-full min-h-0 flex-col justify-center">
+		{#if myHandImages.length > 0}
+			<div class="mb-2 grid grid-cols-2 gap-2 lg:max-w-md">
+				<button
+					type="button"
+					class={`btn w-full ${viewMode === 'rating' ? 'variant-filled' : 'variant-ghost'}`}
+					on:click={() => (viewMode = 'rating')}>Rating</button
+				>
+				<button
+					type="button"
+					class={`btn w-full ${viewMode === 'hand' ? 'variant-filled' : 'variant-ghost'}`}
+					on:click={() => (viewMode = 'hand')}>My Cards</button
+				>
 			</div>
-
-			{#if canRate}
-				<div class="mt-8 flex flex-wrap items-center justify-center gap-3 sm:gap-4">
-					{#each Array.from({ length: maxStars }, (_, index) => index + 1) as starValue}
-						<button
-							type="button"
-							class={`star-button ${(hoverStars || selectedStars) >= starValue ? 'active' : ''}`}
-							aria-label={`${starValue} star${starValue === 1 ? '' : 's'}`}
-							on:mouseenter={() => (hoverStars = starValue)}
-							on:mouseleave={() => (hoverStars = 0)}
-							on:focus={() => (hoverStars = starValue)}
-							on:blur={() => (hoverStars = 0)}
-							on:click={() => pickStars(starValue)}
-						>
-							<span class="star-core">★</span>
-							<span class="star-label">{starValue}</span>
-						</button>
-					{/each}
-				</div>
-
-				<div class="mt-6 text-center">
-					<p class="text-sm text-white/75">
-						{#if selectedStars > 0}
-							Locked in <span class="font-semibold text-amber-200">{selectedStars}</span> /
-							{maxStars}. Tap another star to change it before results.
-						{:else}
-							Tap or click from 1 to {maxStars} stars to submit instantly.
-						{/if}
+		{/if}
+		{#if viewMode === 'hand'}
+			<MyCardsPanel hand={myHandImages} {pinnedCards} {gameServer} />
+		{:else}
+			<div class="clue-rating-shell mx-auto w-full max-w-4xl rounded-[2rem] p-6 sm:p-8">
+				<div class="mx-auto max-w-3xl text-center">
+					<p class="text-xs font-semibold uppercase tracking-[0.35em] text-amber-200/80">
+						How radiant was that clue?
+					</p>
+					<h1 class="mt-4 text-3xl font-black text-white sm:text-5xl">{description}</h1>
+					<p class="mx-auto mt-4 max-w-2xl text-sm text-white/75 sm:text-base">
+						Tap or click a star to submit instantly. Missing votes are skipped.
 					</p>
 				</div>
-			{:else}
-				<div class="mx-auto mt-10 max-w-2xl text-center">
-					<div class="rounded-3xl border border-white/15 bg-white/5 px-6 py-8 backdrop-blur-sm">
-						<p class="text-6xl">✨</p>
-						<h2 class="mt-4 text-2xl font-semibold text-white">
-							{#if isStoryteller}
-								Your clue is being rated
+
+				{#if canRate}
+					<div class="mt-8 flex flex-wrap items-center justify-center gap-3 sm:gap-4">
+						{#each Array.from({ length: maxStars }, (_, index) => index + 1) as starValue}
+							<button
+								type="button"
+								class={`star-button ${(hoverStars || selectedStars) >= starValue ? 'active' : ''}`}
+								aria-label={`${starValue} star${starValue === 1 ? '' : 's'}`}
+								on:mouseenter={() => (hoverStars = starValue)}
+								on:mouseleave={() => (hoverStars = 0)}
+								on:focus={() => (hoverStars = starValue)}
+								on:blur={() => (hoverStars = 0)}
+								on:click={() => pickStars(starValue)}
+							>
+								<span class="star-core">★</span>
+								<span class="star-label">{starValue}</span>
+							</button>
+						{/each}
+					</div>
+
+					<div class="mt-6 text-center">
+						<p class="text-sm text-white/75">
+							{#if selectedStars > 0}
+								Locked in <span class="font-semibold text-amber-200">{selectedStars}</span> /
+								{maxStars}. Tap another star to change it before results.
 							{:else}
-								Observers are waiting for ratings
-							{/if}
-						</h2>
-						<p class="mt-3 text-white/75">
-							{#if isStoryteller}
-								Sit back while the table crowns your clue with stars.
-							{:else}
-								Non-storytellers are casting stars before the reveal.
+								Tap or click from 1 to {maxStars} stars to submit instantly.
 							{/if}
 						</p>
 					</div>
-				</div>
-			{/if}
-		</div>
+				{:else}
+					<div class="mx-auto mt-10 max-w-2xl text-center">
+						<div class="rounded-3xl border border-white/15 bg-white/5 px-6 py-8 backdrop-blur-sm">
+							<p class="text-6xl">✨</p>
+							<h2 class="mt-4 text-2xl font-semibold text-white">
+								{#if isStoryteller}
+									Your clue is being rated
+								{:else}
+									Observers are waiting for ratings
+								{/if}
+							</h2>
+							<p class="mt-3 text-white/75">
+								{#if isStoryteller}
+									Sit back while the table crowns your clue with stars.
+								{:else}
+									Non-storytellers are casting stars before the reveal.
+								{/if}
+							</p>
+						</div>
+					</div>
+				{/if}
+			</div>
+		{/if}
 	</div>
 
 	{#if isModerator}
