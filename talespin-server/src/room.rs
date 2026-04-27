@@ -9110,10 +9110,6 @@ impl Room {
                     return Ok(());
                 }
 
-                if matches!(state.stage, RoomStage::ActiveChooses) {
-                    return Ok(());
-                }
-
                 if !state
                     .player_hand
                     .get(name)
@@ -18865,7 +18861,7 @@ alpha
     }
 
     #[tokio::test]
-    async fn pin_changes_are_rejected_while_storyteller_is_choosing() -> Result<()> {
+    async fn pin_changes_are_allowed_while_storyteller_is_choosing() -> Result<()> {
         let room = test_room();
         {
             let mut state = room.state.write().await;
@@ -18875,6 +18871,9 @@ alpha
             state.stage = RoomStage::ActiveChooses;
             state.player_order = vec!["a".into(), "b".into(), "c".into()];
             state.active_player = 0;
+            state
+                .player_hand
+                .insert("a".into(), vec!["a-1".into(), "a-2".into()]);
             setup_connected_member(&mut state, "a", "t-a", 119);
         }
 
@@ -18893,9 +18892,9 @@ alpha
             state
                 .player_pinned_cards
                 .get("a")
-                .map(|cards| cards.is_empty())
-                .unwrap_or(true),
-            "pin changes should be ignored during ActiveChooses"
+                .map(|cards| cards.contains("a-1"))
+                .unwrap_or(false),
+            "pin changes should be applied during ActiveChooses"
         );
 
         Ok(())

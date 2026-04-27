@@ -2,6 +2,8 @@
 
 Talespin/Dixit players can privately pin cards in their hand. Pins are only sent to the owning
 player in stage-specific messages (`pinned_cards`) and are not included in shared room state.
+Players can change pins while the storyteller is choosing, while choosing response cards, and while
+reviewing their hand in later round stages.
 
 Pinned cards are protected from:
 

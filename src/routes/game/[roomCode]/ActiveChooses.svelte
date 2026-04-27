@@ -156,8 +156,20 @@
 		gameServer.activePlayerChoose(selectedImage, descriptionBox);
 	}
 
+	$: pinnedCardSet = new Set(pinnedCards);
+
 	function handleCardSelect(event: CustomEvent<string>) {
-		selectedImage = event.detail;
+		const card = event.detail;
+		if (isActivePlayer) {
+			selectedImage = card;
+			return;
+		}
+		gameServer.setHandCardPinned(card, !pinnedCardSet.has(card));
+	}
+
+	function handlePinToggle(event: CustomEvent<string>) {
+		const card = event.detail;
+		gameServer.setHandCardPinned(card, !pinnedCardSet.has(card));
 	}
 
 	if (activePlayer === name && !isObserver) {
@@ -467,11 +479,13 @@
 				<Images
 					{displayImages}
 					selectedImages={selectedImage ? [selectedImage] : []}
-					selectable={isActivePlayer}
+					selectable={!isObserver}
 					mode="hand"
 					pinnedImages={pinnedCards}
 					showPinBadges
+					pinTogglesEnabled={!isObserver}
 					on:select={handleCardSelect}
+					on:pinToggle={handlePinToggle}
 				/>
 			</div>
 		</div>
