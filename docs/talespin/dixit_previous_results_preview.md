@@ -21,7 +21,9 @@ next storyteller is choosing and while nominations are happening.
 - The local view choice resets each round: storytellers default to **My Cards**, while waiting
   active players default to **Previous Results**.
 - While the preview is visible, the sidebar leaderboard also shows the **previous round's score
-  deltas** instead of hiding them.
+  deltas** instead of hiding them. This forced delta display applies to score modes such as
+  **Total**, **Story Only**, **Beauty Only**, and **Combined**; **Clue Stars** continues to show
+  clue-star standings instead of score deltas.
 - If the previewed round recorded clue-star submissions, the sidebar leaderboard also carries the
   same temporary **per-player clue-star chips** from that previewed round.
 
@@ -32,7 +34,8 @@ next storyteller is choosing and while nominations are happening.
 - Switching views is local-only and does not clear current nominations or the storyteller card
   highlight.
 - While the preview is visible, the sidebar leaderboard shows the same **previous round delta
-  values** that were shown on the live results screen.
+  values** that were shown on the live results screen, including the split total/story/beauty
+  columns in **Combined** mode.
 - If the previewed round had clue-star submissions, those same sidebar **clue-star chips** stay
   visible here too.
 

@@ -17235,6 +17235,7 @@ alpha
             add_player(&mut state, "d", 0);
             state.stage = RoomStage::Voting;
             state.round = 2;
+            state.beauty_enabled = true;
             state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into()];
             state.active_player = 0;
             state.player_to_clue_rating = HashMap::from([("b".into(), 2), ("c".into(), 3)]);
@@ -17264,6 +17265,18 @@ alpha
             state
                 .player_to_votes
                 .insert("d".into(), vec!["a-card".into()]);
+            state
+                .player_to_beauty_votes
+                .insert("a".into(), vec!["b-card".into()]);
+            state
+                .player_to_beauty_votes
+                .insert("b".into(), vec!["b-card".into()]);
+            state
+                .player_to_beauty_votes
+                .insert("c".into(), vec!["b-card".into()]);
+            state
+                .player_to_beauty_votes
+                .insert("d".into(), vec!["b-card".into()]);
             state.deck = (0..200).map(|i| format!("draw-{}", i)).collect();
             room.init_results(&mut state)?;
             room.init_round(&mut state).await?;
@@ -17285,6 +17298,9 @@ alpha
                         active_card,
                         center_cards,
                         player_to_clue_rating,
+                        point_change,
+                        storyteller_point_change,
+                        beauty_point_change,
                         ..
                     }) => {
                         assert_eq!(active_card, "a-card");
@@ -17293,6 +17309,18 @@ alpha
                             player_to_clue_rating.get("b").copied(),
                             Some(2),
                             "previous storyteller results preview should carry cached clue stars"
+                        );
+                        assert!(
+                            point_change.values().any(|delta| *delta != 0),
+                            "previous storyteller results preview should retain nonzero score deltas"
+                        );
+                        assert!(
+                            storyteller_point_change.values().any(|delta| *delta != 0),
+                            "previous storyteller results preview should retain nonzero storyteller deltas"
+                        );
+                        assert!(
+                            beauty_point_change.values().any(|delta| *delta != 0),
+                            "previous storyteller results preview should retain nonzero beauty deltas"
                         );
                     }
                     other => {
@@ -17330,9 +17358,16 @@ alpha
                 ]),
                 active_card: "a".into(),
                 beauty_results_display_mode: BeautyResultsDisplayMode::Combined,
-                point_change: HashMap::new(),
-                storyteller_point_change: HashMap::new(),
-                beauty_point_change: HashMap::new(),
+                point_change: HashMap::from([
+                    ("storyteller".into(), 3),
+                    ("guesser".into(), 4),
+                    ("guesser2".into(), 1),
+                ]),
+                storyteller_point_change: HashMap::from([
+                    ("storyteller".into(), 3),
+                    ("guesser".into(), 3),
+                ]),
+                beauty_point_change: HashMap::from([("guesser".into(), 1), ("guesser2".into(), 1)]),
                 beauty_vote_totals: HashMap::new(),
                 beauty_winning_cards: Vec::new(),
             });
@@ -17352,12 +17387,30 @@ alpha
                 match previous_dixit_results {
                     Some(PreviousDixitResultsView::Results {
                         player_to_clue_rating,
+                        point_change,
+                        storyteller_point_change,
+                        beauty_point_change,
                         ..
                     }) => {
                         assert_eq!(
                             player_to_clue_rating.get("guesser").copied(),
                             Some(2),
                             "players choose preview should retain cached clue-star chips"
+                        );
+                        assert_eq!(
+                            point_change.get("guesser").copied(),
+                            Some(4),
+                            "players choose preview should retain prior-round total delta"
+                        );
+                        assert_eq!(
+                            storyteller_point_change.get("storyteller").copied(),
+                            Some(3),
+                            "players choose preview should retain prior-round storyteller delta"
+                        );
+                        assert_eq!(
+                            beauty_point_change.get("guesser2").copied(),
+                            Some(1),
+                            "players choose preview should retain prior-round beauty delta"
                         );
                     }
                     other => {

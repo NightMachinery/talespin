@@ -35,6 +35,9 @@
 	} from '$lib/types';
 	import { OFFLINE_STATUS_LABEL } from '$lib/presence';
 	import { formatWinCondition } from '$lib/winCondition';
+	import {
+		shouldShowPointChange as shouldShowPointChangeForStage
+	} from '$lib/leaderboardPointChange';
 
 	type CombinedScoreKey = 'total' | 'story' | 'beauty';
 
@@ -66,6 +69,7 @@
 	export let leaderboardStoryPointChangeOverride: { [key: string]: number } | null = null;
 	export let leaderboardBeautyPointChangeOverride: { [key: string]: number } | null = null;
 	export let leaderboardRoundClueRatingOverride: { [key: string]: number } | null = null;
+	export let leaderboardShowPointChangeOverride = false;
 	export let winCondition: WinCondition = {
 		mode: 'points',
 		target_points: 10
@@ -201,12 +205,7 @@
 	}
 
 	function shouldShowPointChange() {
-		return (
-			pointChangeStage === 'Results' ||
-			pointChangeStage === 'BeautyResults' ||
-			pointChangeStage === 'StellaReveal' ||
-			pointChangeStage === 'StellaResults'
-		);
+		return shouldShowPointChangeForStage(pointChangeStage, leaderboardShowPointChangeOverride);
 	}
 
 	function shouldShowCombinedDeltaColumns() {
