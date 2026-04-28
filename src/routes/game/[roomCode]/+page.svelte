@@ -205,6 +205,7 @@
 	let votingDisabledCards: string[] = [];
 	let beautyDisabledCards: string[] = [];
 	let storytellerChosenCard = '';
+	let playersChooseSelectedCards: string[] = [];
 	let previousDixitResults: PreviousDixitResultsView | null = null;
 	let votingLayoutSeed: string | null = null;
 	let stageVisualCueVisible = false;
@@ -608,6 +609,7 @@
 				beautyVoteTotals = {};
 				beautyWinningCards = [];
 				storytellerChosenCard = '';
+				playersChooseSelectedCards = [];
 				clearClueRatingResults();
 			} else if (data.PlayersChoose) {
 				syncStageTimer(
@@ -629,6 +631,7 @@
 				beautyVoteTotals = {};
 				beautyWinningCards = [];
 				storytellerChosenCard = data.PlayersChoose.chosen_card || '';
+				playersChooseSelectedCards = data.PlayersChoose.selected_cards || [];
 				clearClueRatingResults();
 			} else if (data.BeginVoting) {
 				syncStageTimer(data.BeginVoting.server_time_ms, data.BeginVoting.current_stage_deadline_s);
@@ -647,6 +650,7 @@
 				storytellerLeaderboardPointChange.set({});
 				beautyLeaderboardPointChange.set({});
 				storytellerChosenCard = '';
+				playersChooseSelectedCards = [];
 				clearClueRatingResults();
 			} else if (data.BeginBeautyVoting) {
 				syncStageTimer(
@@ -1308,6 +1312,8 @@
 			{cardsRemaining}
 			{deckRefillFlashToken}
 			{winCondition}
+			{roomCode}
+			serverSelectedCards={playersChooseSelectedCards}
 			chosenCard={storytellerChosenCard}
 		/>
 	{:else if stage === 'Voting'}

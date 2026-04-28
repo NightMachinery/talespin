@@ -342,6 +342,7 @@ pub enum ServerMsg {
         hand: Vec<String>,
         pinned_cards: Vec<String>,
         chosen_card: Option<String>,
+        selected_cards: Vec<String>,
         server_time_ms: u64,
         current_stage_deadline_s: Option<u64>,
     },
@@ -5311,6 +5312,20 @@ impl Room {
                         None
                     }
                 }),
+                selected_cards: name
+                    .and_then(|player_name| {
+                        let is_storyteller = state
+                            .player_order
+                            .get(state.active_player)
+                            .map(String::as_str)
+                            == Some(player_name);
+                        if is_storyteller {
+                            None
+                        } else {
+                            state.player_to_current_cards.get(player_name).cloned()
+                        }
+                    })
+                    .unwrap_or_default(),
                 server_time_ms,
                 current_stage_deadline_s,
             }),
@@ -12837,6 +12852,75 @@ mod tests {
                 );
             }
             _ => return Err(anyhow!("Expected PlayersChoose message for guesser")),
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn players_choose_reconnect_returns_only_viewers_submitted_nominations() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        add_player(&mut state, "storyteller", 0);
+        add_player(&mut state, "guesser", 0);
+        add_player(&mut state, "guesser2", 0);
+        state.stage = RoomStage::PlayersChoose;
+        state.player_order = vec!["storyteller".into(), "guesser".into(), "guesser2".into()];
+        state.active_player = 0;
+        state.current_description = "clue".to_string();
+        state.player_hand.insert(
+            "storyteller".into(),
+            vec!["chosen".into(), "other".into(), "extra".into()],
+        );
+        state
+            .player_hand
+            .insert("guesser".into(), vec!["g1".into(), "g2".into(), "g3".into()]);
+        state.player_hand.insert(
+            "guesser2".into(),
+            vec!["h1".into(), "h2".into(), "h3".into()],
+        );
+        state
+            .player_to_current_cards
+            .insert("storyteller".into(), vec!["chosen".into()]);
+        state
+            .player_to_current_cards
+            .insert("guesser".into(), vec!["g1".into(), "g2".into()]);
+
+        let storyteller_msg = room.get_msg(Some("storyteller"), &state)?;
+        let guesser_msg = room.get_msg(Some("guesser"), &state)?;
+        let other_guesser_msg = room.get_msg(Some("guesser2"), &state)?;
+
+        match storyteller_msg {
+            ServerMsg::PlayersChoose {
+                chosen_card,
+                selected_cards,
+                ..
+            } => {
+                assert_eq!(chosen_card.as_deref(), Some("chosen"));
+                assert!(
+                    selected_cards.is_empty(),
+                    "storyteller should not receive guesser nominations"
+                );
+            }
+            _ => return Err(anyhow!("Expected PlayersChoose message for storyteller")),
+        }
+
+        match guesser_msg {
+            ServerMsg::PlayersChoose { selected_cards, .. } => {
+                assert_eq!(selected_cards, vec!["g1".to_string(), "g2".to_string()]);
+            }
+            _ => return Err(anyhow!("Expected PlayersChoose message for guesser")),
+        }
+
+        match other_guesser_msg {
+            ServerMsg::PlayersChoose { selected_cards, .. } => {
+                assert!(
+                    selected_cards.is_empty(),
+                    "other guessers should not receive another player's nominations"
+                );
+            }
+            _ => return Err(anyhow!("Expected PlayersChoose message for other guesser")),
         }
 
         Ok(())

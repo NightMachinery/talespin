@@ -1,5 +1,12 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import type GameServer from '$lib/gameServer';
+	import {
+		playersChooseDraftKey,
+		readPlayersChooseDraft,
+		resolvePlayersChooseSelection,
+		writePlayersChooseDraft
+	} from '$lib/playersChooseSelection';
 	import type {
 		ObserverInfo,
 		PlayerInfo,
@@ -105,6 +112,8 @@
 	export let stage = '';
 	export let pointChange: { [key: string]: number } = {};
 	export let roundNum = 0;
+	export let roomCode = '';
+	export let serverSelectedCards: string[] = [];
 	export let cardsRemaining = 0;
 	export let deckRefillFlashToken = 0;
 	export let winCondition: WinCondition = {
@@ -124,6 +133,7 @@
 	let canAutoObserverify = false;
 	let highlightedImages: string[] = [];
 	let lastViewResetKey = '';
+	let lastSelectionRestoreKey = '';
 	let previousResultsLeaderboardContext: PreviousDixitResultsLeaderboardContext | null = null;
 	$: isObserver = !!observers[name];
 	$: isChooser = activePlayer !== name && !isObserver;
@@ -151,6 +161,31 @@
 		1,
 		Math.min(nominationsPerGuesser, Math.max(nominationsPerGuesserMax, 1))
 	);
+	$: selectionDraftKey = playersChooseDraftKey({ roomCode, name, roundNum, activePlayer });
+	$: selectionRestoreKey = `${selectionDraftKey}:${serverSelectedCards.join('||')}:${displayImages.join(
+		'||'
+	)}:${effectiveNominationsPerGuesser}:${isChooser}`;
+	$: if (selectionRestoreKey !== lastSelectionRestoreKey) {
+		lastSelectionRestoreKey = selectionRestoreKey;
+		selectedCards = isChooser
+			? resolvePlayersChooseSelection({
+					serverSelectedCards,
+					draftSelectedCards: readPlayersChooseDraft(
+						browser ? window.sessionStorage : undefined,
+						selectionDraftKey
+					),
+					displayImages,
+					maxSelections: effectiveNominationsPerGuesser
+				})
+			: [];
+	}
+	$: if (isChooser) {
+		writePlayersChooseDraft(
+			browser ? window.sessionStorage : undefined,
+			selectionDraftKey,
+			selectedCards
+		);
+	}
 	$: canSubmit = isChooser && selectedCards.length === effectiveNominationsPerGuesser;
 	$: highlightedImages = isChooser
 		? selectedCards

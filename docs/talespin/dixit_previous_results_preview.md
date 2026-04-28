@@ -33,6 +33,9 @@ next storyteller is choosing and while nominations are happening.
 - **Observers** keep the previous-results view only.
 - Switching views is local-only and does not clear current nominations or the storyteller card
   highlight.
+- If a guesser refreshes or reconnects during nominations, already-submitted nominations are restored
+  from the server and highlighted again. Unsubmitted local draft selections are restored from
+  per-browser session storage when no server submission exists yet.
 - While the preview is visible, the sidebar leaderboard shows the same **previous round delta
   values** that were shown on the live results screen, including the split total/story/beauty
   columns in **Combined** mode.
