@@ -222,6 +222,10 @@ pub enum ServerMsg {
         name: String,
         room_auth_id: String,
     },
+    MemberMigrateLink {
+        player: String,
+        room_auth_id: String,
+    },
     RoomState {
         room_id: String,
         game_mode: GameMode,
@@ -472,6 +476,9 @@ pub enum ClientMsg {
     StartGame {},
     LeaveRoom {},
     KickPlayer {
+        player: String,
+    },
+    RequestMemberMigrateLink {
         player: String,
     },
     RaiseScoreToActiveMin {
@@ -7336,6 +7343,43 @@ impl Room {
                     .await?;
                 if removed_observer {
                     self.broadcast_msg(self.room_state(&state))?;
+                }
+            }
+            ClientMsg::RequestMemberMigrateLink { player } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can copy player migration links".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                let target = canonical_member_name(&player).to_string();
+                if target.is_empty() || !self.member_exists(&state, &target) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(ServerMsg::ErrorMsg("Player not found".to_string()).into())
+                            .await?;
+                    }
+                    return Ok(());
+                }
+
+                let room_auth_id = self
+                    .room_auth_id_for_member(&mut state, &target)
+                    .ok_or_else(|| anyhow!("Failed to allocate room auth id for {}", target))?;
+                if let Some(tx) = state.player_to_socket.get(name) {
+                    tx.send(
+                        ServerMsg::MemberMigrateLink {
+                            player: target,
+                            room_auth_id,
+                        }
+                        .into(),
+                    )
+                    .await?;
                 }
             }
             ClientMsg::RaiseScoreToActiveMin { player } => {
@@ -20187,6 +20231,182 @@ alpha
                 .is_none(),
             "room auth ids should be invalidated once the member leaves the room"
         );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn moderator_can_request_active_player_migrate_link() -> Result<()> {
+        let room = test_room();
+        let mut socket_rx = {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            add_player(&mut state, "alice", 0);
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 30_101);
+            setup_connected_member(&mut state, "alice", "t-alice", 30_102);
+            attach_test_socket(&mut state, "host")
+        };
+
+        room.handle_client_msg(
+            "host",
+            30_101,
+            to_ws(ClientMsg::RequestMemberMigrateLink {
+                player: "alice".to_string(),
+            }),
+        )
+        .await?;
+
+        let response = socket_rx
+            .recv()
+            .await
+            .ok_or_else(|| anyhow!("expected member migrate-link response"))?;
+        match response {
+            ServerMsg::MemberMigrateLink {
+                player,
+                room_auth_id,
+            } => {
+                assert_eq!(player, "alice");
+                assert_eq!(
+                    room.resolve_join_credentials(&room.state.write().await, "", &room_auth_id)?,
+                    ("alice".to_string(), "t-alice".to_string())
+                );
+            }
+            other => {
+                return Err(anyhow!(
+                    "expected member migrate-link response, got {:?}",
+                    other
+                ))
+            }
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn moderator_can_request_observer_migrate_link() -> Result<()> {
+        let room = test_room();
+        let mut socket_rx = {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            state.observers.insert(
+                "obs".to_string(),
+                ObserverInfo {
+                    connected: true,
+                    points: Some(2),
+                    join_requested: false,
+                    auto_join_on_next_round: false,
+                },
+            );
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 30_201);
+            setup_connected_member(&mut state, "obs", "t-obs", 30_202);
+            attach_test_socket(&mut state, "host")
+        };
+
+        room.handle_client_msg(
+            "host",
+            30_201,
+            to_ws(ClientMsg::RequestMemberMigrateLink {
+                player: "obs".to_string(),
+            }),
+        )
+        .await?;
+
+        let response = socket_rx
+            .recv()
+            .await
+            .ok_or_else(|| anyhow!("expected observer migrate-link response"))?;
+        match response {
+            ServerMsg::MemberMigrateLink {
+                player,
+                room_auth_id,
+            } => {
+                assert_eq!(player, "obs");
+                assert_eq!(
+                    room.resolve_join_credentials(&room.state.write().await, "", &room_auth_id)?,
+                    ("obs".to_string(), "t-obs".to_string())
+                );
+            }
+            other => {
+                return Err(anyhow!(
+                    "expected observer migrate-link response, got {:?}",
+                    other
+                ))
+            }
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn non_moderator_cannot_request_member_migrate_link() -> Result<()> {
+        let room = test_room();
+        let mut socket_rx = {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "alice", 0);
+            add_player(&mut state, "bob", 0);
+            setup_connected_member(&mut state, "alice", "t-alice", 30_301);
+            setup_connected_member(&mut state, "bob", "t-bob", 30_302);
+            attach_test_socket(&mut state, "alice")
+        };
+
+        room.handle_client_msg(
+            "alice",
+            30_301,
+            to_ws(ClientMsg::RequestMemberMigrateLink {
+                player: "bob".to_string(),
+            }),
+        )
+        .await?;
+
+        let response = socket_rx
+            .recv()
+            .await
+            .ok_or_else(|| anyhow!("expected permission error"))?;
+        match response {
+            ServerMsg::ErrorMsg(message) => {
+                assert_eq!(message, "Only moderators can copy player migration links")
+            }
+            other => return Err(anyhow!("expected permission error, got {:?}", other)),
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn missing_member_migrate_link_request_does_not_leak_auth_id() -> Result<()> {
+        let room = test_room();
+        let mut socket_rx = {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 30_401);
+            attach_test_socket(&mut state, "host")
+        };
+
+        room.handle_client_msg(
+            "host",
+            30_401,
+            to_ws(ClientMsg::RequestMemberMigrateLink {
+                player: "missing".to_string(),
+            }),
+        )
+        .await?;
+
+        let response = socket_rx
+            .recv()
+            .await
+            .ok_or_else(|| anyhow!("expected missing-player error"))?;
+        match response {
+            ServerMsg::ErrorMsg(message) => assert_eq!(message, "Player not found"),
+            ServerMsg::MemberMigrateLink { .. } => {
+                return Err(anyhow!(
+                    "missing-player request must not return a room auth id"
+                ));
+            }
+            other => return Err(anyhow!("expected missing-player error, got {:?}", other)),
+        }
 
         Ok(())
     }

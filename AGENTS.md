@@ -1,4 +1,5 @@
 - Keep `./docs` updated as we implement and change things.
+- Do not offer or use the brainstorming visual companion unless the user explicitly requests it.
 
 ## Worktrees
 

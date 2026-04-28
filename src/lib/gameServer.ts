@@ -123,6 +123,14 @@ class GameServer {
 		});
 	}
 
+	requestMemberMigrateLink(player: string) {
+		this.send({
+			RequestMemberMigrateLink: {
+				player
+			}
+		});
+	}
+
 	raiseScoreToActiveMin(player: string) {
 		this.send({
 			RaiseScoreToActiveMin: {
