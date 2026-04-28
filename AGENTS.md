@@ -2,6 +2,7 @@
 
 ## Worktrees
 
+- Do NOT use worktrees unless the user explicitly asks you to.
 - On this VPS, disk is tight; do not duplicate large dependency/build directories inside worktrees.
 - Reuse the main checkout's frontend dependencies from worktrees by symlinking:
   - `.worktrees/<name>/node_modules -> ../../node_modules`
@@ -13,4 +14,3 @@
   - `cd talespin-server && cargo rustc --bin talespin-server -- -C extra-filename=-<worktree-or-branch-name>`
   - Run the resulting executable from `talespin-server/target/debug/deps/talespin-server-<worktree-or-branch-name>`.
   - For release builds, add `--release` and run from `talespin-server/target/release/deps/`.
-- Before Node/npm build or check commands on the VPS, follow `~/.codex/VPS.md` preflight guidance and avoid concurrent builds.
