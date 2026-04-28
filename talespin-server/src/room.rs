@@ -2307,12 +2307,8 @@ impl Room {
         matches!(state.game_mode, GameMode::DixitPlus) && state.clue_rating_enabled
     }
 
-    fn uses_separate_beauty_results_stage(&self, state: &RwLockWriteGuard<'_, RoomState>) -> bool {
-        self.beauty_enabled_for_round(state)
-            && matches!(
-                state.beauty_results_display_mode,
-                BeautyResultsDisplayMode::Separate
-            )
+    fn uses_separate_beauty_results_stage(&self, _state: &RwLockWriteGuard<'_, RoomState>) -> bool {
+        false
     }
 
     fn clue_rating_summary(
@@ -3127,12 +3123,8 @@ impl Room {
         format!("{:x}", hasher.finalize())
     }
 
-    fn beauty_results_display_mode_label(mode: BeautyResultsDisplayMode) -> &'static str {
-        match mode {
-            BeautyResultsDisplayMode::Summary => "summary",
-            BeautyResultsDisplayMode::Separate => "separate",
-            BeautyResultsDisplayMode::Combined => "combined",
-        }
+    fn beauty_results_display_mode_label(_mode: BeautyResultsDisplayMode) -> &'static str {
+        "combined"
     }
 
     fn build_audit_vote_records(
@@ -3317,7 +3309,7 @@ impl Room {
             player_clue_ratings: state.player_to_clue_rating.clone(),
             total_after_round,
             beauty_total_after_round,
-            results_display_mode: state.beauty_results_display_mode,
+            results_display_mode: BeautyResultsDisplayMode::Combined,
         };
         state.dixit_end_round_history.push(round_history_entry);
 
@@ -3473,7 +3465,7 @@ impl Room {
             player_to_clue_rating: state.player_to_clue_rating.clone(),
             player_to_current_cards: state.player_to_current_cards.clone(),
             active_card,
-            beauty_results_display_mode: state.beauty_results_display_mode,
+            beauty_results_display_mode: BeautyResultsDisplayMode::Combined,
             point_change: if self.uses_separate_beauty_results_stage(state) {
                 Self::signed_point_change(&state.storyteller_point_change)
             } else {
@@ -3673,7 +3665,11 @@ impl Room {
                     },
                 );
             }
-            RoomStage::ActiveChooses | RoomStage::PlayersChoose | RoomStage::Paused => {
+            RoomStage::ActiveChooses
+            | RoomStage::PlayersChoose
+            | RoomStage::Paused
+            | RoomStage::Results
+            | RoomStage::BeautyResults => {
                 let points = self.midgame_join_score_floor(state);
                 let storyteller_count = self.midgame_join_storyteller_floor(state);
                 state
@@ -3716,9 +3712,7 @@ impl Room {
             | RoomStage::StellaReveal
             | RoomStage::Voting
             | RoomStage::BeautyVoting
-            | RoomStage::ClueRating
-            | RoomStage::Results
-            | RoomStage::BeautyResults => {
+            | RoomStage::ClueRating => {
                 let observer_since_round = state.round;
                 state.observers.insert(
                     name.to_string(),
@@ -6195,6 +6189,7 @@ impl Room {
         }
 
         let (clue_rating_average, _, clue_rating_bonus) = self.clue_rating_summary(state);
+        state.beauty_results_display_mode = BeautyResultsDisplayMode::Combined;
         self.set_stage(state, RoomStage::Results);
         state.storyteller_point_change = self.compute_results(state);
         if clue_rating_bonus > 0 {
@@ -8750,7 +8745,8 @@ impl Room {
                     return Ok(());
                 }
 
-                state.beauty_results_display_mode = mode;
+                let _requested_mode = mode;
+                state.beauty_results_display_mode = BeautyResultsDisplayMode::Combined;
                 self.broadcast_msg(self.room_state(&state))?;
             }
             ClientMsg::SetShowPreviousResultsDuringStorytellerChoosing { enabled } => {
@@ -10740,7 +10736,7 @@ impl Room {
                 .beauty_vote_points_divisor_player_count_base,
             beauty_points_bonus_min: beauty_points_min,
             beauty_points_bonus_max: beauty_points_max,
-            beauty_results_display_mode: state.beauty_results_display_mode,
+            beauty_results_display_mode: BeautyResultsDisplayMode::Combined,
             show_previous_results_during_storyteller_choosing: state
                 .show_previous_results_during_storyteller_choosing,
             randomize_voting_card_order_per_viewer: state.randomize_voting_card_order_per_viewer,
@@ -12517,8 +12513,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rescore_vote_divisor_points_defers_pending_separate_beauty_delta_until_beauty_results(
-    ) -> Result<()> {
+    async fn rescore_vote_divisor_points_applies_stale_separate_results_as_combined() -> Result<()>
+    {
         let room = test_room();
         let mut state = room.state.write().await;
 
@@ -12604,17 +12600,17 @@ mod tests {
 
         assert_eq!(
             state.players.get("b").map(|player| player.points),
-            Some(1),
-            "separate Results should only rescore already-awarded beauty totals"
+            Some(0),
+            "stale separate Results should be treated as combined and rescore the live total"
         );
         assert_eq!(
             state.member_to_beauty_points.get("b").copied(),
-            Some(1),
+            Some(0),
             "member beauty subtotals should stay aligned with the already-awarded rescored total"
         );
         assert!(
             state.beauty_point_change.is_empty(),
-            "the current round's rescored beauty delta should stay pending until BeautyResults"
+            "the stale pending beauty delta should be consumed after combined rescore"
         );
         assert_eq!(
             state.vote_divisor_member_to_points.get("b").copied(),
@@ -12628,20 +12624,7 @@ mod tests {
                 .and_then(|entry| entry.total_after_round.get("b"))
                 .copied(),
             Some(1),
-            "history should reflect the fully rescored cumulative total for the pending round"
-        );
-
-        room.init_beauty_results(&mut state)?;
-
-        assert_eq!(
-            state.players.get("b").map(|player| player.points),
-            Some(1),
-            "BeautyResults should not re-apply the old pending delta after a rescore"
-        );
-        assert_eq!(
-            state.member_to_beauty_points.get("b").copied(),
-            Some(1),
-            "the applied beauty subtotal should remain correct after BeautyResults begins"
+            "history should reflect the fully rescored cumulative total"
         );
 
         Ok(())
@@ -12732,7 +12715,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn separate_beauty_results_wait_for_second_ready_cycle() -> Result<()> {
+    async fn stale_separate_beauty_results_mode_still_advances_directly_to_next_round() -> Result<()>
+    {
         let room = test_room();
 
         {
@@ -12758,6 +12742,10 @@ mod tests {
             state.storyteller_point_change.insert("a".into(), 3);
             state.storyteller_point_change.insert("b".into(), 3);
             state.beauty_point_change.insert("b".into(), 2);
+            state.players.get_mut("b").unwrap().points = 2;
+            set_storyteller_count(&mut state, "a", 3);
+            set_storyteller_count(&mut state, "b", 2);
+            set_storyteller_count(&mut state, "c", 1);
             setup_connected_member(&mut state, "a", "t-a", 9_101);
             setup_connected_member(&mut state, "b", "t-b", 9_102);
             setup_connected_member(&mut state, "c", "t-c", 9_103);
@@ -12782,15 +12770,72 @@ mod tests {
         {
             let state = room.state.write().await;
             assert!(
-                matches!(state.stage, RoomStage::BeautyResults),
-                "separate beauty mode should advance to BeautyResults before the next round"
+                matches!(state.stage, RoomStage::ActiveChooses),
+                "stale separate beauty mode should no longer enter BeautyResults"
             );
             assert_eq!(
                 state.players.get("b").map(|info| info.points),
                 Some(2),
-                "beauty points should be applied only when BeautyResults begins"
+                "beauty points should already be part of the combined Results score"
             );
         }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stale_separate_results_uses_combined_scoring_for_results_join_floor() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        for player in ["a", "b", "c"] {
+            add_player(&mut state, player, 0);
+        }
+        state.game_mode = GameMode::DixitPlus;
+        state.beauty_enabled = true;
+        state.beauty_results_display_mode = BeautyResultsDisplayMode::Separate;
+        state.stage = RoomStage::BeautyVoting;
+        state.player_order = vec!["a".into(), "b".into(), "c".into()];
+        state.active_player = 0;
+        state.beauty_scoring_mode = BeautyScoringMode::WinnerBonus;
+        state.beauty_points_bonus = 2;
+        state.players.get_mut("b").unwrap().points = 5;
+        state.players.get_mut("c").unwrap().points = 5;
+        state
+            .player_to_current_cards
+            .insert("a".into(), vec!["ca".into()]);
+        state
+            .player_to_current_cards
+            .insert("b".into(), vec!["cb".into()]);
+        state
+            .player_to_current_cards
+            .insert("c".into(), vec!["cc".into()]);
+        state
+            .player_to_beauty_votes
+            .insert("b".into(), vec!["ca".into()]);
+        state
+            .player_to_beauty_votes
+            .insert("c".into(), vec!["ca".into()]);
+
+        room.init_results(&mut state)?;
+
+        assert_eq!(
+            state.players.get("a").map(|player| player.points),
+            Some(2),
+            "combined Results should apply beauty points immediately even from stale separate state"
+        );
+
+        room.add_new_member_for_current_stage(&mut state, "newbie")?;
+
+        assert_eq!(
+            state.players.get("newbie").map(|player| player.points),
+            Some(2),
+            "new Results-stage joiners should use the fully updated active-player minimum"
+        );
+        assert!(
+            !state.observers.contains_key("newbie"),
+            "new Results-stage joiners should join the active player list immediately"
+        );
 
         Ok(())
     }
@@ -14630,7 +14675,8 @@ alpha
     }
 
     #[tokio::test]
-    async fn beauty_results_display_mode_locks_once_results_start() -> Result<()> {
+    async fn beauty_results_display_mode_setting_is_ignored_because_combined_is_the_only_mode(
+    ) -> Result<()> {
         let room = test_room();
         {
             let mut state = room.state.write().await;
@@ -14639,7 +14685,7 @@ alpha
             add_player(&mut state, "p3", 0);
             add_player(&mut state, "p4", 0);
             state.game_mode = GameMode::DixitPlus;
-            state.stage = RoomStage::Results;
+            state.stage = RoomStage::BeautyVoting;
             state.beauty_results_display_mode = BeautyResultsDisplayMode::Combined;
             state.moderators.insert("host".to_string());
             setup_connected_member(&mut state, "host", "t-host", 10_208);
@@ -14661,20 +14707,15 @@ alpha
                     state.beauty_results_display_mode,
                     BeautyResultsDisplayMode::Combined
                 ),
-                "beauty results display mode should stay unchanged after Results begin"
+                "beauty results display mode should stay combined before results"
             );
-        }
-
-        {
-            let mut state = room.state.write().await;
-            state.stage = RoomStage::BeautyVoting;
         }
 
         room.handle_client_msg(
             "host",
             10_208,
             to_ws(ClientMsg::SetBeautyResultsDisplayMode {
-                mode: BeautyResultsDisplayMode::Separate,
+                mode: BeautyResultsDisplayMode::Summary,
             }),
         )
         .await?;
@@ -14683,9 +14724,9 @@ alpha
         assert!(
             matches!(
                 state.beauty_results_display_mode,
-                BeautyResultsDisplayMode::Separate
+                BeautyResultsDisplayMode::Combined
             ),
-            "beauty results display mode should stay editable through BeautyVoting"
+            "summary requests should also be ignored"
         );
 
         Ok(())

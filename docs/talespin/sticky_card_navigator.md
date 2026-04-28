@@ -12,7 +12,7 @@ navigator for the shared table layouts.
 
 ## Behavior
 
-- When enabled, Dixit **Voting**, **BeautyVoting**, **Results**, and **BeautyResults** show a
+- When enabled, Dixit **Voting**, **BeautyVoting**, and **Results** show a
   compact sticky bar above the card grid.
 - The bar lists the round's **canonical card numbers** (`#1`, `#2`, etc.), even if the room's
   badge overlays are hidden.

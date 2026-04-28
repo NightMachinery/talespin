@@ -314,13 +314,7 @@
 	<svelte:fragment slot="leftRail">
 		<div class="card light space-y-2 p-4">
 			<h1 class="text-xl font-semibold">Round complete</h1>
-			<p>
-				{#if beautyEnabled && beautyResultsDisplayMode === 'separate'}
-					Review storyteller votes and scores, then continue to beauty results.
-				{:else}
-					Review votes and scores, then continue to the next round.
-				{/if}
-			</p>
+			<p>Review votes and scores, then continue to the next round.</p>
 			{#if formattedClueRatingAverage !== null}
 				<div class="rounded-xl bg-amber-400/10 px-3 py-2 text-sm">
 					<p class="font-semibold text-amber-200">
@@ -341,21 +335,13 @@
 					class="btn variant-filled w-full"
 					disabled={isObserver}
 					on:click={() => gameServer.ready()}
-				>
-					{beautyEnabled && beautyResultsDisplayMode === 'separate'
-						? 'Beauty Results'
-						: 'Next Round'}
-				</button>
+				>Next Round</button>
 				{#if isModerator}
 					<button
 						class="btn variant-filled w-full"
 						disabled={!canForceStartNextRound}
 						on:click={() => gameServer.forceStartNextRound()}
-					>
-						{beautyEnabled && beautyResultsDisplayMode === 'separate'
-							? 'Force beauty results'
-							: 'Force start next round'}
-					</button>
+					>Force start next round</button>
 				{/if}
 			</div>
 			{#if isObserver}
@@ -367,13 +353,7 @@
 	<svelte:fragment slot="mobileTop">
 		<div class="card light space-y-2 p-4">
 			<h1 class="text-xl font-semibold">Round complete</h1>
-			<p>
-				{#if beautyEnabled && beautyResultsDisplayMode === 'separate'}
-					Review storyteller votes and scores, then continue to beauty results.
-				{:else}
-					Review votes and scores, then continue to the next round.
-				{/if}
-			</p>
+			<p>Review votes and scores, then continue to the next round.</p>
 			{#if formattedClueRatingAverage !== null}
 				<div class="rounded-xl bg-amber-400/10 px-3 py-2 text-sm">
 					<p class="font-semibold text-amber-200">
@@ -396,19 +376,13 @@
 				class="btn variant-filled w-full"
 				disabled={isObserver}
 				on:click={() => gameServer.ready()}
-			>
-				{beautyEnabled && beautyResultsDisplayMode === 'separate' ? 'Beauty Results' : 'Next Round'}
-			</button>
+			>Next Round</button>
 			{#if isModerator}
 				<button
 					class="btn variant-filled w-full"
 					disabled={!canForceStartNextRound}
 					on:click={() => gameServer.forceStartNextRound()}
-				>
-					{beautyEnabled && beautyResultsDisplayMode === 'separate'
-						? 'Force beauty results'
-						: 'Force start next round'}
-				</button>
+				>Force start next round</button>
 			{/if}
 		</div>
 	</svelte:fragment>
@@ -460,24 +434,17 @@
 						{#if cardToVoterCounts[image]}
 							<ChooserNameOverlay
 								entries={cardToChooserEntries[image]}
-								label={beautyEnabled && beautyResultsDisplayMode === 'combined' ? 'Guess' : ''}
+								label={beautyEnabled ? 'Guess' : ''}
 								avoidTopLeftBadge={showVotingCardNumbers}
 								tone="story"
 							/>
 						{/if}
-						{#if beautyEnabled && beautyResultsDisplayMode === 'combined' && beautyBadges[image]}
+						{#if beautyEnabled && beautyBadges[image]}
 							<ChooserNameOverlay
 								entries={beautyCardToChooserEntries[image] ?? []}
 								label={beautyBadges[image].label}
 								labelTier={beautyBadges[image].tier}
 								position="bottom-right"
-								tone="beauty"
-							/>
-						{:else if beautyEnabled && beautyResultsDisplayMode === 'summary' && beautyBadges[image]}
-							<ChooserNameOverlay
-								label={beautyBadges[image].label}
-								labelTier={beautyBadges[image].tier}
-								position="bottom-left"
 								tone="beauty"
 							/>
 						{/if}

@@ -8,7 +8,7 @@ Local view options now cover both **stage change sound cues** and **stage change
 - Initial room load / refresh stays silent and does not flash, even if the room is already mid-game.
 - Supported stage entries include:
   - Dixit / Talespin: `ActiveChooses`, `PlayersChoose`, `Voting`, `BeautyVoting`, `ClueRating`,
-    `Results`, `BeautyResults`
+    `Results`
   - Resonance: `StellaAssociate`, `StellaReveal`, `StellaResults`
   - shared states: `Paused`, `End`
 - Visual cue is a short screen-edge flash with a top accent bar.

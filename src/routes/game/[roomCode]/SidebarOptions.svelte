@@ -21,7 +21,6 @@
 	import type {
 		BeautyScoringMode,
 		BeautyVotePointsDivisorMode,
-		BeautyResultsDisplayMode,
 		GameMode,
 		ObserverInfo,
 		PlayerInfo,
@@ -97,7 +96,7 @@
 	export let beautyPointsBonus = 2;
 	export let beautyPointsBonusMin = 0;
 	export let beautyPointsBonusMax = 10;
-	export let beautyResultsDisplayMode: BeautyResultsDisplayMode = 'combined';
+	export let beautyResultsDisplayMode: import('$lib/types').BeautyResultsDisplayMode = 'combined';
 	export let showPreviousResultsDuringStorytellerChoosing = true;
 	export let randomizeVotingCardOrderPerViewer = false;
 	export let cardsPerHand = 12;
@@ -621,15 +620,6 @@
 		if (parsed !== $beautyVotePointsDivisorPlayerCountBaseStore) {
 			gameServer.setBeautyVotePointsDivisorPlayerCountBase(parsed);
 		}
-	}
-
-	function updateBeautyResultsDisplayMode(event: Event) {
-		const select = event.currentTarget as HTMLSelectElement;
-		if (!isModerator || !canChangeBeforeResultsSettings) {
-			select.value = beautyResultsDisplayMode;
-			return;
-		}
-		gameServer.setBeautyResultsDisplayMode(select.value as BeautyResultsDisplayMode);
 	}
 
 	function updateClueRatingEnabled(event: Event) {
@@ -2115,22 +2105,6 @@
 								<span>Split beauty bonus among tied owners, rounding up</span>
 							</label>
 						{/if}
-						<div class="mt-3">
-							<label class="text-sm font-medium" for="beauty-results-display-mode">
-								Beauty results display
-							</label>
-							<select
-								id="beauty-results-display-mode"
-								class="mt-1 w-full rounded border px-3 py-2 text-gray-700 shadow"
-								value={beautyResultsDisplayMode}
-								on:change={updateBeautyResultsDisplayMode}
-								disabled={!isModerator || !canChangeBeforeResultsSettings}
-							>
-								<option value="summary">Summary in storyteller results</option>
-								<option value="separate">Separate beauty results stage</option>
-								<option value="combined">Combined storyteller + beauty results</option>
-							</select>
-						</div>
 						<label class="mt-3 flex items-start gap-3 text-sm">
 							<input
 								type="checkbox"

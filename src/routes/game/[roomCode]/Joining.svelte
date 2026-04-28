@@ -22,7 +22,6 @@
 		type StellaWordPackPreset
 	} from '$lib/stellaWordPacks';
 	import type {
-		BeautyResultsDisplayMode,
 		GameMode,
 		PlayerInfo,
 		StellaQueuedRevealMode,
@@ -60,7 +59,7 @@
 	export let beautyPointsBonus = 2;
 	export let beautyPointsBonusMin = 0;
 	export let beautyPointsBonusMax = 10;
-	export let beautyResultsDisplayMode: BeautyResultsDisplayMode = 'combined';
+	export let beautyResultsDisplayMode: import('$lib/types').BeautyResultsDisplayMode = 'combined';
 	export let showPreviousResultsDuringStorytellerChoosing = true;
 	export let stellaBoardSize = 15;
 	export let stellaBoardSizeMin = 1;
@@ -289,12 +288,6 @@
 		const value = Number(input.value);
 		if (!canEditSettings || !Number.isInteger(value)) return;
 		gameServer.setBeautyPointsBonus(value);
-	}
-
-	function updateBeautyResultsDisplayMode(event: Event) {
-		const input = event.currentTarget as HTMLSelectElement;
-		if (!canEditSettings) return;
-		gameServer.setBeautyResultsDisplayMode(input.value as BeautyResultsDisplayMode);
 	}
 
 	function updateClueRatingEnabled(event: Event) {
@@ -740,22 +733,6 @@
 									/>
 									<span>Split beauty bonus among tied owners, rounding up</span>
 								</label>
-								<div>
-									<label class="text-sm font-semibold" for="beautyResultsDisplayMode">
-										Beauty results display
-									</label>
-									<select
-										id="beautyResultsDisplayMode"
-										class="mt-1 w-full rounded border px-3 py-2 text-gray-700"
-										value={beautyResultsDisplayMode}
-										on:change={updateBeautyResultsDisplayMode}
-										disabled={!canEditSettings}
-									>
-										<option value="summary">Summary in storyteller results</option>
-										<option value="separate">Separate beauty results stage</option>
-										<option value="combined">Combined storyteller + beauty results</option>
-									</select>
-								</div>
 								<label class="flex items-start gap-3 text-sm">
 									<input
 										type="checkbox"

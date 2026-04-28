@@ -9,7 +9,7 @@ next storyteller is choosing and while nominations are happening.
 - Scope: **room-global**
 - Default: **on**
 - Editable during Dixit **Joining** and any live Dixit stage: **ActiveChooses**,
-  **PlayersChoose**, **Voting**, **BeautyVoting**, **Results**, and **BeautyResults**
+  **PlayersChoose**, **Voting**, **BeautyVoting**, and **Results**
 
 ## ActiveChooses behavior
 
@@ -41,12 +41,7 @@ next storyteller is choosing and while nominations are happening.
 
 ## What is shown
 
-- If the last completed Dixit stage was normal storyteller `Results`, the preview mirrors that
-  results board.
-- If Most Beautiful uses **separate** results, the next `ActiveChooses` preview mirrors the prior
-  `BeautyResults` board instead.
-- Even when the preview mirrors prior separate `BeautyResults`, the sidebar leaderboard still
-  carries the previous round's clue-star chips from the storyteller results flow.
+- The preview mirrors the combined `Results` board. Most Beautiful no longer has separate or summary result modes.
 - The data is sent in room state so reconnecting players can still see the same preview.
 - Preview card highlights mirror live Dixit results states: correct card = animated green sweep,
   beauty winner = silver border, overlap = green sweep with a moving silver glint.

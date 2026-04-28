@@ -6,7 +6,7 @@ The shared stage countdown now resyncs immediately when the room changes stages.
 
 - Entering any timed stage updates the client countdown without requiring a page refresh.
 - Reconnect / reload mid-stage keeps the countdown aligned with the server deadline.
-- Untimed stages (`Results`, `BeautyResults`, `StellaResults`, `Paused`, `End`) clear the shared countdown immediately.
+- Untimed stages (`Results`, `StellaResults`, `Paused`, `End`) clear the shared countdown immediately.
 
 ## Implementation notes
 

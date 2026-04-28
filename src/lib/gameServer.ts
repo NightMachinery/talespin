@@ -339,7 +339,7 @@ class GameServer {
 		});
 	}
 
-	setBeautyResultsDisplayMode(mode: 'summary' | 'separate' | 'combined') {
+	setBeautyResultsDisplayMode(mode: 'combined') {
 		this.send({
 			SetBeautyResultsDisplayMode: {
 				mode

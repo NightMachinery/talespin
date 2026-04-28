@@ -143,7 +143,7 @@
 					</li>
 				{/if}
 				<li>
-					Beauty duplicates: {beautyAllowDuplicateVotes ? 'allowed' : 'not allowed'}. Reveal mode: {beautyResultsDisplayMode}.
+					Beauty duplicates: {beautyAllowDuplicateVotes ? 'allowed' : 'not allowed'}. Results combine storyteller and beauty votes.
 				</li>
 			{/if}
 			{#if $clueRatingEnabled}

@@ -100,21 +100,12 @@
 				{#if snapshot.kind === 'results' && storyCardToChooserEntries[image]}
 					<ChooserNameOverlay
 						entries={storyCardToChooserEntries[image]}
-						label={beautyBadges[image] && snapshot.beauty_results_display_mode === 'combined'
-							? 'Guess'
-							: ''}
+						label={beautyBadges[image] ? 'Guess' : ''}
 						avoidTopLeftBadge={showVotingCardNumbers}
 						tone="story"
 					/>
 				{/if}
-				{#if snapshot.kind === 'results' && snapshot.beauty_results_display_mode === 'summary' && beautyBadges[image]}
-					<ChooserNameOverlay
-						label={beautyBadges[image].label}
-						labelTier={beautyBadges[image].tier}
-						position="bottom-left"
-						tone="beauty"
-					/>
-				{:else if beautyBadges[image]}
+				{#if beautyBadges[image]}
 					<ChooserNameOverlay
 						entries={beautyCardToChooserEntries[image] ?? []}
 						label={beautyBadges[image].label}
