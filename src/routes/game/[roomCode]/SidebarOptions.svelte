@@ -323,6 +323,11 @@
 		gameServer.raiseScoreToActiveMin(playerName);
 	}
 
+	function copyMemberMigrateLink(playerName: string) {
+		if (!isModerator || playerName === name) return;
+		gameServer.requestMemberMigrateLink(playerName);
+	}
+
 	function becomeObserver() {
 		if (!canBecomeObserver) return;
 		if (!browser || window.confirm('Switch to observer mode?')) {
@@ -1246,6 +1251,31 @@
 							<div class="flex flex-wrap justify-end gap-1.5">
 								{#if isModerator && playerName !== name}
 									<button
+										class="btn variant-filled shrink-0 px-1.5 py-0.5 text-xs"
+										title={`Copy ${playerName}'s migration link`}
+										aria-label={`Copy ${playerName}'s migration link`}
+										on:click={() => copyMemberMigrateLink(playerName)}
+									>
+										<svg
+											class="h-4 w-4"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="2"
+											stroke-linecap="round"
+											stroke-linejoin="round"
+											aria-hidden="true"
+										>
+											<path d="M8.5 12.5 5 16a4 4 0 0 0 5.7 5.6l3.1-3.1" />
+											<path d="M15.5 11.5 19 8a4 4 0 0 0-5.7-5.6l-3.1 3.1" />
+											<path d="M9 15 15 9" />
+											<path d="M17 16.5v3.25A1.25 1.25 0 0 1 15.75 21H12.5" />
+											<path d="M7 7.5V4.25A1.25 1.25 0 0 1 8.25 3h3.25" />
+										</svg>
+									</button>
+								{/if}
+								{#if isModerator && playerName !== name}
+									<button
 										class="btn variant-filled shrink-0 px-2 py-0.5 text-xs"
 										on:click={() => kickPlayer(playerName)}
 									>
@@ -1302,6 +1332,31 @@
 								{/if}
 							</div>
 							<div class="flex flex-wrap justify-end gap-1.5">
+								{#if isModerator && observerName !== name}
+									<button
+										class="btn variant-filled shrink-0 px-1.5 py-0.5 text-xs"
+										title={`Copy ${observerName}'s migration link`}
+										aria-label={`Copy ${observerName}'s migration link`}
+										on:click={() => copyMemberMigrateLink(observerName)}
+									>
+										<svg
+											class="h-4 w-4"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="2"
+											stroke-linecap="round"
+											stroke-linejoin="round"
+											aria-hidden="true"
+										>
+											<path d="M8.5 12.5 5 16a4 4 0 0 0 5.7 5.6l3.1-3.1" />
+											<path d="M15.5 11.5 19 8a4 4 0 0 0-5.7-5.6l-3.1 3.1" />
+											<path d="M9 15 15 9" />
+											<path d="M17 16.5v3.25A1.25 1.25 0 0 1 15.75 21H12.5" />
+											<path d="M7 7.5V4.25A1.25 1.25 0 0 1 8.25 3h3.25" />
+										</svg>
+									</button>
+								{/if}
 								{#if isModerator || observerName === name}
 									<button
 										class="btn variant-filled shrink-0 px-2 py-0.5 text-xs"

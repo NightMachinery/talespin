@@ -23,6 +23,8 @@
 		setClueRatingRoomState
 	} from '$lib/clueRating';
 	import {
+		buildMigrateDeviceLink,
+		copyTextToClipboard,
 		readRoomMigrationOverride,
 		resetCurrentRoomMigration,
 		setCurrentRoomAuthId,
@@ -800,6 +802,27 @@
 				beautyLeaderboardPointChange.set({});
 				clearClueRatingResults();
 				stellaDarkPlayer = data.StellaResults.dark_player || stellaDarkPlayer;
+			} else if (data.MemberMigrateLink) {
+				const targetPlayer = (data.MemberMigrateLink.player || '').trim();
+				const targetRoomAuthId = (data.MemberMigrateLink.room_auth_id || '').trim();
+				const migrateLink =
+					typeof window === 'undefined'
+						? ''
+						: buildMigrateDeviceLink({
+								origin: window.location.origin,
+								roomCode,
+								roomAuthId: targetRoomAuthId,
+								roomPassword
+							});
+				if (migrateLink !== '') {
+					void copyTextToClipboard(migrateLink).then(() => {
+						toastStore.trigger({
+							message: `📱 ${targetPlayer || 'Player'} migration link copied`,
+							autohide: true,
+							timeout: 2500
+						});
+					});
+				}
 			} else if (data.ErrorMsg) {
 				if (!hasReceivedRoomState && usingRoomAuthOverride()) {
 					rejoin = false;

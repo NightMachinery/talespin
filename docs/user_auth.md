@@ -48,6 +48,9 @@ Not stored:
 - **Migrate Device** copies a direct game URL:
   - `/game/<room_code>?room_auth_id=<opaque_id>`
   - passworded rooms additionally include `&room_password=<password>`
+- Moderators can also copy another member's migration URL from the in-game moderation player list.
+  The server sends the target member's opaque `room_auth_id` only to the requesting moderator and
+  only when the target is still an active player or observer in the room.
 - The migration URL keeps those query params so refresh continues to use the migrated identity.
 - `room_password` from the URL is page-scoped input only:
   - used for that room page load / refresh
