@@ -10,7 +10,8 @@ Most Beautiful is the optional Dixit/Talespin post-voting beauty round.
 - **Split beauty bonus among ties**: when enabled, tied winning owners split the beauty bonus and each gets `ceil(bonus / tied_owner_count)`.
 - **Beauty winner bonus**: the per-round beauty bonus before any tie split.
 - **Beauty scoring**:
-  - `vote_divisor`: each owner gets `floor(cumulative current-game beauty votes on their submitted cards / K)`
+  - `vote_divisor`: each owner gets `floor(cumulative beauty votes in the current
+    vote-divisor segment on their submitted cards / K)`
   - `winner_bonus`: legacy top-card winner bonus flow
 - **Beauty vote divisor `K`**:
   - default mode: `manual`
@@ -29,6 +30,11 @@ Most Beautiful is the optional Dixit/Talespin post-voting beauty round.
   applied when `BeautyResults` opens.
 - Auto-`K` vote-divisor rescoring also runs immediately when an active player leaves the order,
   including removals and player→observer conversions.
+- Vote-divisor scoring is computed on the server with integer tenths math, not floating-point
+  `floor`; for example, `15` scoreable votes at manual `K = 3.0` scores `5` beauty points.
+- Switching from `winner_bonus` to `vote_divisor` starts a fresh vote-divisor segment. Prior Most
+  Beautiful audit/ranking votes can still appear in the ranking panel, but they are not scoreable
+  vote-divisor votes for the fresh segment.
 - Beauty result badges show rank plus total beauty votes per card, such as `1st Beauty: 3`.
 - Beauty ranks use competition ranking for ties (`1st`, `1st`, `3rd`).
 - Top-three beauty badges use distinct gold/silver/bronze styling, and there is no separate winner pill.
@@ -73,3 +79,7 @@ The server also persists per-game Most Beautiful audit data in SQLite, including
 - which player submitted each card
 - storyteller votes and beauty votes
 - per-player story delta, beauty delta, and running totals
+
+The ranking panel totals come from this audit/statistics data. They are useful for historical
+Most Beautiful rankings, but they are not the same as the active vote-divisor segment totals used
+to award beauty points.

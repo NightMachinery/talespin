@@ -12310,6 +12310,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn beauty_vote_divisor_scores_fifteen_votes_at_k_three_as_five_points() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        state.beauty_scoring_mode = BeautyScoringMode::VoteDivisor;
+        state.beauty_vote_points_divisor_mode = BeautyVotePointsDivisorMode::Manual;
+        state.beauty_vote_points_divisor_tenths = 30;
+
+        let point_totals = room.compute_vote_divisor_points_for_cumulative_votes(
+            &state,
+            &HashMap::from([("b".into(), 15)]),
+            1,
+        );
+
+        assert_eq!(
+            point_totals.get("b").copied(),
+            Some(5),
+            "vote-divisor scoring uses integer tenths math, so 15 votes at K=3.0 scores 5"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn beauty_vote_divisor_player_count_auto_rounds_to_one_decimal_and_clamps() -> Result<()>
     {
         let room = test_room();
@@ -12352,6 +12376,69 @@ mod tests {
             room.effective_beauty_vote_points_divisor_tenths(&state, &cumulative_votes, 2),
             Some(20),
             "median auto should ignore inactive players and use current actives only"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn switching_from_winner_bonus_to_vote_divisor_resets_vote_divisor_segment() -> Result<()>
+    {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 10_204);
+            room.set_stage(&mut state, RoomStage::Results);
+            state.game_mode = GameMode::DixitPlus;
+            state.beauty_scoring_mode = BeautyScoringMode::WinnerBonus;
+            state.vote_divisor_member_to_cumulative_beauty_votes =
+                HashMap::from([("host".into(), 15)]);
+            state.vote_divisor_member_to_points = HashMap::from([("host".into(), 5)]);
+            state.vote_divisor_completed_rounds = 3;
+            state.vote_divisor_segment_start_history_index = Some(0);
+            state.vote_divisor_round_vote_totals_by_history_index =
+                HashMap::from([(0, HashMap::from([("host".into(), 15)]))]);
+        }
+
+        room.handle_client_msg(
+            "host",
+            10_204,
+            to_ws(ClientMsg::SetBeautyScoringMode {
+                mode: BeautyScoringMode::VoteDivisor,
+            }),
+        )
+        .await?;
+
+        let state = room.state.write().await;
+        assert!(
+            matches!(state.beauty_scoring_mode, BeautyScoringMode::VoteDivisor),
+            "moderator request should switch the room to vote-divisor scoring"
+        );
+        assert!(
+            state
+                .vote_divisor_member_to_cumulative_beauty_votes
+                .is_empty(),
+            "switching from winner bonus starts a fresh vote-divisor segment"
+        );
+        assert!(
+            state.vote_divisor_member_to_points.is_empty(),
+            "prior vote-divisor point totals should not carry across the scoring-mode switch"
+        );
+        assert_eq!(
+            state.vote_divisor_completed_rounds, 0,
+            "the fresh vote-divisor segment should have no completed rounds"
+        );
+        assert!(
+            state.vote_divisor_segment_start_history_index.is_none(),
+            "the fresh vote-divisor segment should not inherit a history start index"
+        );
+        assert!(
+            state
+                .vote_divisor_round_vote_totals_by_history_index
+                .is_empty(),
+            "the fresh vote-divisor segment should not inherit per-round vote totals"
         );
 
         Ok(())
@@ -12937,9 +13024,10 @@ mod tests {
             "storyteller".into(),
             vec!["chosen".into(), "other".into(), "extra".into()],
         );
-        state
-            .player_hand
-            .insert("guesser".into(), vec!["g1".into(), "g2".into(), "g3".into()]);
+        state.player_hand.insert(
+            "guesser".into(),
+            vec!["g1".into(), "g2".into(), "g3".into()],
+        );
         state.player_hand.insert(
             "guesser2".into(),
             vec!["h1".into(), "h2".into(), "h3".into()],
