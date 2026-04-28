@@ -2,7 +2,7 @@
 
 ## Worktrees
 
-- Do NOT use worktrees unless the user explicitly asks you to.
+- Do NOT use worktrees or a new branch unless the user explicitly asks you to.
 - On this VPS, disk is tight; do not duplicate large dependency/build directories inside worktrees.
 - Reuse the main checkout's frontend dependencies from worktrees by symlinking:
   - `.worktrees/<name>/node_modules -> ../../node_modules`
