@@ -827,6 +827,17 @@
 						});
 					});
 				}
+			} else if (data.CurrentInfoMarkdown) {
+				const markdown = data.CurrentInfoMarkdown.markdown || '';
+				if (markdown.trim() !== '') {
+					void copyTextToClipboard(markdown).then(() => {
+						toastStore.trigger({
+							message: '🛠️ Current game info copied',
+							autohide: true,
+							timeout: 2500
+						});
+					});
+				}
 			} else if (data.ErrorMsg) {
 				if (!hasReceivedRoomState && usingRoomAuthOverride()) {
 					rejoin = false;

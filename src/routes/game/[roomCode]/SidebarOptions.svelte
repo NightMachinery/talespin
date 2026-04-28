@@ -32,6 +32,7 @@
 	import {
 		cardsFitToHeight,
 		hideNonSelectedStellaRevealCards,
+		moderatorDevModeEnabled,
 		stickyVotingCardNavigatorEnabled,
 		stageChangeSoundCuesEnabled,
 		stageChangeVisualCuesEnabled,
@@ -326,6 +327,11 @@
 	function copyMemberMigrateLink(playerName: string) {
 		if (!isModerator || playerName === name) return;
 		gameServer.requestMemberMigrateLink(playerName);
+	}
+
+	function copyCurrentInfo() {
+		if (!isModerator || !$moderatorDevModeEnabled) return;
+		gameServer.requestCurrentInfo();
 	}
 
 	function becomeObserver() {
@@ -1236,6 +1242,26 @@
 		<details class="rounded border border-white/20 px-3 py-2">
 			<summary class="cursor-pointer text-sm font-semibold">Moderation</summary>
 			<div class="mt-3 max-h-[45vh] space-y-2 overflow-y-auto pr-1">
+				{#if isModerator}
+					<div class="rounded border border-white/20 px-2 py-2">
+						<label class="flex items-start gap-2">
+							<input
+								type="checkbox"
+								class="mt-1 h-4 w-4 cursor-pointer accent-primary-500"
+								bind:checked={$moderatorDevModeEnabled}
+							/>
+							<div>
+								<span class="block text-sm font-semibold">Dev mode</span>
+								<p class="text-xs opacity-70">Local moderator tools for database/debug lookups.</p>
+							</div>
+						</label>
+						{#if $moderatorDevModeEnabled}
+							<button class="btn variant-filled mt-2 w-full text-sm" on:click={copyCurrentInfo}>
+								Copy Current Info
+							</button>
+						{/if}
+					</div>
+				{/if}
 				<p class="text-xs font-semibold uppercase tracking-wide opacity-70">Manage players</p>
 				{#each sortedPlayerEntries as [playerName]}
 					<div class="rounded border border-white/20 px-2 py-1.5">

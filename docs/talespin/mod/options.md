@@ -48,3 +48,13 @@ Lobby / Joining-stage setup remains available where the room already exposes it.
 - **Locks when results start:** beauty result-flow selection.
 - **Lobby-only:** storyteller pool membership / restriction.
 - **Otherwise stays editable for the whole live Dixit round:** storyteller scoring, scoring presentation, next-round behavior, and timer settings.
+
+## Moderator dev mode
+
+Moderators can enable the local **Dev mode** checkbox in the Moderation sidebar. This does not
+change room state and is stored only in that browser.
+
+When Dev mode is enabled, **Copy Current Info** asks the server for moderator-verified debug
+Markdown and copies it to the clipboard. The copied note includes the room ID, current Dixit audit
+game ID, current / previous round numbers, stage, active player, the Most Beautiful SQLite DB path,
+and ready-to-run `sqlite3` commands for the current and previous round audit tables.

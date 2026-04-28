@@ -226,6 +226,9 @@ pub enum ServerMsg {
         player: String,
         room_auth_id: String,
     },
+    CurrentInfoMarkdown {
+        markdown: String,
+    },
     RoomState {
         room_id: String,
         game_mode: GameMode,
@@ -482,6 +485,7 @@ pub enum ClientMsg {
     RequestMemberMigrateLink {
         player: String,
     },
+    RequestCurrentInfo {},
     RaiseScoreToActiveMin {
         player: String,
     },
@@ -3350,6 +3354,104 @@ impl Room {
         state.member_to_clue_rating_average_sum.clear();
         state.member_to_clue_rating_rounds.clear();
         self.reset_vote_divisor_segment(state);
+    }
+
+    fn shell_single_quote(value: &str) -> String {
+        format!("'{}'", value.replace('\'', "'\\''"))
+    }
+
+    fn sql_single_quote(value: &str) -> String {
+        format!("'{}'", value.replace('\'', "''"))
+    }
+
+    fn current_info_markdown(&self, state: &RwLockWriteGuard<'_, RoomState>) -> String {
+        let db_path = self.most_beautiful_stats.path().display().to_string();
+        let db_path_arg = Self::shell_single_quote(&db_path);
+        let current_round = state.round;
+        let previous_round = current_round.checked_sub(1).filter(|round| *round > 0);
+        let previous_round_label = previous_round
+            .map(|round| format!("`{round}`"))
+            .unwrap_or_else(|| "none".to_string());
+        let active_player = state
+            .player_order
+            .get(state.active_player)
+            .cloned()
+            .unwrap_or_else(|| "none".to_string());
+        let game_id = state.current_dixit_game_id.clone();
+        let game_id_label = game_id
+            .as_ref()
+            .map(|id| format!("`{id}`"))
+            .unwrap_or_else(|| "none".to_string());
+
+        let mut markdown = format!(
+            "# Talespin current game info\n\n\
+             - Room ID: `{}`\n\
+             - Current game ID: {}\n\
+             - Current round: `{}`\n\
+             - Previous round: {}\n\
+             - Stage: `{:?}`\n\
+             - Active player: `{}`\n\
+             - SQLite DB: `{}`\n\n\
+             Current-round audit rows are written when a Dixit round is recorded, so an in-progress round may not appear yet.\n",
+            state.room_id,
+            game_id_label,
+            current_round,
+            previous_round_label,
+            state.stage,
+            active_player,
+            db_path
+        );
+
+        let Some(game_id) = game_id else {
+            markdown.push_str(
+                "\nNo current Dixit game ID is available yet. Start a Dixit game before querying audit rows.\n",
+            );
+            return markdown;
+        };
+
+        let game_id_sql = Self::sql_single_quote(&game_id);
+        let round_predicate = match previous_round {
+            Some(previous_round) => format!("round_num IN ({previous_round}, {current_round})"),
+            None => format!("round_num = {current_round}"),
+        };
+
+        markdown.push_str(&format!(
+            "\n## Current and previous round lookup\n\n\
+             ```sh\n\
+             sqlite3 -header -column {db_path_arg} <<'SQL'\n\
+             SELECT *\n\
+             FROM mb_games\n\
+             WHERE game_id = {game_id_sql};\n\n\
+             SELECT *\n\
+             FROM mb_game_rounds\n\
+             WHERE game_id = {game_id_sql}\n\
+               AND {round_predicate}\n\
+             ORDER BY round_num;\n\n\
+             SELECT *\n\
+             FROM mb_game_round_cards\n\
+             WHERE game_id = {game_id_sql}\n\
+               AND {round_predicate}\n\
+             ORDER BY round_num, center_order, owner_display_name;\n\n\
+             SELECT *\n\
+             FROM mb_game_round_story_votes\n\
+             WHERE game_id = {game_id_sql}\n\
+               AND {round_predicate}\n\
+             ORDER BY round_num, voter_display_name, card_hash;\n\n\
+             SELECT *\n\
+             FROM mb_game_round_beauty_votes\n\
+             WHERE game_id = {game_id_sql}\n\
+               AND {round_predicate}\n\
+             ORDER BY round_num, voter_display_name, card_hash;\n\n\
+             SELECT *\n\
+             FROM mb_game_round_scores\n\
+             WHERE game_id = {game_id_sql}\n\
+               AND {round_predicate}\n\
+             ORDER BY round_num, player_display_name;\n\
+             SQL\n\
+             ```\n"
+        ));
+
+        markdown
     }
 
     fn finalize_current_dixit_game(
@@ -7391,6 +7493,30 @@ impl Room {
                         ServerMsg::MemberMigrateLink {
                             player: target,
                             room_auth_id,
+                        }
+                        .into(),
+                    )
+                    .await?;
+                }
+            }
+            ClientMsg::RequestCurrentInfo {} => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can copy current game info".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if let Some(tx) = state.player_to_socket.get(name) {
+                    tx.send(
+                        ServerMsg::CurrentInfoMarkdown {
+                            markdown: self.current_info_markdown(&state),
                         }
                         .into(),
                     )
@@ -20578,6 +20704,147 @@ alpha
                 ));
             }
             other => return Err(anyhow!("expected missing-player error, got {:?}", other)),
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn moderator_can_copy_current_info_markdown_for_sqlite_lookup() -> Result<()> {
+        let room = test_room();
+        let mut socket_rx = {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            add_player(&mut state, "alice", 0);
+            state.moderators.insert("host".to_string());
+            state.current_dixit_game_id = Some("game-current-123".to_string());
+            state.current_dixit_game_started_at_s = Some(1234);
+            state.round = 3;
+            state.stage = RoomStage::Voting;
+            state.active_player = 1;
+            setup_connected_member(&mut state, "host", "t-host", 30_501);
+            setup_connected_member(&mut state, "alice", "t-alice", 30_502);
+            attach_test_socket(&mut state, "host")
+        };
+
+        room.handle_client_msg("host", 30_501, to_ws(ClientMsg::RequestCurrentInfo {}))
+            .await?;
+
+        let response = socket_rx
+            .recv()
+            .await
+            .ok_or_else(|| anyhow!("expected current-info response"))?;
+        match response {
+            ServerMsg::CurrentInfoMarkdown { markdown } => {
+                assert!(markdown.contains("# Talespin current game info"));
+                assert!(markdown.contains("- Room ID: `test`"));
+                assert!(markdown.contains("- Current game ID: `game-current-123`"));
+                assert!(markdown.contains("- Current round: `3`"));
+                assert!(markdown.contains("- Previous round: `2`"));
+                assert!(markdown.contains("- Stage: `Voting`"));
+                assert!(markdown.contains("- Active player: `alice`"));
+                assert!(markdown.contains("sqlite3 -header -column"));
+                assert!(markdown.contains("FROM mb_games"));
+                assert!(markdown.contains("FROM mb_game_rounds"));
+                assert!(markdown.contains("FROM mb_game_round_cards"));
+                assert!(markdown.contains("FROM mb_game_round_story_votes"));
+                assert!(markdown.contains("FROM mb_game_round_beauty_votes"));
+                assert!(markdown.contains("FROM mb_game_round_scores"));
+                assert!(markdown.contains("round_num IN (2, 3)"));
+            }
+            other => return Err(anyhow!("expected current-info markdown, got {:?}", other)),
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn current_info_markdown_marks_missing_previous_round() -> Result<()> {
+        let room = test_room();
+        let mut socket_rx = {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            state.moderators.insert("host".to_string());
+            state.current_dixit_game_id = Some("game-round-one".to_string());
+            state.round = 1;
+            setup_connected_member(&mut state, "host", "t-host", 30_601);
+            attach_test_socket(&mut state, "host")
+        };
+
+        room.handle_client_msg("host", 30_601, to_ws(ClientMsg::RequestCurrentInfo {}))
+            .await?;
+
+        let response = socket_rx
+            .recv()
+            .await
+            .ok_or_else(|| anyhow!("expected current-info response"))?;
+        match response {
+            ServerMsg::CurrentInfoMarkdown { markdown } => {
+                assert!(markdown.contains("- Current round: `1`"));
+                assert!(markdown.contains("- Previous round: none"));
+                assert!(markdown.contains("round_num = 1"));
+                assert!(!markdown.contains("round_num IN (0, 1)"));
+            }
+            other => return Err(anyhow!("expected current-info markdown, got {:?}", other)),
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn current_info_markdown_handles_missing_game_id() -> Result<()> {
+        let room = test_room();
+        let mut socket_rx = {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            state.moderators.insert("host".to_string());
+            state.round = 0;
+            state.stage = RoomStage::Joining;
+            setup_connected_member(&mut state, "host", "t-host", 30_651);
+            attach_test_socket(&mut state, "host")
+        };
+
+        room.handle_client_msg("host", 30_651, to_ws(ClientMsg::RequestCurrentInfo {}))
+            .await?;
+
+        let response = socket_rx
+            .recv()
+            .await
+            .ok_or_else(|| anyhow!("expected current-info response"))?;
+        match response {
+            ServerMsg::CurrentInfoMarkdown { markdown } => {
+                assert!(markdown.contains("- Current game ID: none"));
+                assert!(markdown.contains("No current Dixit game ID is available yet."));
+                assert!(!markdown.contains("sqlite3 -header -column"));
+            }
+            other => return Err(anyhow!("expected current-info markdown, got {:?}", other)),
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn non_moderator_cannot_copy_current_info_markdown() -> Result<()> {
+        let room = test_room();
+        let mut socket_rx = {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "alice", 0);
+            setup_connected_member(&mut state, "alice", "t-alice", 30_701);
+            attach_test_socket(&mut state, "alice")
+        };
+
+        room.handle_client_msg("alice", 30_701, to_ws(ClientMsg::RequestCurrentInfo {}))
+            .await?;
+
+        let response = socket_rx
+            .recv()
+            .await
+            .ok_or_else(|| anyhow!("expected permission error"))?;
+        match response {
+            ServerMsg::ErrorMsg(message) => {
+                assert_eq!(message, "Only moderators can copy current game info")
+            }
+            other => return Err(anyhow!("expected permission error, got {:?}", other)),
         }
 
         Ok(())

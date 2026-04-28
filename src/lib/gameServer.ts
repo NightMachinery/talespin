@@ -131,6 +131,12 @@ class GameServer {
 		});
 	}
 
+	requestCurrentInfo() {
+		this.send({
+			RequestCurrentInfo: {}
+		});
+	}
+
 	raiseScoreToActiveMin(player: string) {
 		this.send({
 			RaiseScoreToActiveMin: {

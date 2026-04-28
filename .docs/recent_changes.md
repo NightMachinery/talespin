@@ -1,5 +1,9 @@
 # Recent changes
 
+- 2026-04-28: Moderators now have a local Dev mode checkbox in the moderation sidebar. When enabled,
+  **Copy Current Info** copies Markdown with the current room/game/round context and ready-to-run
+  `sqlite3` lookup commands for the current and previous Dixit audit rounds.
+
 - 2026-04-28: Dixit `PlayersChoose` now restores selected-card highlights after refresh/reconnect.
   Submitted nominations are replayed from the server to the submitting player only, while unsent
   local draft selections can rehydrate from browser session storage until the stage changes.

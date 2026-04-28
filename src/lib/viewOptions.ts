@@ -54,3 +54,7 @@ export const stickyVotingCardNavigatorCollapsed = createPersistentBooleanStore(
 	'sticky_voting_card_navigator_collapsed',
 	false
 );
+export const moderatorDevModeEnabled = createPersistentBooleanStore(
+	'moderator_dev_mode_enabled',
+	false
+);
