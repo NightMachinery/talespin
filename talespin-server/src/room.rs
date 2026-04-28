@@ -101,6 +101,9 @@ pub enum PreviousDixitResultsView {
         player_to_votes: HashMap<String, Vec<String>>,
         player_to_beauty_votes: HashMap<String, Vec<String>>,
         player_to_clue_rating: HashMap<String, u16>,
+        clue_rating_average: Option<f64>,
+        clue_rating_count: u16,
+        clue_rating_bonus: u16,
         player_to_current_cards: HashMap<String, Vec<String>>,
         active_card: String,
         beauty_results_display_mode: BeautyResultsDisplayMode,
@@ -114,6 +117,9 @@ pub enum PreviousDixitResultsView {
         center_cards: Vec<String>,
         player_to_beauty_votes: HashMap<String, Vec<String>>,
         player_to_clue_rating: HashMap<String, u16>,
+        clue_rating_average: Option<f64>,
+        clue_rating_count: u16,
+        clue_rating_bonus: u16,
         player_to_current_cards: HashMap<String, Vec<String>>,
         point_change: HashMap<String, i32>,
         beauty_vote_totals: HashMap<String, u16>,
@@ -3465,12 +3471,17 @@ impl Room {
             .and_then(|cards| cards.first())
             .cloned()
             .ok_or_else(|| anyhow!("Missing active card"))?;
+        let (clue_rating_average, clue_rating_count, clue_rating_bonus) =
+            self.clue_rating_summary(state);
 
         Ok(PreviousDixitResultsView::Results {
             center_cards: self.get_center_cards(state),
             player_to_votes: state.player_to_votes.clone(),
             player_to_beauty_votes: state.player_to_beauty_votes.clone(),
             player_to_clue_rating: state.player_to_clue_rating.clone(),
+            clue_rating_average,
+            clue_rating_count,
+            clue_rating_bonus,
             player_to_current_cards: state.player_to_current_cards.clone(),
             active_card,
             beauty_results_display_mode: state.beauty_results_display_mode,
@@ -3493,10 +3504,16 @@ impl Room {
         &self,
         state: &RwLockWriteGuard<'_, RoomState>,
     ) -> PreviousDixitResultsView {
+        let (clue_rating_average, clue_rating_count, clue_rating_bonus) =
+            self.clue_rating_summary(state);
+
         PreviousDixitResultsView::BeautyResults {
             center_cards: self.get_center_cards(state),
             player_to_beauty_votes: state.player_to_beauty_votes.clone(),
             player_to_clue_rating: state.player_to_clue_rating.clone(),
+            clue_rating_average,
+            clue_rating_count,
+            clue_rating_bonus,
             player_to_current_cards: state.player_to_current_cards.clone(),
             point_change: state.beauty_point_change.clone(),
             beauty_vote_totals: self.compute_beauty_vote_totals(state),
@@ -12431,6 +12448,9 @@ mod tests {
             player_to_votes: HashMap::new(),
             player_to_beauty_votes: HashMap::new(),
             player_to_clue_rating: HashMap::from([("b".into(), 3), ("c".into(), 2)]),
+            clue_rating_average: Some(2.5),
+            clue_rating_count: 2,
+            clue_rating_bonus: 2,
             player_to_current_cards: HashMap::from([
                 ("a".into(), vec!["ca".into()]),
                 ("b".into(), vec!["cb".into()]),
@@ -17298,6 +17318,9 @@ alpha
                         active_card,
                         center_cards,
                         player_to_clue_rating,
+                        clue_rating_average,
+                        clue_rating_count,
+                        clue_rating_bonus,
                         point_change,
                         storyteller_point_change,
                         beauty_point_change,
@@ -17309,6 +17332,19 @@ alpha
                             player_to_clue_rating.get("b").copied(),
                             Some(2),
                             "previous storyteller results preview should carry cached clue stars"
+                        );
+                        assert_eq!(
+                            clue_rating_average,
+                            Some(2.5),
+                            "previous storyteller results preview should carry the round clue-star average"
+                        );
+                        assert_eq!(
+                            clue_rating_count, 2,
+                            "previous storyteller results preview should carry the clue-star rating count"
+                        );
+                        assert_eq!(
+                            clue_rating_bonus, 2,
+                            "previous storyteller results preview should carry the clue-star bonus"
                         );
                         assert!(
                             point_change.values().any(|delta| *delta != 0),
@@ -17351,6 +17387,9 @@ alpha
                 player_to_votes: HashMap::new(),
                 player_to_beauty_votes: HashMap::new(),
                 player_to_clue_rating: HashMap::from([("guesser".into(), 2)]),
+                clue_rating_average: Some(2.0),
+                clue_rating_count: 1,
+                clue_rating_bonus: 1,
                 player_to_current_cards: HashMap::from([
                     ("storyteller".into(), vec!["a".into()]),
                     ("guesser".into(), vec!["b".into()]),
@@ -17442,6 +17481,9 @@ alpha
                 center_cards: vec!["a".into(), "b".into(), "c".into()],
                 player_to_beauty_votes: HashMap::new(),
                 player_to_clue_rating: HashMap::from([("guesser".into(), 3)]),
+                clue_rating_average: Some(3.0),
+                clue_rating_count: 1,
+                clue_rating_bonus: 2,
                 player_to_current_cards: HashMap::from([
                     ("storyteller".into(), vec!["a".into()]),
                     ("guesser".into(), vec!["b".into()]),
@@ -17484,6 +17526,54 @@ alpha
                 }
             }
             other => return Err(anyhow!("Expected RoomState, got {:?}", other)),
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn previous_beauty_results_preview_carries_clue_rating_summary() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+        add_player(&mut state, "storyteller", 0);
+        add_player(&mut state, "guesser", 0);
+        add_player(&mut state, "guesser2", 0);
+        state.player_order = vec!["storyteller".into(), "guesser".into(), "guesser2".into()];
+        state.active_player = 0;
+        state.player_to_clue_rating =
+            HashMap::from([("guesser".into(), 4), ("guesser2".into(), 5)]);
+        state
+            .player_to_current_cards
+            .insert("storyteller".into(), vec!["a".into()]);
+        state
+            .player_to_current_cards
+            .insert("guesser".into(), vec!["b".into()]);
+        state
+            .player_to_current_cards
+            .insert("guesser2".into(), vec!["c".into()]);
+
+        match room.previous_dixit_results_from_beauty_results(&state) {
+            PreviousDixitResultsView::BeautyResults {
+                clue_rating_average,
+                clue_rating_count,
+                clue_rating_bonus,
+                ..
+            } => {
+                assert_eq!(
+                    clue_rating_average,
+                    Some(4.5),
+                    "previous beauty results preview should carry the round clue-star average"
+                );
+                assert_eq!(
+                    clue_rating_count, 2,
+                    "previous beauty results preview should carry the clue-star rating count"
+                );
+                assert_eq!(
+                    clue_rating_bonus, 4,
+                    "previous beauty results preview should carry the clue-star bonus"
+                );
+            }
+            other => return Err(anyhow!("expected previous beauty results, got {:?}", other)),
         }
 
         Ok(())

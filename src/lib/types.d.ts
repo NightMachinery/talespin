@@ -35,6 +35,9 @@ export type PreviousDixitResultsView =
 			player_to_votes: Record<string, string[]>;
 			player_to_beauty_votes: Record<string, string[]>;
 			player_to_clue_rating: Record<string, number>;
+			clue_rating_average: number | null;
+			clue_rating_count: number;
+			clue_rating_bonus: number;
 			player_to_current_cards: Record<string, string[]>;
 			active_card: string;
 			beauty_results_display_mode: BeautyResultsDisplayMode;
@@ -49,6 +52,9 @@ export type PreviousDixitResultsView =
 			center_cards: string[];
 			player_to_beauty_votes: Record<string, string[]>;
 			player_to_clue_rating: Record<string, number>;
+			clue_rating_average: number | null;
+			clue_rating_count: number;
+			clue_rating_bonus: number;
 			player_to_current_cards: Record<string, string[]>;
 			point_change: Record<string, number>;
 			beauty_vote_totals: Record<string, number>;

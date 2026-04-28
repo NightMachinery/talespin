@@ -19,6 +19,7 @@
 	let beautyWinningCardSet = new Set<string>();
 	let activeCard = '';
 	let beautyBadges: ReturnType<typeof buildBeautyBadgeMetadata> = {};
+	let formattedClueRatingAverage: string | null = null;
 
 	$: resultsDesktopFitEnabled = $cardsFitToHeight;
 	$: resultsDesktopFitClass = resultsDesktopFitEnabled ? 'lg:h-full' : '';
@@ -32,6 +33,10 @@
 	$: resultsCardClass = (image: string) =>
 		`${resultHighlightClass(activeCard === image, beautyWinningCardSet.has(image))} relative overflow-hidden rounded-lg bg-slate-900/35 ${resultsDesktopFitClass}`;
 	$: resultsImageClass = `relative w-full object-cover object-center aspect-[2/3] ${resultsDesktopFitClass}`;
+	$: formattedClueRatingAverage =
+		snapshot.clue_rating_average === null || snapshot.clue_rating_average === undefined
+			? null
+			: snapshot.clue_rating_average.toFixed(1);
 
 	function resultHighlightClass(isStoryCard: boolean, isBeautyWinner: boolean) {
 		if (isStoryCard && isBeautyWinner) return 'result-highlight-story-beauty';
@@ -82,6 +87,17 @@
 
 <div class="flex h-full min-h-0 flex-col">
 	<h2 class="mb-2 hidden text-lg font-semibold lg:block">Previous round cards</h2>
+	{#if formattedClueRatingAverage !== null}
+		<div class="mb-2 rounded-xl bg-amber-400/10 px-3 py-2 text-sm">
+			<p class="font-semibold text-amber-200">
+				Clue stars: {formattedClueRatingAverage}★
+			</p>
+			<p class="text-white/75">
+				{snapshot.clue_rating_count} rating{snapshot.clue_rating_count === 1 ? '' : 's'} ·
+				+{snapshot.clue_rating_bonus}
+			</p>
+		</div>
+	{/if}
 	<section class={resultsSectionClass} style={resultsDesktopFitStyle}>
 		{#each snapshot.center_cards as image, cardIndex}
 			<div class={resultsCardClass(image)}>

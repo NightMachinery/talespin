@@ -47,6 +47,8 @@ next storyteller is choosing and while nominations are happening.
   `BeautyResults` board instead.
 - Even when the preview mirrors prior separate `BeautyResults`, the sidebar leaderboard still
   carries the previous round's clue-star chips from the storyteller results flow.
+- If the previewed round recorded clue-star submissions, the card-preview header shows the
+  previous round's average clue-star rating, rating count, and storyteller clue-star bonus.
 - The data is sent in room state so reconnecting players can still see the same preview.
 - Preview card highlights mirror live Dixit results states: correct card = animated green sweep,
   beauty winner = silver border, overlap = green sweep with a moving silver glint.
