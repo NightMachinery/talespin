@@ -7,6 +7,16 @@ Current-stage moderator panels now expose two separate intervention buttons:
 - **Auto-observerify** converts any **offline active players who still owe an action in the current
   stage** into observers.
 
+Force actions count connected players' current unsubmitted drafts before filling or skipping:
+
+- `PlayersChoose`: drafted card picks are used first, then missing center cards are random-filled.
+- `Voting`: drafted vote tokens are used first, then missing vote tokens are random-filled. Only the
+  random-filled tokens are excluded from storyteller-outcome and decoy scoring.
+- `BeautyVoting`: drafted Most Beautiful picks are counted as beauty votes; players with no
+  submitted ballot or draft are skipped.
+- `StellaAssociate`: drafted associations are locked in, preserving queue order; players with no
+  draft or locked selection receive the force-random fallback.
+
 ## Auto-observerify behavior
 
 - It only appears on the **current-stage** moderator force controls:

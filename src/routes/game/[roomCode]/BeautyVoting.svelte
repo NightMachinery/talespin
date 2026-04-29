@@ -117,6 +117,7 @@
 	let selectedVotes: string[] = [];
 	let selectedVoteCounts: Record<string, number> = {};
 	let cardNumberLabelByImage: Record<string, number> = {};
+	let lastSyncedDraftKey = '';
 	let toastStore = getToastStore();
 	let isObserver = false;
 	let isModerator = false;
@@ -176,6 +177,15 @@
 			nextCounts[card] = (nextCounts[card] ?? 0) + 1;
 		}
 		selectedVoteCounts = nextCounts;
+	}
+	$: {
+		const draftSyncKey = `${!isObserver}:${selectedVotes.join('||')}`;
+		if (draftSyncKey !== lastSyncedDraftKey) {
+			lastSyncedDraftKey = draftSyncKey;
+			if (!isObserver) {
+				gameServer.setBeautyVoteDraft(selectedVotes);
+			}
+		}
 	}
 
 	function voteImageClass(selectedCount: number, isDisabled: boolean) {

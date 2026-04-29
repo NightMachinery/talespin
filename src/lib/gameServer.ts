@@ -715,6 +715,38 @@ class GameServer {
 		});
 	}
 
+	setPlayerChooseDraft(cards: string[]) {
+		this.send({
+			SetPlayerChooseDraft: {
+				cards
+			}
+		});
+	}
+
+	setVoteDraft(cards: string[]) {
+		this.send({
+			SetVoteDraft: {
+				cards
+			}
+		});
+	}
+
+	setBeautyVoteDraft(cards: string[]) {
+		this.send({
+			SetBeautyVoteDraft: {
+				cards
+			}
+		});
+	}
+
+	setStellaSelectionDraft(cards: string[]) {
+		this.send({
+			SetStellaSelectionDraft: {
+				cards
+			}
+		});
+	}
+
 	vote(card: string) {
 		this.send({
 			Vote: {

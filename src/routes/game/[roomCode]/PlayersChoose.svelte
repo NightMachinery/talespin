@@ -134,6 +134,7 @@
 	let highlightedImages: string[] = [];
 	let lastViewResetKey = '';
 	let lastSelectionRestoreKey = '';
+	let lastSyncedDraftKey = '';
 	let previousResultsLeaderboardContext: PreviousDixitResultsLeaderboardContext | null = null;
 	$: isObserver = !!observers[name];
 	$: isChooser = activePlayer !== name && !isObserver;
@@ -185,6 +186,15 @@
 			selectionDraftKey,
 			selectedCards
 		);
+	}
+	$: {
+		const draftSyncKey = `${isChooser}:${selectedCards.join('||')}`;
+		if (draftSyncKey !== lastSyncedDraftKey) {
+			lastSyncedDraftKey = draftSyncKey;
+			if (isChooser) {
+				gameServer.setPlayerChooseDraft(selectedCards);
+			}
+		}
 	}
 	$: canSubmit = isChooser && selectedCards.length === effectiveNominationsPerGuesser;
 	$: highlightedImages = isChooser

@@ -117,6 +117,7 @@
 	let selectedVotes: string[] = [];
 	let selectedVoteCounts: Record<string, number> = {};
 	let cardNumberLabelByImage: Record<string, number> = {};
+	let lastSyncedDraftKey = '';
 	let toastStore = getToastStore();
 	let isObserver = false;
 	let isVoter = false;
@@ -127,11 +128,7 @@
 	$: isObserver = !!observers[name];
 	$: isVoter = activePlayer !== name && !isObserver;
 	$: isModerator = new Set(moderators).has(name);
-	$: canForceRandomVote =
-		isModerator &&
-		Object.entries(players).filter(
-			([playerName, info]) => playerName !== activePlayer && info.ready
-		).length >= 2;
+	$: canForceRandomVote = isModerator;
 	$: canAutoObserverify =
 		isModerator &&
 		Object.entries(players).some(
@@ -185,6 +182,15 @@
 			nextCounts[card] = (nextCounts[card] ?? 0) + 1;
 		}
 		selectedVoteCounts = nextCounts;
+	}
+	$: {
+		const draftSyncKey = `${isVoter}:${selectedVotes.join('||')}`;
+		if (draftSyncKey !== lastSyncedDraftKey) {
+			lastSyncedDraftKey = draftSyncKey;
+			if (isVoter) {
+				gameServer.setVoteDraft(selectedVotes);
+			}
+		}
 	}
 
 	function voteImageClass(selectedCount: number, isDisabled: boolean) {

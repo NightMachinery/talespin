@@ -101,6 +101,7 @@
 	let localSelectedCards: string[] = [];
 	let syncedRoundKey = '';
 	let syncedSelectedKey = '';
+	let lastSyncedDraftKey = '';
 	let draggedQueueCard = '';
 	let isModerator = false;
 	let canForceRandomSelection = false;
@@ -108,7 +109,7 @@
 	const toastStore = getToastStore();
 	$: isObserver = !!observers[name];
 	$: isModerator = new Set(moderators).has(name);
-	$: canForceRandomSelection = isModerator && Object.values(players).some((player) => player.ready);
+	$: canForceRandomSelection = isModerator;
 	$: canAutoObserverify =
 		isModerator && Object.values(players).some((player) => !player.connected && !player.ready);
 	$: canSubmit =
@@ -137,6 +138,15 @@
 	} else if (selectedKey !== syncedSelectedKey) {
 		syncedSelectedKey = selectedKey;
 		localSelectedCards = [...selectedCards];
+	}
+	$: {
+		const draftSyncKey = `${!isObserver}:${localSelectedCards.join('||')}`;
+		if (draftSyncKey !== lastSyncedDraftKey) {
+			lastSyncedDraftKey = draftSyncKey;
+			if (!isObserver) {
+				gameServer.setStellaSelectionDraft(localSelectedCards);
+			}
+		}
 	}
 
 	function sameSelections(left: string[], right: string[]) {
