@@ -122,7 +122,11 @@
 	);
 	$: sinceJoinedBreakdowns =
 		showSinceJoined && viewerJoinedRound !== null
-			? sinceJoinedScoreBreakdowns(currentScoreEntriesForSinceJoined, $leaderboardRoundHistory)
+			? sinceJoinedScoreBreakdowns(
+					currentScoreEntriesForSinceJoined,
+					$leaderboardRoundHistory,
+					viewerJoinedRound
+				)
 			: new Map();
 	$: {
 		sinceJoinedBreakdowns;
@@ -430,7 +434,10 @@
 					class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
 					bind:checked={showSinceJoined}
 				/>
-				<span> Show each player’s score since they joined. </span>
+				<span>
+					Show leaderboard as if the game started from round {viewerJoinedRound}, when you first
+					joined.
+				</span>
 			</label>
 		{/if}
 		<div class="mt-3">

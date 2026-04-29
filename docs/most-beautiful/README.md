@@ -59,7 +59,7 @@ Moderators can force-push the current leaderboard view to everyone in the room. 
 
 ## Since-joined leaderboard filter
 
-Dixit leaderboards can be filtered live and at game end so every row shows that member's personal score since they first became an active player. Later joiners start from `0` in the filtered view, so automatic mid-game join-floor points are excluded. See `docs/talespin/leaderboards.md` for the shared Dixit/Stella behavior.
+Dixit leaderboards can be filtered live and at game end to start from the first round where the current viewer became an active player. Later joiners receive the simulated filtered minimum score, matching normal mid-game join behavior within that viewer's filtered leaderboard. See `docs/talespin/leaderboards.md` for the shared Dixit/Stella behavior.
 
 ## Ranking panel
 

@@ -47,64 +47,74 @@ export function firstActiveRoundForPlayer(
 
 export function sinceJoinedScoreBreakdowns(
 	entries: CurrentLeaderboardScoreEntry[],
-	history: LeaderboardRoundHistoryEntry[]
+	history: LeaderboardRoundHistoryEntry[],
+	startRound: number
 ) {
-	const sortedHistory = sortedLeaderboardHistory(history);
-	const breakdowns = new Map<string, LeaderboardScoreBreakdown>();
+	const simulatedScores = new Map<string, { total: number; beauty: number }>();
+	const snapshotOffsets = new Map<string, { total: number; beauty: number }>();
+	const currentEntryByName = new Map(entries.map((entry) => [entry.name, entry]));
 
-	for (const entry of entries) {
-		if (!entry.hasScore) {
-			continue;
+	for (const round of sortedLeaderboardHistory(history)) {
+		if (round.round_num < startRound) continue;
+
+		const participants = new Set([
+			...round.active_players,
+			...Object.keys(round.total_after_round),
+			...Object.keys(round.beauty_total_after_round),
+			...Object.keys(round.total_deltas),
+			...Object.keys(round.beauty_deltas)
+		]);
+		const simulatedFloor = simulatedFloorForRound(round.active_players, simulatedScores);
+
+		for (const participant of participants) {
+			if (snapshotOffsets.has(participant)) continue;
+
+			const startsAsActivePlayer = round.active_players.includes(participant);
+			const initialTotal = startsAsActivePlayer ? simulatedFloor : 0;
+			const simulatedTotalAfterFirstRound = applySignedScoreDelta(
+				initialTotal,
+				round.total_deltas[participant] ?? 0
+			);
+			const simulatedBeautyAfterFirstRound = applySignedScoreDelta(
+				0,
+				round.beauty_deltas[participant] ?? 0
+			);
+
+			snapshotOffsets.set(participant, {
+				total: recordedTotalAfterRound(round, participant) - simulatedTotalAfterFirstRound,
+				beauty: recordedBeautyAfterRound(round, participant) - simulatedBeautyAfterFirstRound
+			});
 		}
-		const personalScore = personalSinceJoinedScore(entry, sortedHistory);
-		breakdowns.set(entry.name, scoreBreakdown(personalScore.total, personalScore.beauty));
+
+		for (const participant of participants) {
+			const offset = snapshotOffsets.get(participant);
+			if (!offset) continue;
+			simulatedScores.set(participant, {
+				total: Math.max(0, recordedTotalAfterRound(round, participant) - offset.total),
+				beauty: Math.max(0, recordedBeautyAfterRound(round, participant) - offset.beauty)
+			});
+		}
+	}
+
+	const liveFloor = liveSimulatedFloor(entries, simulatedScores);
+	for (const entry of entries) {
+		if (!entry.hasScore || simulatedScores.has(entry.name)) continue;
+		simulatedScores.set(entry.name, { total: entry.isPlayer ? liveFloor : 0, beauty: 0 });
+	}
+
+	const breakdowns = new Map<string, LeaderboardScoreBreakdown>();
+	for (const entry of entries) {
+		if (!entry.hasScore) continue;
+		const simulated = simulatedScores.get(entry.name) ?? { total: 0, beauty: 0 };
+		breakdowns.set(entry.name, scoreBreakdown(simulated.total, simulated.beauty));
+	}
+
+	for (const [name, simulated] of simulatedScores) {
+		if (!currentEntryByName.has(name)) continue;
+		breakdowns.set(name, scoreBreakdown(simulated.total, simulated.beauty));
 	}
 
 	return breakdowns;
-}
-
-function personalSinceJoinedScore(
-	entry: CurrentLeaderboardScoreEntry,
-	history: LeaderboardRoundHistoryEntry[]
-) {
-	let snapshotOffset: { total: number; beauty: number } | null = null;
-	let latestPersonalScore = { total: 0, beauty: 0 };
-
-	for (const round of history) {
-		if (!snapshotOffset) {
-			if (!round.active_players.includes(entry.name)) {
-				continue;
-			}
-
-			const simulatedTotalAfterFirstActiveRound = applySignedScoreDelta(
-				0,
-				round.total_deltas[entry.name] ?? 0
-			);
-			const simulatedBeautyAfterFirstActiveRound = applySignedScoreDelta(
-				0,
-				round.beauty_deltas[entry.name] ?? 0
-			);
-			snapshotOffset = {
-				total: recordedTotalAfterRound(round, entry.name) - simulatedTotalAfterFirstActiveRound,
-				beauty: recordedBeautyAfterRound(round, entry.name) - simulatedBeautyAfterFirstActiveRound
-			};
-		}
-
-		if (!roundHasScoreForParticipant(round, entry.name)) {
-			continue;
-		}
-
-		latestPersonalScore = {
-			total: Math.max(0, recordedTotalAfterRound(round, entry.name) - snapshotOffset.total),
-			beauty: Math.max(0, recordedBeautyAfterRound(round, entry.name) - snapshotOffset.beauty)
-		};
-	}
-
-	if (snapshotOffset) {
-		return latestPersonalScore;
-	}
-
-	return entry.isPlayer ? { total: 0, beauty: 0 } : { total: entry.total, beauty: entry.beauty };
 }
 
 function recordedTotalAfterRound(round: LeaderboardRoundHistoryEntry, participant: string) {
@@ -119,13 +129,25 @@ function sortedLeaderboardHistory(history: LeaderboardRoundHistoryEntry[]) {
 	return [...history].sort((a, b) => a.round_num - b.round_num);
 }
 
-function roundHasScoreForParticipant(round: LeaderboardRoundHistoryEntry, participant: string) {
-	return (
-		participant in round.total_after_round ||
-		participant in round.beauty_total_after_round ||
-		participant in round.total_deltas ||
-		participant in round.beauty_deltas
-	);
+function simulatedFloorForRound(
+	activePlayers: string[],
+	scores: Map<string, { total: number; beauty: number }>
+) {
+	const existingActiveTotals = activePlayers
+		.map((playerName) => scores.get(playerName)?.total)
+		.filter((value): value is number => typeof value === 'number');
+	return existingActiveTotals.length > 0 ? Math.min(...existingActiveTotals) : 0;
+}
+
+function liveSimulatedFloor(
+	entries: CurrentLeaderboardScoreEntry[],
+	scores: Map<string, { total: number; beauty: number }>
+) {
+	const activeTotals = entries
+		.filter((entry) => entry.isPlayer)
+		.map((entry) => scores.get(entry.name)?.total)
+		.filter((value): value is number => typeof value === 'number');
+	return activeTotals.length > 0 ? Math.min(...activeTotals) : 0;
 }
 
 function applySignedScoreDelta(score: number, delta: number) {

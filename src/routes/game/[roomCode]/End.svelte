@@ -90,7 +90,9 @@
 		observers;
 		$memberBeautyPoints;
 		activeEntries =
-			showSinceJoined && viewerJoinedRound !== null ? sinceJoinedEntries() : fullGameEntries();
+			showSinceJoined && viewerJoinedRound !== null
+				? sinceJoinedEntries(viewerJoinedRound)
+				: fullGameEntries();
 	}
 	$: rankedPlayers = rankEntriesByMode(activeEntries.players, activeLeaderboardViewMode);
 	$: sortedObserverEntries = activeEntries.observers;
@@ -143,7 +145,7 @@
 		};
 	}
 
-	function sinceJoinedEntries() {
+	function sinceJoinedEntries(cutoffRound: number) {
 		const currentScoreEntries = [
 			...Object.entries(players).map(([playerName, info]) => ({
 				name: playerName,
@@ -160,7 +162,11 @@
 				hasScore: info.points !== null
 			}))
 		];
-		const breakdowns = sinceJoinedScoreBreakdowns(currentScoreEntries, $leaderboardRoundHistory);
+		const breakdowns = sinceJoinedScoreBreakdowns(
+			currentScoreEntries,
+			$leaderboardRoundHistory,
+			cutoffRound
+		);
 		const playerEntries = Object.keys(players)
 			.sort((a, b) => a.localeCompare(b))
 			.map((playerName) => ({
@@ -252,7 +258,10 @@
 							class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
 							bind:checked={showSinceJoined}
 						/>
-						<span>Show each player’s score since they joined.</span>
+						<span
+							>Show leaderboard as if the game started from round {viewerJoinedRound}, when you
+							first joined.</span
+						>
 					</label>
 				{/if}
 				<p class="text-sm opacity-80">Rounds played: {roundNum}</p>
