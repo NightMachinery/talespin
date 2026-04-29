@@ -86,6 +86,11 @@ export interface LeaderboardRoundHistoryEntry {
 	beauty_total_after_round: Record<string, number>;
 }
 
+export interface LeaderboardScoreSnapshot {
+	total: number;
+	beauty: number;
+}
+
 export type WinCondition =
 	| {
 			mode: 'points';

@@ -1,5 +1,9 @@
 import { writable } from 'svelte/store';
-import type { LeaderboardRoundHistoryEntry, LeaderboardViewMode } from '$lib/types';
+import type {
+	LeaderboardRoundHistoryEntry,
+	LeaderboardScoreSnapshot,
+	LeaderboardViewMode
+} from '$lib/types';
 
 export interface LeaderboardScoreBreakdown {
 	total: number;
@@ -15,15 +19,10 @@ export interface RankedLeaderboardEntry {
 	isTopScore: boolean;
 }
 
-export interface CurrentLeaderboardScoreEntry {
-	name: string;
-	total: number;
-	beauty: number;
-	isPlayer: boolean;
-	hasScore: boolean;
-}
-
 export const leaderboardRoundHistory = writable<LeaderboardRoundHistoryEntry[]>([]);
+export const leaderboardSinceJoinedScoresByRound = writable<
+	Record<number, Record<string, LeaderboardScoreSnapshot>>
+>({});
 
 export function scoreBreakdown(total: number, beauty: number): LeaderboardScoreBreakdown {
 	return {
@@ -31,6 +30,17 @@ export function scoreBreakdown(total: number, beauty: number): LeaderboardScoreB
 		story: total - beauty,
 		beauty
 	};
+}
+
+export function scoreBreakdownsFromSnapshots(
+	scores: Record<string, LeaderboardScoreSnapshot> | undefined
+) {
+	return new Map(
+		Object.entries(scores ?? {}).map(([playerName, score]) => [
+			playerName,
+			scoreBreakdown(score.total, score.beauty)
+		])
+	);
 }
 
 export function firstActiveRoundForPlayer(
@@ -45,113 +55,8 @@ export function firstActiveRoundForPlayer(
 	return null;
 }
 
-export function sinceJoinedScoreBreakdowns(
-	entries: CurrentLeaderboardScoreEntry[],
-	history: LeaderboardRoundHistoryEntry[],
-	startRound: number
-) {
-	const simulatedScores = new Map<string, { total: number; beauty: number }>();
-	const snapshotOffsets = new Map<string, { total: number; beauty: number }>();
-	const currentEntryByName = new Map(entries.map((entry) => [entry.name, entry]));
-
-	for (const round of sortedLeaderboardHistory(history)) {
-		if (round.round_num < startRound) continue;
-
-		const participants = new Set([
-			...round.active_players,
-			...Object.keys(round.total_after_round),
-			...Object.keys(round.beauty_total_after_round),
-			...Object.keys(round.total_deltas),
-			...Object.keys(round.beauty_deltas)
-		]);
-		const simulatedFloor = simulatedFloorForRound(round.active_players, simulatedScores);
-
-		for (const participant of participants) {
-			if (snapshotOffsets.has(participant)) continue;
-
-			const startsAsActivePlayer = round.active_players.includes(participant);
-			const initialTotal = startsAsActivePlayer ? simulatedFloor : 0;
-			const simulatedTotalAfterFirstRound = applySignedScoreDelta(
-				initialTotal,
-				round.total_deltas[participant] ?? 0
-			);
-			const simulatedBeautyAfterFirstRound = applySignedScoreDelta(
-				0,
-				round.beauty_deltas[participant] ?? 0
-			);
-
-			snapshotOffsets.set(participant, {
-				total: recordedTotalAfterRound(round, participant) - simulatedTotalAfterFirstRound,
-				beauty: recordedBeautyAfterRound(round, participant) - simulatedBeautyAfterFirstRound
-			});
-		}
-
-		for (const participant of participants) {
-			const offset = snapshotOffsets.get(participant);
-			if (!offset) continue;
-			simulatedScores.set(participant, {
-				total: Math.max(0, recordedTotalAfterRound(round, participant) - offset.total),
-				beauty: Math.max(0, recordedBeautyAfterRound(round, participant) - offset.beauty)
-			});
-		}
-	}
-
-	const liveFloor = liveSimulatedFloor(entries, simulatedScores);
-	for (const entry of entries) {
-		if (!entry.hasScore || simulatedScores.has(entry.name)) continue;
-		simulatedScores.set(entry.name, { total: entry.isPlayer ? liveFloor : 0, beauty: 0 });
-	}
-
-	const breakdowns = new Map<string, LeaderboardScoreBreakdown>();
-	for (const entry of entries) {
-		if (!entry.hasScore) continue;
-		const simulated = simulatedScores.get(entry.name) ?? { total: 0, beauty: 0 };
-		breakdowns.set(entry.name, scoreBreakdown(simulated.total, simulated.beauty));
-	}
-
-	for (const [name, simulated] of simulatedScores) {
-		if (!currentEntryByName.has(name)) continue;
-		breakdowns.set(name, scoreBreakdown(simulated.total, simulated.beauty));
-	}
-
-	return breakdowns;
-}
-
-function recordedTotalAfterRound(round: LeaderboardRoundHistoryEntry, participant: string) {
-	return round.total_after_round[participant] ?? round.total_deltas[participant] ?? 0;
-}
-
-function recordedBeautyAfterRound(round: LeaderboardRoundHistoryEntry, participant: string) {
-	return round.beauty_total_after_round[participant] ?? round.beauty_deltas[participant] ?? 0;
-}
-
 function sortedLeaderboardHistory(history: LeaderboardRoundHistoryEntry[]) {
 	return [...history].sort((a, b) => a.round_num - b.round_num);
-}
-
-function simulatedFloorForRound(
-	activePlayers: string[],
-	scores: Map<string, { total: number; beauty: number }>
-) {
-	const existingActiveTotals = activePlayers
-		.map((playerName) => scores.get(playerName)?.total)
-		.filter((value): value is number => typeof value === 'number');
-	return existingActiveTotals.length > 0 ? Math.min(...existingActiveTotals) : 0;
-}
-
-function liveSimulatedFloor(
-	entries: CurrentLeaderboardScoreEntry[],
-	scores: Map<string, { total: number; beauty: number }>
-) {
-	const activeTotals = entries
-		.filter((entry) => entry.isPlayer)
-		.map((entry) => scores.get(entry.name)?.total)
-		.filter((value): value is number => typeof value === 'number');
-	return activeTotals.length > 0 ? Math.min(...activeTotals) : 0;
-}
-
-function applySignedScoreDelta(score: number, delta: number) {
-	return Math.max(0, score + delta);
 }
 
 export function leaderboardModeLabel(mode: LeaderboardViewMode) {

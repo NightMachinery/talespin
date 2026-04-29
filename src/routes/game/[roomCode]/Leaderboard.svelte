@@ -20,10 +20,11 @@
 		leaderboardDigitWidths,
 		leaderboardModeLabel,
 		leaderboardRoundHistory,
+		leaderboardSinceJoinedScoresByRound,
 		resolveLeaderboardMode,
 		rankEntriesByMode,
 		scoreBreakdown,
-		sinceJoinedScoreBreakdowns,
+		scoreBreakdownsFromSnapshots,
 		type RankedLeaderboardEntry
 	} from '$lib/leaderboard';
 	import type {
@@ -88,7 +89,6 @@
 	}> = [];
 	let sinceJoinedBreakdowns = new Map<string, ReturnType<typeof scoreBreakdown>>();
 	let showSinceJoined = false;
-	let currentScoreEntriesForSinceJoined: ReturnType<typeof currentScoreEntries> = [];
 	let digitWidths = { total: 1, story: 1, beauty: 1 };
 	let combinedDeltaWidths = { total: 2, story: 2, beauty: 2 };
 
@@ -115,18 +115,9 @@
 	$: if (!canShowSinceJoined || activeLeaderboardViewMode === 'clue_stars') {
 		showSinceJoined = false;
 	}
-	$: currentScoreEntriesForSinceJoined = currentScoreEntries(
-		players,
-		observers,
-		$memberBeautyPoints
-	);
 	$: sinceJoinedBreakdowns =
 		showSinceJoined && viewerJoinedRound !== null
-			? sinceJoinedScoreBreakdowns(
-					currentScoreEntriesForSinceJoined,
-					$leaderboardRoundHistory,
-					viewerJoinedRound
-				)
+			? scoreBreakdownsFromSnapshots($leaderboardSinceJoinedScoresByRound[viewerJoinedRound])
 			: new Map();
 	$: {
 		sinceJoinedBreakdowns;
@@ -212,29 +203,6 @@
 
 	function beautyPointsForPlayer(playerName: string) {
 		return $memberBeautyPoints[playerName] ?? 0;
-	}
-
-	function currentScoreEntries(
-		currentPlayers: { [key: string]: PlayerInfo },
-		currentObservers: { [key: string]: ObserverInfo },
-		beautyPoints: Record<string, number>
-	) {
-		return [
-			...Object.entries(currentPlayers).map(([playerName, info]) => ({
-				name: playerName,
-				total: info.points,
-				beauty: beautyPoints[playerName] ?? 0,
-				isPlayer: true,
-				hasScore: true
-			})),
-			...Object.entries(currentObservers).map(([observerName, info]) => ({
-				name: observerName,
-				total: info.points ?? 0,
-				beauty: beautyPoints[observerName] ?? 0,
-				isPlayer: false,
-				hasScore: info.points !== null
-			}))
-		];
 	}
 
 	function displayedBreakdownForPlayer(playerName: string, total: number) {

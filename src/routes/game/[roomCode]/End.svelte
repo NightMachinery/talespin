@@ -13,10 +13,11 @@
 		firstActiveRoundForPlayer,
 		leaderboardDigitWidths,
 		leaderboardRoundHistory,
+		leaderboardSinceJoinedScoresByRound,
 		resolveLeaderboardMode,
 		rankEntriesByMode,
 		scoreBreakdown,
-		sinceJoinedScoreBreakdowns,
+		scoreBreakdownsFromSnapshots,
 		type RankedLeaderboardEntry
 	} from '$lib/leaderboard';
 	import MigrateDeviceButton from '$lib/MigrateDeviceButton.svelte';
@@ -89,6 +90,7 @@
 		players;
 		observers;
 		$memberBeautyPoints;
+		$leaderboardSinceJoinedScoresByRound;
 		activeEntries =
 			showSinceJoined && viewerJoinedRound !== null
 				? sinceJoinedEntries(viewerJoinedRound)
@@ -146,26 +148,8 @@
 	}
 
 	function sinceJoinedEntries(cutoffRound: number) {
-		const currentScoreEntries = [
-			...Object.entries(players).map(([playerName, info]) => ({
-				name: playerName,
-				total: info.points,
-				beauty: $memberBeautyPoints[playerName] ?? 0,
-				isPlayer: true,
-				hasScore: true
-			})),
-			...Object.entries(observers).map(([observerName, info]) => ({
-				name: observerName,
-				total: info.points ?? 0,
-				beauty: $memberBeautyPoints[observerName] ?? 0,
-				isPlayer: false,
-				hasScore: info.points !== null
-			}))
-		];
-		const breakdowns = sinceJoinedScoreBreakdowns(
-			currentScoreEntries,
-			$leaderboardRoundHistory,
-			cutoffRound
+		const breakdowns = scoreBreakdownsFromSnapshots(
+			$leaderboardSinceJoinedScoresByRound[cutoffRound]
 		);
 		const playerEntries = Object.keys(players)
 			.sort((a, b) => a.localeCompare(b))

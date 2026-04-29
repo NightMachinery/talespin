@@ -64,7 +64,7 @@
 	} from '$lib/types';
 	import { stageChangeSoundCuesEnabled, stageChangeVisualCuesEnabled } from '$lib/viewOptions';
 	import GameServer from '$lib/gameServer';
-	import { leaderboardRoundHistory } from '$lib/leaderboard';
+	import { leaderboardRoundHistory, leaderboardSinceJoinedScoresByRound } from '$lib/leaderboard';
 	import { DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION } from '$lib/votingWrongCardDisableDistribution';
 
 	import Joining from './Joining.svelte';
@@ -554,6 +554,9 @@
 					leaderboardExcludeBeautyDefaultVersion
 				);
 				leaderboardRoundHistory.set(data.RoomState.leaderboard_round_history ?? []);
+				leaderboardSinceJoinedScoresByRound.set(
+					data.RoomState.leaderboard_since_joined_scores_by_round ?? {}
+				);
 				stellaBoardSize = data.RoomState.stella_board_size ?? 15;
 				stellaBoardSizeMin = data.RoomState.stella_board_size_min ?? 1;
 				stellaBoardSizeMax = data.RoomState.stella_board_size_max ?? 100;
