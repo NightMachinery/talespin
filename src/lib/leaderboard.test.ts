@@ -30,24 +30,32 @@ function round(
 }
 
 describe('sinceJoinedScoreBreakdowns', () => {
-	test('replaying from round 1 matches raw cumulative scores for players who become active later', () => {
+	test('uses each players own first active round instead of the viewers round', () => {
 		const history = [
 			round(1, ['Alice'], { Alice: 10 }, {}, { Alice: 10 }, {}),
-			round(2, ['Alice'], { Bob: 3 }, {}, { Alice: 10, Bob: 3 }, {}),
-			round(3, ['Alice', 'Bob'], { Bob: 2 }, {}, { Alice: 10, Bob: 5 }, {})
+			round(2, ['Alice'], { Alice: 5 }, {}, { Alice: 15 }, {}),
+			round(3, ['Alice', 'Bob'], { Alice: 1, Bob: 2 }, {}, { Alice: 16, Bob: 17 }, {}),
+			round(
+				4,
+				['Alice', 'Bob', 'Carol'],
+				{ Bob: 3, Carol: 4 },
+				{},
+				{ Alice: 16, Bob: 20, Carol: 20 },
+				{}
+			)
 		];
 
 		const breakdowns = sinceJoinedScoreBreakdowns(
-			[entry('Alice', 10), entry('Bob', 5)],
-			history,
-			1
+			[entry('Alice', 16), entry('Bob', 20), entry('Carol', 20)],
+			history
 		);
 
-		expect(breakdowns.get('Alice')).toEqual({ total: 10, story: 10, beauty: 0 });
+		expect(breakdowns.get('Alice')).toEqual({ total: 16, story: 16, beauty: 0 });
 		expect(breakdowns.get('Bob')).toEqual({ total: 5, story: 5, beauty: 0 });
+		expect(breakdowns.get('Carol')).toEqual({ total: 4, story: 4, beauty: 0 });
 	});
 
-	test('does not apply active-player join floors to non-active scored observers', () => {
+	test('keeps scored observers without active history on their raw scores', () => {
 		const history = [
 			round(1, ['Alice'], { Alice: 10 }, {}, { Alice: 10 }, {}),
 			round(2, ['Alice'], { Observer: 4 }, {}, { Alice: 10, Observer: 4 }, {})
@@ -55,58 +63,60 @@ describe('sinceJoinedScoreBreakdowns', () => {
 
 		const breakdowns = sinceJoinedScoreBreakdowns(
 			[entry('Alice', 10), entry('Observer', 4, 0, false)],
-			history,
-			1
+			history
 		);
 
 		expect(breakdowns.get('Observer')).toEqual({ total: 4, story: 4, beauty: 0 });
 	});
 
-	test('applies simulated join floors when a member first becomes active after a later cutoff', () => {
+	test('excludes automatic join-floor points for later active players', () => {
 		const history = [
 			round(1, ['Alice'], { Alice: 10 }, {}, { Alice: 10 }, {}),
 			round(2, ['Alice'], { Alice: 5 }, {}, { Alice: 15 }, {}),
 			round(3, ['Alice', 'Bob'], { Bob: 2 }, {}, { Alice: 15, Bob: 12 }, {})
 		];
 
-		const breakdowns = sinceJoinedScoreBreakdowns(
-			[entry('Alice', 15), entry('Bob', 12)],
-			history,
-			2
-		);
+		const breakdowns = sinceJoinedScoreBreakdowns([entry('Alice', 15), entry('Bob', 12)], history);
 
-		expect(breakdowns.get('Alice')).toEqual({ total: 5, story: 5, beauty: 0 });
-		expect(breakdowns.get('Bob')).toEqual({ total: 7, story: 7, beauty: 0 });
+		expect(breakdowns.get('Alice')).toEqual({ total: 15, story: 15, beauty: 0 });
+		expect(breakdowns.get('Bob')).toEqual({ total: 2, story: 2, beauty: 0 });
 	});
 
-	test('uses snapshot offsets for beauty totals and story breakdowns', () => {
+	test('uses personal snapshot offsets for beauty totals and story breakdowns', () => {
 		const history = [
 			round(1, ['Alice'], { Alice: 10 }, { Alice: 4 }, { Alice: 10 }, { Alice: 4 }),
 			round(
 				2,
-				['Alice'],
-				{ Observer: 3 },
-				{ Observer: 1 },
-				{ Alice: 10, Observer: 3 },
-				{ Alice: 4, Observer: 1 }
+				['Alice', 'Bob'],
+				{ Bob: 5 },
+				{ Bob: 3 },
+				{ Alice: 10, Bob: 15 },
+				{ Alice: 4, Bob: 3 }
 			),
 			round(
 				3,
-				['Alice', 'Observer'],
-				{ Observer: 2 },
-				{ Observer: 1 },
-				{ Alice: 10, Observer: 5 },
-				{ Alice: 4, Observer: 2 }
+				['Alice', 'Bob'],
+				{ Bob: 2 },
+				{ Bob: 1 },
+				{ Alice: 10, Bob: 17 },
+				{ Alice: 4, Bob: 4 }
 			)
 		];
 
 		const breakdowns = sinceJoinedScoreBreakdowns(
-			[entry('Alice', 10, 4), entry('Observer', 5, 2)],
-			history,
-			1
+			[entry('Alice', 10, 4), entry('Bob', 17, 4)],
+			history
 		);
 
 		expect(breakdowns.get('Alice')).toEqual({ total: 10, story: 6, beauty: 4 });
-		expect(breakdowns.get('Observer')).toEqual({ total: 5, story: 3, beauty: 2 });
+		expect(breakdowns.get('Bob')).toEqual({ total: 7, story: 3, beauty: 4 });
+	});
+
+	test('shows zero for a live active player before their first recorded round', () => {
+		const history = [round(1, ['Alice'], { Alice: 10 }, {}, { Alice: 10 }, {})];
+
+		const breakdowns = sinceJoinedScoreBreakdowns([entry('Alice', 10), entry('Bob', 10)], history);
+
+		expect(breakdowns.get('Bob')).toEqual({ total: 0, story: 0, beauty: 0 });
 	});
 });

@@ -11,7 +11,7 @@ Most Beautiful is the optional Dixit/Talespin post-voting beauty round.
 - **Beauty winner bonus**: the per-round beauty bonus before any tie split.
 - **Beauty scoring**:
   - `vote_divisor`: each owner gets `floor(cumulative beauty votes in the current
-    vote-divisor segment on their submitted cards / K)`
+vote-divisor segment on their submitted cards / K)`
   - `winner_bonus`: legacy top-card winner bonus flow
 - **Beauty vote divisor `K`**:
   - default mode: `manual`
@@ -59,7 +59,7 @@ Moderators can force-push the current leaderboard view to everyone in the room. 
 
 ## Since-joined leaderboard filter
 
-Dixit leaderboards can be filtered live and at game end to start from the first round where the current viewer became an active player. Later joiners receive the simulated filtered minimum score, matching normal mid-game join behavior. See `docs/talespin/leaderboards.md` for the shared Dixit/Stella behavior.
+Dixit leaderboards can be filtered live and at game end so every row shows that member's personal score since they first became an active player. Later joiners start from `0` in the filtered view, so automatic mid-game join-floor points are excluded. See `docs/talespin/leaderboards.md` for the shared Dixit/Stella behavior.
 
 ## Ranking panel
 

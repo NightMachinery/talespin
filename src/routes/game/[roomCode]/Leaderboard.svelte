@@ -35,9 +35,7 @@
 	} from '$lib/types';
 	import { OFFLINE_STATUS_LABEL } from '$lib/presence';
 	import { formatWinCondition } from '$lib/winCondition';
-	import {
-		shouldShowPointChange as shouldShowPointChangeForStage
-	} from '$lib/leaderboardPointChange';
+	import { shouldShowPointChange as shouldShowPointChangeForStage } from '$lib/leaderboardPointChange';
 
 	type CombinedScoreKey = 'total' | 'story' | 'beauty';
 
@@ -124,11 +122,7 @@
 	);
 	$: sinceJoinedBreakdowns =
 		showSinceJoined && viewerJoinedRound !== null
-			? sinceJoinedScoreBreakdowns(
-					currentScoreEntriesForSinceJoined,
-					$leaderboardRoundHistory,
-					viewerJoinedRound
-				)
+			? sinceJoinedScoreBreakdowns(currentScoreEntriesForSinceJoined, $leaderboardRoundHistory)
 			: new Map();
 	$: {
 		sinceJoinedBreakdowns;
@@ -436,10 +430,7 @@
 					class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
 					bind:checked={showSinceJoined}
 				/>
-				<span>
-					Show leaderboard as if the game started from round {viewerJoinedRound}, when you first
-					joined.
-				</span>
+				<span> Show each player’s score since they joined. </span>
 			</label>
 		{/if}
 		<div class="mt-3">
