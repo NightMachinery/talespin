@@ -7,10 +7,13 @@ Current-stage moderator panels now expose two separate intervention buttons:
 - **Auto-observerify** converts any **offline active players who still owe an action in the current
   stage** into observers.
 
-Force actions count connected players' current unsubmitted drafts before filling or skipping:
+Force actions count non-observer players' current unsubmitted drafts before filling or skipping:
 
-- `PlayersChoose`: drafted card picks are used first, then missing center cards are random-filled.
-- `Voting`: drafted vote tokens are used first, then missing vote tokens are random-filled. Only the
+- `PlayersChoose`: drafted card picks are deduplicated, used first, then missing center
+  cards are random-filled.
+- `Voting`: submitted ballots from active members still count after observer conversion, but stale
+  observer-only drafts do not unlock forcing because they cannot be materialized. Non-observer
+  drafted vote tokens are used first, then missing vote tokens are random-filled. Only the
   random-filled tokens are excluded from storyteller-outcome and decoy scoring.
 - `BeautyVoting`: drafted Most Beautiful picks are counted as beauty votes; players with no
   submitted ballot or draft are skipped.

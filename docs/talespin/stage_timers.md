@@ -8,8 +8,9 @@ The shared stage countdown now resyncs immediately when the room changes stages.
 - Reconnect / reload mid-stage keeps the countdown aligned with the server deadline.
 - Untimed stages (`Results`, `BeautyResults`, `StellaResults`, `Paused`, `End`) clear the shared countdown immediately.
 - When a timer force-resolves a stage, the server first uses connected players' synced drafts:
-  card-choice drafts seed random-filled center cards, storyteller-vote drafts seed random-filled
-  vote ballots, beauty-vote drafts are counted before missing voters are skipped, and Stella
+  deduplicated card-choice drafts seed random-filled center cards, non-observer storyteller-vote
+  drafts seed random-filled vote ballots, stale observer-only voting drafts are ignored, beauty-vote
+  drafts are counted before missing voters are skipped, and Stella
   association drafts are locked before random fallback selections are generated.
 
 ## Implementation notes

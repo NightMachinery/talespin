@@ -1423,27 +1423,26 @@ impl Room {
             .player_order
             .get(state.active_player)
             .map(String::as_str);
-        state
-            .player_to_votes
-            .keys()
-            .chain(state.player_to_vote_drafts.keys())
-            .filter(|player| {
-                active_player != Some(player.as_str())
-                    && (state.players.contains_key(player.as_str())
-                        || state.observers.contains_key(player.as_str()))
-                    && (!state
-                        .player_to_votes
-                        .get(player.as_str())
-                        .cloned()
-                        .unwrap_or_else(|| {
-                            state
-                                .player_to_vote_drafts
-                                .get(player.as_str())
-                                .map(|draft| self.sanitize_vote_cards(state, player, draft))
-                                .unwrap_or_default()
-                        })
-                        .is_empty())
-            })
+
+        let submitted_voters = state.player_to_votes.iter().filter_map(|(player, votes)| {
+            (active_player != Some(player.as_str())
+                && (state.players.contains_key(player.as_str())
+                    || state.observers.contains_key(player.as_str()))
+                && !votes.is_empty())
+            .then_some(player.as_str())
+        });
+        let drafting_players = state
+            .player_to_vote_drafts
+            .iter()
+            .filter_map(|(player, draft)| {
+                (active_player != Some(player.as_str())
+                    && state.players.contains_key(player.as_str())
+                    && !self.sanitize_vote_cards(state, player, draft).is_empty())
+                .then_some(player.as_str())
+            });
+
+        submitted_voters
+            .chain(drafting_players)
             .collect::<HashSet<_>>()
             .len()
     }
@@ -2377,6 +2376,29 @@ impl Room {
         usize::from(state.beauty_votes_per_player.clamp(1, max_votes))
     }
 
+    fn take_last_preserving_order(cards: Vec<String>, limit: usize) -> Vec<String> {
+        cards
+            .into_iter()
+            .rev()
+            .take(limit)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect()
+    }
+
+    fn unique_valid_cards<F>(cards: &[String], mut is_valid: F) -> Vec<String>
+    where
+        F: FnMut(&str) -> bool,
+    {
+        let mut seen = HashSet::new();
+        cards
+            .iter()
+            .filter(|card| is_valid(card.as_str()) && seen.insert((*card).clone()))
+            .cloned()
+            .collect()
+    }
+
     fn sanitize_player_choose_cards(
         &self,
         state: &RwLockWriteGuard<'_, RoomState>,
@@ -2384,7 +2406,10 @@ impl Room {
         cards: &[String],
     ) -> Vec<String> {
         let hand_cards = state.player_hand.get(player).cloned().unwrap_or_default();
-        let hand_card_set = hand_cards.iter().collect::<HashSet<_>>();
+        let hand_card_set = hand_cards
+            .iter()
+            .map(String::as_str)
+            .collect::<HashSet<_>>();
         let desired = self
             .active_player_name(state)
             .map(|active| {
@@ -2397,18 +2422,10 @@ impl Room {
             })
             .unwrap_or(1);
 
-        cards
-            .iter()
-            .filter(|card| hand_card_set.contains(card))
-            .cloned()
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .take(desired)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .collect()
+        Self::take_last_preserving_order(
+            Self::unique_valid_cards(cards, |card| hand_card_set.contains(card)),
+            desired,
+        )
     }
 
     fn sanitize_vote_cards(
@@ -2430,20 +2447,16 @@ impl Room {
             .into_iter()
             .collect::<HashSet<_>>();
 
-        cards
-            .iter()
-            .filter(|card| {
-                center_cards.contains(card.as_str()) && !disabled_cards.contains(card.as_str())
-            })
-            .cloned()
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .take(max_votes)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .collect()
+        Self::take_last_preserving_order(
+            cards
+                .iter()
+                .filter(|card| {
+                    center_cards.contains(card.as_str()) && !disabled_cards.contains(card.as_str())
+                })
+                .cloned()
+                .collect(),
+            max_votes,
+        )
     }
 
     fn sanitize_beauty_vote_cards(
@@ -2474,14 +2487,7 @@ impl Room {
             sanitized.push(card.clone());
         }
 
-        sanitized
-            .into_iter()
-            .rev()
-            .take(max_votes)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .collect()
+        Self::take_last_preserving_order(sanitized, max_votes)
     }
 
     fn sanitize_stella_selection_cards(
@@ -2490,21 +2496,16 @@ impl Room {
         cards: &[String],
     ) -> Vec<String> {
         let max_cards = usize::from(state.stella_selection_max).min(state.stella_board_cards.len());
-        let board_cards = state.stella_board_cards.iter().collect::<HashSet<_>>();
-        let mut seen = HashSet::new();
-
-        cards
+        let board_cards = state
+            .stella_board_cards
             .iter()
-            .filter(|card| board_cards.contains(card) && seen.insert((*card).clone()))
-            .cloned()
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .take(max_cards)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .collect()
+            .map(String::as_str)
+            .collect::<HashSet<_>>();
+
+        Self::take_last_preserving_order(
+            Self::unique_valid_cards(cards, |card| board_cards.contains(card)),
+            max_cards,
+        )
     }
 
     fn has_non_forced_vote_token(
@@ -16804,6 +16805,79 @@ alpha
     }
 
     #[tokio::test]
+    async fn forced_storyteller_voting_does_not_count_observer_drafts() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            for player in ["host", "b", "c", "d"] {
+                add_player(&mut state, player, 0);
+            }
+            state.player_order = vec!["host".into(), "b".into(), "c".into(), "d".into()];
+            state.active_player = 0;
+            state.stage = RoomStage::Voting;
+            state.votes_per_guesser = 1;
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 31_101);
+            setup_connected_member(&mut state, "b", "t-b", 31_102);
+            setup_connected_member(&mut state, "c", "t-c", 31_103);
+
+            for (player, card) in [
+                ("host", "host-card"),
+                ("b", "b-card"),
+                ("c", "c-card"),
+                ("d", "d-card"),
+            ] {
+                state
+                    .player_to_current_cards
+                    .insert(player.to_string(), vec![card.to_string()]);
+            }
+        }
+
+        room.handle_client_msg(
+            "b",
+            31_102,
+            to_ws(ClientMsg::SetVoteDraft {
+                cards: vec!["host-card".into()],
+            }),
+        )
+        .await?;
+        room.handle_client_msg(
+            "c",
+            31_103,
+            to_ws(ClientMsg::SetVoteDraft {
+                cards: vec!["b-card".into()],
+            }),
+        )
+        .await?;
+        {
+            let mut state = room.state.write().await;
+            let converted = room
+                .convert_player_to_observer(&mut state, "c", false)
+                .await?;
+            assert!(converted, "test setup should move c to observers");
+            assert!(
+                state.player_to_vote_drafts.contains_key("c"),
+                "test setup should leave c's stale voting draft behind"
+            );
+        }
+
+        room.handle_client_msg("host", 31_101, to_ws(ClientMsg::ForceCurrentStage {}))
+            .await?;
+
+        let state = room.state.read().await;
+        assert!(
+            matches!(state.stage, RoomStage::Voting),
+            "observer drafts should not satisfy the manual participant count needed to force voting"
+        );
+        assert!(
+            !state.player_to_votes.contains_key("b"),
+            "voting should not be force-resolved from one active-player draft plus one observer draft"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn forced_players_choose_uses_unsubmitted_draft_cards() -> Result<()> {
         let room = test_room();
         {
@@ -16843,6 +16917,52 @@ alpha
             state.player_to_current_cards.get("b"),
             Some(&vec!["b-2".to_string()]),
             "draft card choices should be used before random card fill"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn forced_players_choose_deduplicates_unsubmitted_draft_cards() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            for player in ["host", "b", "c"] {
+                add_player(&mut state, player, 0);
+            }
+            state.player_order = vec!["host".into(), "b".into(), "c".into()];
+            state.active_player = 0;
+            state.stage = RoomStage::PlayersChoose;
+            state.current_description = "clue".into();
+            state.nominations_per_guesser = 2;
+            state.moderators.insert("host".to_string());
+            state
+                .player_to_current_cards
+                .insert("host".into(), vec!["host-1".into()]);
+            setup_connected_member(&mut state, "host", "t-host", 32_101);
+            setup_connected_member(&mut state, "b", "t-b", 32_102);
+        }
+
+        room.handle_client_msg(
+            "b",
+            32_102,
+            to_ws(ClientMsg::SetPlayerChooseDraft {
+                cards: vec!["b-1".into(), "b-2".into(), "b-2".into()],
+            }),
+        )
+        .await?;
+        room.handle_client_msg("host", 32_101, to_ws(ClientMsg::ForceCurrentStage {}))
+            .await?;
+
+        let state = room.state.read().await;
+        assert!(
+            matches!(state.stage, RoomStage::Voting),
+            "force current stage should advance card choosing into voting"
+        );
+        assert_eq!(
+            state.player_to_current_cards.get("b"),
+            Some(&vec!["b-1".to_string(), "b-2".to_string()]),
+            "draft card choices should deduplicate hand cards before truncating to the desired count"
         );
 
         Ok(())
