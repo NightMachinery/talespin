@@ -32,6 +32,9 @@ vote-divisor segment on their submitted cards / K)`
   including removals and player→observer conversions.
 - Vote-divisor scoring is computed on the server with integer tenths math, not floating-point
   `floor`; for example, `15` scoreable votes at manual `K = 3.0` scores `5` beauty points.
+- Prior-round vote remainders carry forward within the active vote-divisor segment. For example,
+  a player with `17` cumulative votes at manual `K = 3.0` has `5` beauty points; receiving `2`
+  more votes awards `+1` because `floor((17 + 2) / 3) - 5 = 1`.
 - Switching from `winner_bonus` to `vote_divisor` starts a fresh vote-divisor segment. Prior Most
   Beautiful audit/ranking votes can still appear in the ranking panel, but they are not scoreable
   vote-divisor votes for the fresh segment.

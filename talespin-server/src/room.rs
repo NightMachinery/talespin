@@ -13139,6 +13139,64 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cumulative_vote_divisor_carries_prior_round_remainders_across_rounds() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        for player in ["a", "b", "c", "d"] {
+            add_player(&mut state, player, 0);
+        }
+        state.game_mode = GameMode::DixitPlus;
+        state.beauty_enabled = true;
+        state.beauty_scoring_mode = BeautyScoringMode::VoteDivisor;
+        state.beauty_vote_points_divisor_mode = BeautyVotePointsDivisorMode::Manual;
+        state.beauty_vote_points_divisor_tenths = 30;
+        state.vote_divisor_member_to_cumulative_beauty_votes = HashMap::from([("b".into(), 17)]);
+        state.vote_divisor_member_to_points = room
+            .compute_vote_divisor_points_for_cumulative_votes(
+                &state,
+                &state.vote_divisor_member_to_cumulative_beauty_votes,
+                1,
+            );
+        state.vote_divisor_completed_rounds = 1;
+        state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into()];
+        state.active_player = 0;
+        state.nominations_per_guesser = 2;
+        state
+            .player_to_current_cards
+            .insert("a".into(), vec!["ca".into()]);
+        state
+            .player_to_current_cards
+            .insert("b".into(), vec!["cb1".into(), "cb2".into()]);
+        state
+            .player_to_current_cards
+            .insert("c".into(), vec!["cc".into()]);
+        state
+            .player_to_current_cards
+            .insert("d".into(), vec!["cd".into()]);
+        state
+            .player_to_beauty_votes
+            .insert("a".into(), vec!["cb1".into()]);
+        state
+            .player_to_beauty_votes
+            .insert("c".into(), vec!["cb2".into()]);
+
+        let point_change = room.compute_beauty_point_change(&state);
+        assert_eq!(
+            state.vote_divisor_member_to_points.get("b").copied(),
+            Some(5),
+            "17 prior votes at K=3.0 should have already awarded floor(17 / 3) points"
+        );
+        assert_eq!(
+            point_change.get("b").copied(),
+            Some(1),
+            "vote-divisor scoring should carry the prior remainder: floor((17 + 2) / 3) - 5 = 1"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn beauty_vote_divisor_scores_fifteen_votes_at_k_three_as_five_points() -> Result<()> {
         let room = test_room();
         let mut state = room.state.write().await;
