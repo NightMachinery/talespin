@@ -36,7 +36,10 @@
 	} from '$lib/types';
 	import { OFFLINE_STATUS_LABEL } from '$lib/presence';
 	import { formatWinCondition } from '$lib/winCondition';
-	import { shouldShowPointChange as shouldShowPointChangeForStage } from '$lib/leaderboardPointChange';
+	import {
+		shouldRenderPointChange as shouldRenderPointChangeForStage,
+		shouldShowPointChange as shouldShowPointChangeForStage
+	} from '$lib/leaderboardPointChange';
 
 	type CombinedScoreKey = 'total' | 'story' | 'beauty';
 
@@ -198,7 +201,27 @@
 	}
 
 	function shouldShowCombinedDeltaColumns() {
-		return activeLeaderboardViewMode === 'combined' && shouldShowPointChange();
+		return (
+			activeLeaderboardViewMode === 'combined' &&
+			shouldRenderPointChangeForStage(
+				pointChangeStage,
+				0,
+				leaderboardShowPointChangeOverride,
+				activeLeaderboardViewMode
+			)
+		);
+	}
+
+	function shouldShowStandalonePointChange(delta: number | null) {
+		return (
+			activeLeaderboardViewMode !== 'combined' &&
+			shouldRenderPointChangeForStage(
+				pointChangeStage,
+				delta,
+				leaderboardShowPointChangeOverride,
+				activeLeaderboardViewMode
+			)
+		);
 	}
 
 	function beautyPointsForPlayer(playerName: string) {
@@ -469,7 +492,7 @@
 							{/if}
 						</div>
 						<div class="shrink-0 text-right font-mono tabular-nums">
-							{#if activeLeaderboardViewMode !== 'combined' && shouldShowPointChange() && displayedPointChangeForPlayer(entry.name) !== 0}
+							{#if shouldShowStandalonePointChange(displayedPointChangeForPlayer(entry.name))}
 								<span class="mr-2 opacity-50"
 									>({formatSignedDelta(displayedPointChangeForPlayer(entry.name) ?? 0)})</span
 								>
@@ -566,7 +589,7 @@
 								{/if}
 							</div>
 							<div class="shrink-0 text-right font-mono tabular-nums">
-								{#if activeLeaderboardViewMode !== 'combined' && shouldShowPointChange() && observerEntry.displayPointChange !== 0}
+								{#if shouldShowStandalonePointChange(observerEntry.displayPointChange)}
 									<span class="mr-2 opacity-50"
 										>({formatSignedDelta(observerEntry.displayPointChange ?? 0)})</span
 									>
