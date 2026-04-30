@@ -984,6 +984,8 @@ struct RoomState {
     player_to_beauty_votes: HashMap<String, Vec<String>>,
     // private in-progress Most Beautiful vote drafts synced by connected clients
     player_to_beauty_vote_drafts: HashMap<String, Vec<String>>,
+    // whether this Dixit round has completed Most Beautiful voting before Results
+    beauty_voting_completed_this_round: bool,
     // for each player, the star rating they gave the storyteller clue
     player_to_clue_rating: HashMap<String, u16>,
     // voters whose ballot was completed or created via forced random voting
@@ -1236,6 +1238,7 @@ impl Room {
             player_to_vote_drafts: HashMap::new(),
             player_to_beauty_votes: HashMap::new(),
             player_to_beauty_vote_drafts: HashMap::new(),
+            beauty_voting_completed_this_round: false,
             player_to_clue_rating: HashMap::new(),
             forced_random_voters: HashSet::new(),
             forced_random_vote_cards: HashMap::new(),
@@ -1911,6 +1914,9 @@ impl Room {
     }
 
     fn advance_post_beauty_stage(&self, state: &mut RwLockWriteGuard<'_, RoomState>) -> Result<()> {
+        if matches!(state.stage, RoomStage::BeautyVoting) && self.beauty_enabled_for_round(state) {
+            state.beauty_voting_completed_this_round = true;
+        }
         if self.clue_rating_enabled_for_round(state) {
             self.init_clue_rating(state)
         } else {
@@ -4607,6 +4613,7 @@ impl Room {
         state.player_to_vote_drafts.clear();
         state.player_to_beauty_votes.clear();
         state.player_to_beauty_vote_drafts.clear();
+        state.beauty_voting_completed_this_round = false;
         state.player_to_clue_rating.clear();
         state.forced_random_voters.clear();
         state.forced_random_vote_cards.clear();
@@ -6769,6 +6776,7 @@ impl Room {
         state.player_to_vote_drafts.clear();
         state.player_to_beauty_votes.clear();
         state.player_to_beauty_vote_drafts.clear();
+        state.beauty_voting_completed_this_round = false;
         state.player_to_clue_rating.clear();
         state.forced_random_voters.clear();
         state.forced_random_vote_cards.clear();
@@ -6955,6 +6963,7 @@ impl Room {
         state.player_to_disabled_voting_cards.clear();
         state.player_to_beauty_votes.clear();
         state.player_to_beauty_vote_drafts.clear();
+        state.beauty_voting_completed_this_round = false;
         state.player_to_clue_rating.clear();
 
         for player in state.player_order.iter() {
@@ -6995,8 +7004,7 @@ impl Room {
 
     fn init_results(&self, state: &mut RwLockWriteGuard<RoomState>) -> Result<()> {
         let from_beauty_voting = matches!(state.stage, RoomStage::BeautyVoting);
-        let completed_beauty_voting = from_beauty_voting
-            || (state.beauty_enabled && matches!(state.stage, RoomStage::ClueRating));
+        let completed_beauty_voting = state.beauty_voting_completed_this_round;
         if !from_beauty_voting {
             self.autofill_missing_storyteller_votes(state)?;
         }
@@ -7032,7 +7040,11 @@ impl Room {
                 .entry(active_player)
                 .or_insert(0) += 1;
         }
-        state.beauty_point_change = self.compute_beauty_point_change(state);
+        state.beauty_point_change = if completed_beauty_voting {
+            self.compute_beauty_point_change(state)
+        } else {
+            HashMap::new()
+        };
         if completed_beauty_voting {
             self.record_most_beautiful_round_stats(state)?;
         }
@@ -7042,6 +7054,7 @@ impl Room {
         {
             self.commit_vote_divisor_round_scoring(state);
         }
+        state.beauty_voting_completed_this_round = false;
         state.previous_dixit_results = Some(self.previous_dixit_results_from_results(state)?);
 
         if self.uses_separate_beauty_results_stage(state) {
@@ -7127,6 +7140,7 @@ impl Room {
         state.player_to_votes.clear();
         state.player_to_vote_drafts.clear();
         state.player_to_beauty_vote_drafts.clear();
+        state.beauty_voting_completed_this_round = false;
         state.player_to_disabled_voting_cards.clear();
         state.stella_player_selections.clear();
         state.stella_player_selection_drafts.clear();
@@ -7804,6 +7818,7 @@ impl Room {
         state.player_to_vote_drafts.clear();
         state.player_to_beauty_votes.clear();
         state.player_to_beauty_vote_drafts.clear();
+        state.beauty_voting_completed_this_round = false;
         state.player_to_clue_rating.clear();
         state.forced_random_voters.clear();
         state.forced_random_vote_cards.clear();
@@ -13136,6 +13151,171 @@ mod tests {
             point_change.get("c").copied(),
             Some(1),
             "vote-divisor scoring should use cumulative current-game votes instead of only the current round"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn vote_divisor_commit_follows_completed_beauty_transition_matrix() -> Result<()> {
+        for (beauty_enabled, clue_rating_enabled, expected_commit) in [
+            (false, false, 0),
+            (false, true, 0),
+            (true, false, 1),
+            (true, true, 1),
+        ] {
+            let room = test_room();
+            let mut state = room.state.write().await;
+
+            for player in ["a", "b", "c"] {
+                add_player(&mut state, player, 0);
+            }
+            state.stage = RoomStage::Voting;
+            state.game_mode = GameMode::DixitPlus;
+            state.beauty_enabled = beauty_enabled;
+            state.clue_rating_enabled = clue_rating_enabled;
+            state.beauty_scoring_mode = BeautyScoringMode::VoteDivisor;
+            state.beauty_vote_points_divisor_mode = BeautyVotePointsDivisorMode::Manual;
+            state.beauty_vote_points_divisor_tenths = 30;
+            state.player_order = vec!["a".into(), "b".into(), "c".into()];
+            state.active_player = 0;
+            state.votes_per_guesser = 1;
+            state.current_description = "clue".to_string();
+            state
+                .player_to_current_cards
+                .insert("a".into(), vec!["ca".into()]);
+            state
+                .player_to_current_cards
+                .insert("b".into(), vec!["cb".into()]);
+            state
+                .player_to_current_cards
+                .insert("c".into(), vec!["cc".into()]);
+            state.player_to_votes.insert("b".into(), vec!["ca".into()]);
+            state.player_to_votes.insert("c".into(), vec!["ca".into()]);
+
+            room.advance_voting_stage(&mut state).await?;
+            if beauty_enabled {
+                assert!(matches!(state.stage, RoomStage::BeautyVoting));
+                state
+                    .player_to_beauty_votes
+                    .insert("a".into(), vec!["cb".into()]);
+                room.advance_post_beauty_stage(&mut state)?;
+            }
+            if clue_rating_enabled {
+                assert!(matches!(state.stage, RoomStage::ClueRating));
+                room.init_results(&mut state)?;
+            }
+
+            assert!(matches!(state.stage, RoomStage::Results));
+            assert_eq!(
+                state.vote_divisor_completed_rounds, expected_commit,
+                "beauty_enabled={beauty_enabled}, clue_rating_enabled={clue_rating_enabled} should commit only completed beauty rounds"
+            );
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn results_from_clue_rating_without_completed_beauty_round_skips_vote_divisor_commit(
+    ) -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        for player in ["a", "b", "c"] {
+            add_player(&mut state, player, 0);
+        }
+        state.stage = RoomStage::ClueRating;
+        state.game_mode = GameMode::DixitPlus;
+        state.beauty_enabled = true;
+        state.beauty_scoring_mode = BeautyScoringMode::VoteDivisor;
+        state.beauty_vote_points_divisor_mode = BeautyVotePointsDivisorMode::Manual;
+        state.beauty_vote_points_divisor_tenths = 30;
+        state.clue_rating_enabled = true;
+        state.player_order = vec!["a".into(), "b".into(), "c".into()];
+        state.active_player = 0;
+        state.votes_per_guesser = 1;
+        state.current_description = "clue".to_string();
+        state
+            .player_to_current_cards
+            .insert("a".into(), vec!["ca".into()]);
+        state
+            .player_to_current_cards
+            .insert("b".into(), vec!["cb".into()]);
+        state
+            .player_to_current_cards
+            .insert("c".into(), vec!["cc".into()]);
+        state.player_to_votes.insert("b".into(), vec!["ca".into()]);
+        state.player_to_votes.insert("c".into(), vec!["ca".into()]);
+        state
+            .player_to_beauty_votes
+            .insert("a".into(), vec!["cb".into()]);
+
+        room.init_results(&mut state)?;
+
+        assert_eq!(
+            state.vote_divisor_completed_rounds, 0,
+            "ClueRating alone must not imply that a Most Beautiful vote completed"
+        );
+        assert!(
+            state
+                .vote_divisor_member_to_cumulative_beauty_votes
+                .is_empty(),
+            "vote-divisor cumulative state should advance only from explicit completed beauty rounds"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn beauty_completion_flag_tracks_transition_and_resets_next_round() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        for player in ["a", "b", "c"] {
+            add_player(&mut state, player, 0);
+        }
+        state.stage = RoomStage::BeautyVoting;
+        state.game_mode = GameMode::DixitPlus;
+        state.beauty_enabled = true;
+        state.clue_rating_enabled = true;
+        state.player_order = vec!["a".into(), "b".into(), "c".into()];
+        state.active_player = 0;
+        state.current_description = "clue".to_string();
+        state
+            .player_to_current_cards
+            .insert("a".into(), vec!["ca".into()]);
+        state
+            .player_to_current_cards
+            .insert("b".into(), vec!["cb".into()]);
+        state
+            .player_to_current_cards
+            .insert("c".into(), vec!["cc".into()]);
+        state.player_to_votes.insert("b".into(), vec!["ca".into()]);
+        state.player_to_votes.insert("c".into(), vec!["ca".into()]);
+        state
+            .player_to_beauty_votes
+            .insert("a".into(), vec!["cb".into()]);
+
+        room.advance_post_beauty_stage(&mut state)?;
+
+        assert!(
+            state.beauty_voting_completed_this_round,
+            "leaving BeautyVoting should record the round fact independent of the next stage"
+        );
+        assert!(matches!(state.stage, RoomStage::ClueRating));
+
+        room.init_results(&mut state)?;
+        assert!(
+            !state.beauty_voting_completed_this_round,
+            "Results should consume the completed-beauty flag so later stages cannot reuse it"
+        );
+
+        state.deck = (0..32).map(|i| format!("draw-{i}")).collect();
+        room.init_round(&mut state).await?;
+        assert!(
+            !state.beauty_voting_completed_this_round,
+            "new Dixit rounds must start with no completed-beauty flag"
         );
 
         Ok(())
@@ -19447,6 +19627,7 @@ alpha
             state
                 .player_to_beauty_votes
                 .insert("d".into(), vec!["b-card".into()]);
+            state.beauty_voting_completed_this_round = true;
             state.deck = (0..200).map(|i| format!("draw-{}", i)).collect();
             room.init_results(&mut state)?;
             room.init_round(&mut state).await?;

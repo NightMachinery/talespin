@@ -36,9 +36,10 @@ vote-divisor segment on their submitted cards / K)`
   a player with `17` cumulative votes at manual `K = 3.0` has `5` beauty points; receiving `2`
   more votes awards `+1` because `floor((17 + 2) / 3) - 5 = 1`.
 - When Clue Rating is enabled with Most Beautiful, the round flows `BeautyVoting` →
-  `ClueRating` → `Results`. `ClueRating` is only an intermediate stage; entering results from
-  it must still record the just-finished beauty delta before audit/history and then advance the
-  vote-divisor cumulative segment state after audit/history.
+  `ClueRating` → `Results`. `ClueRating` is only an intermediate stage; the server tracks an
+  explicit per-round “beauty voting completed” fact so entering results still records the
+  just-finished beauty delta before audit/history and then advances the vote-divisor cumulative
+  segment state after audit/history.
 - Switching from `winner_bonus` to `vote_divisor` starts a fresh vote-divisor segment. Prior Most
   Beautiful audit/ranking votes can still appear in the ranking panel, but they are not scoreable
   vote-divisor votes for the fresh segment.
