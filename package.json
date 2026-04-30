@@ -8,7 +8,7 @@
 		"preview": "vite preview",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
-		"lint": "prettier --check . && eslint .",
+		"lint": "prettier --check '**/*.{js,cjs,mjs,ts,svelte}' '!.agents/**/*' && eslint . --ignore-pattern '.agents/**'",
 		"format": "prettier --write .",
 		"test": "vitest"
 	},

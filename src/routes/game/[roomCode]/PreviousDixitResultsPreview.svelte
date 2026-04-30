@@ -93,8 +93,7 @@
 				Clue stars: {formattedClueRatingAverage}★
 			</p>
 			<p class="text-white/75">
-				{snapshot.clue_rating_count} rating{snapshot.clue_rating_count === 1 ? '' : 's'} ·
-				+{snapshot.clue_rating_bonus}
+				{snapshot.clue_rating_count} rating{snapshot.clue_rating_count === 1 ? '' : 's'} · +{snapshot.clue_rating_bonus}
 			</p>
 		</div>
 	{/if}
