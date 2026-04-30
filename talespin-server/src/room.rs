@@ -6995,6 +6995,8 @@ impl Room {
 
     fn init_results(&self, state: &mut RwLockWriteGuard<RoomState>) -> Result<()> {
         let from_beauty_voting = matches!(state.stage, RoomStage::BeautyVoting);
+        let completed_beauty_voting = from_beauty_voting
+            || (state.beauty_enabled && matches!(state.stage, RoomStage::ClueRating));
         if !from_beauty_voting {
             self.autofill_missing_storyteller_votes(state)?;
         }
@@ -7031,11 +7033,12 @@ impl Room {
                 .or_insert(0) += 1;
         }
         state.beauty_point_change = self.compute_beauty_point_change(state);
-        if from_beauty_voting {
+        if completed_beauty_voting {
             self.record_most_beautiful_round_stats(state)?;
         }
         self.record_current_dixit_round_audit_and_history(state)?;
-        if from_beauty_voting && matches!(state.beauty_scoring_mode, BeautyScoringMode::VoteDivisor)
+        if completed_beauty_voting
+            && matches!(state.beauty_scoring_mode, BeautyScoringMode::VoteDivisor)
         {
             self.commit_vote_divisor_round_scoring(state);
         }
@@ -13133,6 +13136,112 @@ mod tests {
             point_change.get("c").copied(),
             Some(1),
             "vote-divisor scoring should use cumulative current-game votes instead of only the current round"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn beauty_vote_divisor_carries_remainder_through_clue_rating_stage() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        for player in ["a", "b", "c", "d"] {
+            add_player(&mut state, player, 0);
+        }
+        state.game_mode = GameMode::DixitPlus;
+        state.beauty_enabled = true;
+        state.beauty_scoring_mode = BeautyScoringMode::VoteDivisor;
+        state.beauty_vote_points_divisor_mode = BeautyVotePointsDivisorMode::Manual;
+        state.beauty_vote_points_divisor_tenths = 30;
+        state.clue_rating_enabled = true;
+        state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into()];
+        state.active_player = 0;
+        state.votes_per_guesser = 1;
+        state.beauty_votes_per_player = 1;
+
+        state.stage = RoomStage::BeautyVoting;
+        state.current_description = "first clue".to_string();
+        state
+            .player_to_current_cards
+            .insert("a".into(), vec!["ca1".into()]);
+        state
+            .player_to_current_cards
+            .insert("b".into(), vec!["cb1".into()]);
+        state
+            .player_to_current_cards
+            .insert("c".into(), vec!["cc1".into()]);
+        state
+            .player_to_current_cards
+            .insert("d".into(), vec!["cd1".into()]);
+        state.player_to_votes.insert("b".into(), vec!["ca1".into()]);
+        state.player_to_votes.insert("c".into(), vec!["ca1".into()]);
+        state.player_to_votes.insert("d".into(), vec!["ca1".into()]);
+        state
+            .player_to_beauty_votes
+            .insert("a".into(), vec!["cb1".into()]);
+        state
+            .player_to_beauty_votes
+            .insert("c".into(), vec!["cb1".into()]);
+        room.advance_post_beauty_stage(&mut state)?;
+        assert!(
+            matches!(state.stage, RoomStage::ClueRating),
+            "beauty voting should advance to clue rating before results when both are enabled"
+        );
+        room.init_results(&mut state)?;
+        assert!(
+            !state.beauty_point_change.contains_key("b"),
+            "two votes at K=3.0 should not award a first-round beauty point"
+        );
+
+        state.stage = RoomStage::BeautyVoting;
+        state.round = state.round.saturating_add(1);
+        state.current_description = "second clue".to_string();
+        state.player_to_current_cards.clear();
+        state.player_to_votes.clear();
+        state.player_to_beauty_votes.clear();
+        state.player_to_clue_rating.clear();
+        state
+            .player_to_current_cards
+            .insert("a".into(), vec!["ca2".into()]);
+        state
+            .player_to_current_cards
+            .insert("b".into(), vec!["cb2".into()]);
+        state
+            .player_to_current_cards
+            .insert("c".into(), vec!["cc2".into()]);
+        state
+            .player_to_current_cards
+            .insert("d".into(), vec!["cd2".into()]);
+        state.player_to_votes.insert("b".into(), vec!["ca2".into()]);
+        state.player_to_votes.insert("c".into(), vec!["ca2".into()]);
+        state.player_to_votes.insert("d".into(), vec!["ca2".into()]);
+        state
+            .player_to_beauty_votes
+            .insert("a".into(), vec!["cb2".into()]);
+        room.advance_post_beauty_stage(&mut state)?;
+        assert!(
+            matches!(state.stage, RoomStage::ClueRating),
+            "second beauty round should also pass through clue rating"
+        );
+        room.init_results(&mut state)?;
+
+        assert_eq!(
+            state.beauty_point_change.get("b").copied(),
+            Some(1),
+            "second-round vote-divisor delta should use floor((prior + current) / K) - prior_points"
+        );
+        assert_eq!(
+            state
+                .vote_divisor_member_to_cumulative_beauty_votes
+                .get("b")
+                .copied(),
+            Some(3),
+            "clue rating must not skip vote-divisor cumulative state commits"
+        );
+        assert_eq!(
+            state.vote_divisor_completed_rounds, 2,
+            "each completed Most Beautiful round should advance the vote-divisor segment"
         );
 
         Ok(())
