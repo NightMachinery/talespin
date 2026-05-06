@@ -19,7 +19,6 @@
 	} from '$lib/previousDixitResultsLeaderboard';
 	import Images from './Images.svelte';
 	import PreviousDixitResultsPreview from './PreviousDixitResultsPreview.svelte';
-	import ViewModeToggle from './ViewModeToggle.svelte';
 	import StageActionButtons from './StageActionButtons.svelte';
 	import StageShell from './StageShell.svelte';
 	import { getToastStore } from '@skeletonlabs/skeleton';

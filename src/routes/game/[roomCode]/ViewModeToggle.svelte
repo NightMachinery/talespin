@@ -26,6 +26,7 @@
 			aria-label={mode.label}
 			on:click={() => (value = mode.id)}
 		>
+			<!-- eslint-disable-next-line svelte/no-at-html-tags -- trusted local SVG assets -->
 			{@html icons[mode.icon]}
 		</button>
 	{/each}
