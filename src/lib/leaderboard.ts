@@ -45,12 +45,16 @@ export function scoreBreakdownsFromSnapshots(
 
 export function firstActiveRoundForPlayer(
 	history: LeaderboardRoundHistoryEntry[],
-	playerName: string
+	playerName: string,
+	currentRound?: { roundNum: number; activePlayers: string[] }
 ) {
 	for (const round of sortedLeaderboardHistory(history)) {
 		if (round.active_players.includes(playerName)) {
 			return round.round_num;
 		}
+	}
+	if (currentRound?.activePlayers.includes(playerName)) {
+		return currentRound.roundNum;
 	}
 	return null;
 }

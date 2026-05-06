@@ -113,7 +113,10 @@
 		leaderboardStoryPointChangeOverride ?? $storytellerLeaderboardPointChange;
 	$: effectiveBeautyPointChange =
 		leaderboardBeautyPointChangeOverride ?? $beautyLeaderboardPointChange;
-	$: viewerJoinedRound = firstActiveRoundForPlayer($leaderboardRoundHistory, name);
+	$: viewerJoinedRound = firstActiveRoundForPlayer($leaderboardRoundHistory, name, {
+		roundNum,
+		activePlayers: Object.keys(players)
+	});
 	$: canShowSinceJoined = viewerJoinedRound !== null;
 	$: if (!canShowSinceJoined || activeLeaderboardViewMode === 'clue_stars') {
 		showSinceJoined = false;

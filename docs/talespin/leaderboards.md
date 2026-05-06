@@ -23,8 +23,10 @@ active round were the start of the game.
 - Pending observers who appear in score snapshots before their first active round do not anchor a
   zero-point offset; if they become active later, they receive that later round's simulated filtered
   minimum instead.
-- Live active players whose first scored round has not been recorded yet also start at the current
-  minimum filtered active-player score.
+- Live active players whose first scored round has not been recorded yet are included in available
+  cutoff rounds immediately. In older viewers' filtered leaderboards they start at the current
+  minimum filtered active-player score; in their own current-round cutoff, all active players start
+  from `0` until an in-scope scored round is recorded.
 - Non-active scored members and observers start from `0` when they first appear; they do not receive
   the active-player join floor unless they first enter the filtered replay as active players.
 - The view is local to the current browser session and defaults to off.

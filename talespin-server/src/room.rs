@@ -3898,25 +3898,31 @@ impl Room {
     ) -> HashMap<u16, HashMap<String, LeaderboardScoreSnapshot>> {
         let history = self.leaderboard_round_history(state);
         let entries = Self::current_leaderboard_score_entries(state);
-        Self::leaderboard_since_joined_score_maps(&entries, &history)
+        Self::leaderboard_since_joined_score_maps(&entries, &history, Some(state.round))
     }
 
     fn leaderboard_since_joined_score_maps(
         entries: &[CurrentLeaderboardScoreEntry],
         history: &[LeaderboardRoundHistoryEntry],
+        current_round: Option<u16>,
     ) -> HashMap<u16, HashMap<String, LeaderboardScoreSnapshot>> {
-        let cutoff_rounds = Self::sorted_leaderboard_history(history)
+        let mut cutoff_rounds = Self::sorted_leaderboard_history(history)
             .into_iter()
             .filter(|round| !round.active_players.is_empty())
             .map(|round| round.round_num)
             .collect::<BTreeSet<_>>();
+        if entries.iter().any(|entry| entry.is_player) {
+            if let Some(current_round) = current_round {
+                cutoff_rounds.insert(current_round);
+            }
+        }
 
         cutoff_rounds
             .into_iter()
             .map(|cutoff_round| {
                 (
                     cutoff_round,
-                    Self::since_joined_score_map(entries, history, cutoff_round),
+                    Self::since_joined_score_map(entries, history, cutoff_round, current_round),
                 )
             })
             .collect()
@@ -3926,10 +3932,15 @@ impl Room {
         entries: &[CurrentLeaderboardScoreEntry],
         history: &[LeaderboardRoundHistoryEntry],
         start_round: u16,
+        current_round: Option<u16>,
     ) -> HashMap<String, LeaderboardScoreSnapshot> {
         let sorted_history = Self::sorted_leaderboard_history(history);
-        let first_active_rounds =
-            Self::first_active_rounds_at_or_after(&sorted_history, start_round);
+        let first_active_rounds = Self::first_active_rounds_at_or_after(
+            entries,
+            &sorted_history,
+            start_round,
+            current_round,
+        );
         let mut simulated_scores = HashMap::<String, LeaderboardScoreSnapshot>::new();
         let mut snapshot_offsets = HashMap::<String, (i32, i32)>::new();
 
@@ -4042,8 +4053,10 @@ impl Room {
     }
 
     fn first_active_rounds_at_or_after(
+        entries: &[CurrentLeaderboardScoreEntry],
         history: &[&LeaderboardRoundHistoryEntry],
         start_round: u16,
+        current_round: Option<u16>,
     ) -> HashMap<String, u16> {
         let mut first_active_rounds = HashMap::new();
         for round in history
@@ -4054,6 +4067,13 @@ impl Room {
                 first_active_rounds
                     .entry(player_name.clone())
                     .or_insert(round.round_num);
+            }
+        }
+        if let Some(current_round) = current_round.filter(|round_num| *round_num >= start_round) {
+            for entry in entries.iter().filter(|entry| entry.is_player) {
+                first_active_rounds
+                    .entry(entry.name.clone())
+                    .or_insert(current_round);
             }
         }
         first_active_rounds
@@ -16290,7 +16310,7 @@ alpha
             },
         ];
 
-        let maps = Room::leaderboard_since_joined_score_maps(&entries, &history);
+        let maps = Room::leaderboard_since_joined_score_maps(&entries, &history, None);
         let round_one = maps.get(&1).expect("round 1 projection should exist");
 
         assert_eq!(
@@ -16350,7 +16370,7 @@ alpha
             },
         ];
 
-        let maps = Room::leaderboard_since_joined_score_maps(&entries, &history);
+        let maps = Room::leaderboard_since_joined_score_maps(&entries, &history, None);
         let round_one = maps.get(&1).expect("round 1 projection should exist");
 
         assert_eq!(
@@ -16410,7 +16430,7 @@ alpha
             },
         ];
 
-        let bob_view = Room::since_joined_score_map(&entries, &history, 2);
+        let bob_view = Room::since_joined_score_map(&entries, &history, 2, None);
 
         assert_eq!(
             bob_view.get("Alice"),
@@ -16462,7 +16482,7 @@ alpha
             },
         ];
 
-        let alice_view = Room::since_joined_score_map(&entries, &history, 1);
+        let alice_view = Room::since_joined_score_map(&entries, &history, 1, None);
 
         assert_eq!(
             alice_view.get("Observer"),
@@ -16543,7 +16563,7 @@ alpha
             },
         ];
 
-        let maps = Room::leaderboard_since_joined_score_maps(&entries, &history);
+        let maps = Room::leaderboard_since_joined_score_maps(&entries, &history, None);
         let bob_view = maps.get(&3).expect("Bob cutoff projection should exist");
 
         assert_eq!(
@@ -16651,7 +16671,7 @@ alpha
             },
         ];
 
-        let maps = Room::leaderboard_since_joined_score_maps(&entries, &history);
+        let maps = Room::leaderboard_since_joined_score_maps(&entries, &history, None);
         let bob_view = maps.get(&3).expect("Bob cutoff projection should exist");
 
         assert_eq!(
@@ -16731,7 +16751,7 @@ alpha
             },
         ];
 
-        let bob_view = Room::since_joined_score_map(&entries, &history, 3);
+        let bob_view = Room::since_joined_score_map(&entries, &history, 3, None);
 
         assert_eq!(
             bob_view.get("Alice"),
@@ -16739,6 +16759,108 @@ alpha
                 total: 6,
                 beauty: 0
             })
+        );
+    }
+
+    #[test]
+    fn since_joined_maps_include_current_round_cutoff_for_live_players() {
+        let history = vec![LeaderboardRoundHistoryEntry {
+            round_num: 1,
+            active_players: vec!["Existing".into()],
+            total_deltas: HashMap::from([("Existing".into(), 10)]),
+            beauty_deltas: HashMap::new(),
+            total_after_round: HashMap::from([("Existing".into(), 10)]),
+            beauty_total_after_round: HashMap::new(),
+        }];
+        let entries = vec![
+            CurrentLeaderboardScoreEntry {
+                name: "Existing".into(),
+                is_player: true,
+                has_score: true,
+            },
+            CurrentLeaderboardScoreEntry {
+                name: "Fresh".into(),
+                is_player: true,
+                has_score: true,
+            },
+        ];
+
+        let maps = Room::leaderboard_since_joined_score_maps(&entries, &history, Some(2));
+        let current_round = maps
+            .get(&2)
+            .expect("current live round projection should exist");
+
+        assert_eq!(
+            current_round.get("Existing"),
+            Some(&LeaderboardScoreSnapshot {
+                total: 0,
+                beauty: 0
+            })
+        );
+        assert_eq!(
+            current_round.get("Fresh"),
+            Some(&LeaderboardScoreSnapshot {
+                total: 0,
+                beauty: 0
+            })
+        );
+    }
+
+    #[test]
+    fn since_joined_live_active_observer_snapshot_gets_floor_in_older_views() {
+        let history = vec![
+            LeaderboardRoundHistoryEntry {
+                round_num: 1,
+                active_players: vec!["Existing".into()],
+                total_deltas: HashMap::from([("Existing".into(), 10)]),
+                beauty_deltas: HashMap::new(),
+                total_after_round: HashMap::from([("Existing".into(), 10)]),
+                beauty_total_after_round: HashMap::new(),
+            },
+            LeaderboardRoundHistoryEntry {
+                round_num: 2,
+                active_players: vec!["Existing".into()],
+                total_deltas: HashMap::from([("Existing".into(), 5)]),
+                beauty_deltas: HashMap::new(),
+                total_after_round: HashMap::from([("Existing".into(), 15), ("Fresh".into(), 0)]),
+                beauty_total_after_round: HashMap::new(),
+            },
+            LeaderboardRoundHistoryEntry {
+                round_num: 3,
+                active_players: vec!["Existing".into(), "Bob".into()],
+                total_deltas: HashMap::from([("Existing".into(), 3), ("Bob".into(), 2)]),
+                beauty_deltas: HashMap::new(),
+                total_after_round: HashMap::from([("Existing".into(), 18), ("Bob".into(), 17)]),
+                beauty_total_after_round: HashMap::new(),
+            },
+        ];
+        let entries = vec![
+            CurrentLeaderboardScoreEntry {
+                name: "Existing".into(),
+                is_player: true,
+                has_score: true,
+            },
+            CurrentLeaderboardScoreEntry {
+                name: "Bob".into(),
+                is_player: true,
+                has_score: true,
+            },
+            CurrentLeaderboardScoreEntry {
+                name: "Fresh".into(),
+                is_player: true,
+                has_score: true,
+            },
+        ];
+
+        let bob_view = Room::since_joined_score_map(&entries, &history, 3, Some(4));
+
+        assert_eq!(
+            bob_view.get("Fresh"),
+            Some(&LeaderboardScoreSnapshot {
+                total: 2,
+                beauty: 0
+            }),
+            "fresh current-round players should receive the older view's live simulated floor"
         );
     }
 
@@ -16778,7 +16900,7 @@ alpha
             },
         ];
 
-        let maps = Room::leaderboard_since_joined_score_maps(&entries, &history);
+        let maps = Room::leaderboard_since_joined_score_maps(&entries, &history, None);
         let round_one = maps.get(&1).expect("round 1 projection should exist");
 
         assert_eq!(

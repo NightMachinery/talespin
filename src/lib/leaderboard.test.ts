@@ -24,6 +24,24 @@ describe('firstActiveRoundForPlayer', () => {
 	test('returns null when the member has not been active in recorded history', () => {
 		expect(firstActiveRoundForPlayer([round(1, ['Alice'])], 'PendingObserver')).toBeNull();
 	});
+
+	test('returns the current round when the member first became active in the live round', () => {
+		expect(
+			firstActiveRoundForPlayer([round(1, ['Alice']), round(2, ['Alice'])], 'Bob', {
+				roundNum: 3,
+				activePlayers: ['Alice', 'Bob']
+			})
+		).toBe(3);
+	});
+
+	test('prefers historical first active round over the current live round', () => {
+		expect(
+			firstActiveRoundForPlayer([round(2, ['Bob'])], 'Bob', {
+				roundNum: 5,
+				activePlayers: ['Alice', 'Bob']
+			})
+		).toBe(2);
+	});
 });
 
 describe('scoreBreakdownsFromSnapshots', () => {
