@@ -23,6 +23,8 @@
 	export let gameServer: GameServer;
 	export let stage = '';
 	export let allowNewPlayersMidgame = true;
+	export let copyCardUrlOnHold = false;
+	export let moderatorAbsencePromotionDelayS = 480;
 	export let storytellerLossComplement = 0;
 	export let storytellerLossComplementMin = 0;
 	export let storytellerLossComplementMax = 0;
@@ -287,6 +289,8 @@
 								{gameServer}
 								{stage}
 								{allowNewPlayersMidgame}
+								{copyCardUrlOnHold}
+								{moderatorAbsencePromotionDelayS}
 								{storytellerLossComplement}
 								{storytellerLossComplementMin}
 								{storytellerLossComplementMax}
@@ -374,6 +378,8 @@
 							{gameServer}
 							{stage}
 							{allowNewPlayersMidgame}
+							{copyCardUrlOnHold}
+							{moderatorAbsencePromotionDelayS}
 							{storytellerLossComplement}
 							{storytellerLossComplementMin}
 							{storytellerLossComplementMax}

@@ -177,6 +177,22 @@ class GameServer {
 		});
 	}
 
+	setCopyCardUrlOnHold(enabled: boolean) {
+		this.send({
+			SetCopyCardUrlOnHold: {
+				enabled
+			}
+		});
+	}
+
+	setModeratorAbsencePromotionDelay(seconds: number) {
+		this.send({
+			SetModeratorAbsencePromotionDelay: {
+				seconds
+			}
+		});
+	}
+
 	setGameMode(game_mode: 'dixit_plus' | 'stella') {
 		this.send({
 			SetGameMode: {
@@ -683,6 +699,18 @@ class GameServer {
 	forceStartNextRound() {
 		this.send({
 			ForceStartNextRound: {}
+		});
+	}
+
+	forceEndGame() {
+		this.send({
+			ForceEndGame: {}
+		});
+	}
+
+	resetClue() {
+		this.send({
+			ResetClue: {}
 		});
 	}
 

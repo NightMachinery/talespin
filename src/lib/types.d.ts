@@ -28,6 +28,8 @@ export type LeaderboardViewMode =
 	| 'combined'
 	| 'clue_stars';
 
+export type ResultsNextAction = 'next_round' | 'beauty_results' | 'end_game';
+
 export type PreviousDixitResultsView =
 	| {
 			kind: 'results';

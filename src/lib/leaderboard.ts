@@ -24,6 +24,44 @@ export const leaderboardSinceJoinedScoresByRound = writable<
 	Record<number, Record<string, LeaderboardScoreSnapshot>>
 >({});
 
+export function rankLeaderboardEntries<T extends { name: string }>(
+	entries: T[],
+	scoreForEntry: (entry: T) => number | null,
+	options: {
+		nullsLast?: boolean;
+		tiebreaker?: (a: T, b: T) => number;
+	} = {}
+): Array<T & { rank: number; isTopScore: boolean }> {
+	const { nullsLast = false, tiebreaker = (a, b) => a.name.localeCompare(b.name) } = options;
+	const sortedEntries = [...entries].sort((a, b) => {
+		const aValue = scoreForEntry(a);
+		const bValue = scoreForEntry(b);
+		if (nullsLast) {
+			if (bValue === null && aValue !== null) return -1;
+			if (aValue === null && bValue !== null) return 1;
+		}
+		const valueDiff = (bValue ?? 0) - (aValue ?? 0);
+		if (valueDiff !== 0) return valueDiff;
+		return tiebreaker(a, b);
+	});
+	const topValue = sortedEntries.length > 0 ? scoreForEntry(sortedEntries[0]) : null;
+
+	let previousValue: number | null | undefined = undefined;
+	let previousRank = 0;
+
+	return sortedEntries.map((entry, index) => {
+		const currentValue = scoreForEntry(entry);
+		const rank = previousValue === currentValue ? previousRank : index + 1;
+		previousValue = currentValue;
+		previousRank = rank;
+		return {
+			...entry,
+			rank,
+			isTopScore: topValue !== null && currentValue === topValue
+		};
+	});
+}
+
 export function scoreBreakdown(total: number, beauty: number): LeaderboardScoreBreakdown {
 	return {
 		total,
@@ -106,44 +144,17 @@ export function rankEntriesByMode(
 	}>,
 	mode: LeaderboardViewMode
 ): RankedLeaderboardEntry[] {
-	const sortedEntries = [...entries].sort((a, b) => {
-		const bValue = leaderboardModeValue(mode, b.breakdown, b.clueStars ?? null);
-		const aValue = leaderboardModeValue(mode, a.breakdown, a.clueStars ?? null);
-		if (mode === 'clue_stars') {
-			if (bValue === null && aValue !== null) return -1;
-			if (aValue === null && bValue !== null) return 1;
-			if (aValue !== null && bValue !== null) {
-				const valueDiff = bValue - aValue;
-				if (valueDiff !== 0) return valueDiff;
+	return rankLeaderboardEntries(
+		entries.map((entry) => ({ ...entry, clueStars: entry.clueStars ?? null })),
+		(entry) => leaderboardModeValue(mode, entry.breakdown, entry.clueStars),
+		{
+			nullsLast: mode === 'clue_stars',
+			tiebreaker: (a, b) => {
+				if (b.breakdown.total !== a.breakdown.total) return b.breakdown.total - a.breakdown.total;
+				return a.name.localeCompare(b.name);
 			}
-		} else {
-			const valueDiff = (bValue ?? 0) - (aValue ?? 0);
-			if (valueDiff !== 0) return valueDiff;
 		}
-		if (b.breakdown.total !== a.breakdown.total) return b.breakdown.total - a.breakdown.total;
-		return a.name.localeCompare(b.name);
-	});
-	const topValue =
-		sortedEntries.length > 0
-			? leaderboardModeValue(mode, sortedEntries[0].breakdown, sortedEntries[0].clueStars ?? null)
-			: null;
-
-	let previousValue: number | null = null;
-	let previousRank = 0;
-
-	return sortedEntries.map(({ name, breakdown, clueStars }, index) => {
-		const currentValue = leaderboardModeValue(mode, breakdown, clueStars ?? null);
-		const rank = previousValue === currentValue ? previousRank : index + 1;
-		previousValue = currentValue;
-		previousRank = rank;
-		return {
-			name,
-			breakdown,
-			clueStars: clueStars ?? null,
-			rank,
-			isTopScore: topValue !== null && currentValue === topValue
-		};
-	});
+	);
 }
 
 function digitCount(value: number) {

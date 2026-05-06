@@ -36,6 +36,8 @@
 	export let chosenCard = '';
 	export let players: { [key: string]: PlayerInfo } = {};
 	export let allowNewPlayersMidgame = true;
+	export let copyCardUrlOnHold = false;
+	export let moderatorAbsencePromotionDelayS = 480;
 	export let storytellerLossComplement = 0;
 	export let storytellerLossComplementMin = 0;
 	export let storytellerLossComplementMax = 0;
@@ -254,6 +256,16 @@
 		const card = event.detail;
 		gameServer.setHandCardPinned(card, !pinnedCardSet.has(card));
 	}
+
+	function resetClue() {
+		if (!isModerator) return;
+		if (
+			typeof window === 'undefined' ||
+			window.confirm('Reset the clue and return to storyteller choosing?')
+		) {
+			gameServer.resetClue();
+		}
+	}
 </script>
 
 <StageShell
@@ -265,6 +277,8 @@
 	{gameServer}
 	{stage}
 	{allowNewPlayersMidgame}
+	{copyCardUrlOnHold}
+	{moderatorAbsencePromotionDelayS}
 	{storytellerLossComplement}
 	{storytellerLossComplementMin}
 	{storytellerLossComplementMax}
@@ -424,7 +438,21 @@
 			{/if}
 		{/if}
 		{#if isModerator}
-			<div class="card light p-4">
+			<div class="card light space-y-3 p-4">
+				<button
+					type="button"
+					class="btn variant-filled h-10 w-10 p-0"
+					title="Reset clue"
+					aria-label="Reset clue"
+					on:click={resetClue}
+				>
+					<svg class="mx-auto h-5 w-5" viewBox="0 0 24 24" aria-hidden="true">
+						<path
+							fill="currentColor"
+							d="M12 4a8 8 0 0 1 7.7 5.9l1.1-1.1a1 1 0 1 1 1.4 1.4l-3 3a1 1 0 0 1-1.4 0l-3-3a1 1 0 1 1 1.4-1.4l1.4 1.4A6 6 0 1 0 12 18a6 6 0 0 0 4.2-1.7 1 1 0 0 1 1.4 1.4A8 8 0 1 1 12 4Z"
+						/>
+					</svg>
+				</button>
 				<StageActionButtons
 					actions={[
 						{ label: 'Force Random', onClick: () => gameServer.forceCurrentStage() },
@@ -506,6 +534,20 @@
 				</div>
 			{/if}
 			{#if isModerator}
+				<button
+					type="button"
+					class="btn variant-filled h-10 w-10 p-0"
+					title="Reset clue"
+					aria-label="Reset clue"
+					on:click={resetClue}
+				>
+					<svg class="mx-auto h-5 w-5" viewBox="0 0 24 24" aria-hidden="true">
+						<path
+							fill="currentColor"
+							d="M12 4a8 8 0 0 1 7.7 5.9l1.1-1.1a1 1 0 1 1 1.4 1.4l-3 3a1 1 0 0 1-1.4 0l-3-3a1 1 0 1 1 1.4-1.4l1.4 1.4A6 6 0 1 0 12 18a6 6 0 0 0 4.2-1.7 1 1 0 0 1 1.4 1.4A8 8 0 1 1 12 4Z"
+						/>
+					</svg>
+				</button>
 				<StageActionButtons
 					actions={[
 						{ label: 'Force Random', onClick: () => gameServer.forceCurrentStage() },
@@ -536,6 +578,7 @@
 					pinTogglesEnabled={isChooser || isStoryteller}
 					on:select={handleCardSelect}
 					on:pinToggle={handlePinToggle}
+					{copyCardUrlOnHold}
 				/>
 			</div>
 		</div>

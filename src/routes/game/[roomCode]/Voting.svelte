@@ -7,6 +7,8 @@
 		CARD_NUMBER_NAVIGATOR_SCROLL_MARGIN_TOP
 	} from '$lib/cardNumberNavigator';
 	import { CARD_IMAGE_ALT_TEXT } from '$lib/cardImageText';
+	import { longPressCardCopy } from '$lib/cardLongPressCopy';
+	import { copyTextToClipboard } from '$lib/clipboard';
 	import CardImage from '$lib/CardImage.svelte';
 	import { http_host } from '$lib/gameServer';
 	import type GameServer from '$lib/gameServer';
@@ -29,6 +31,8 @@
 	export let description = '';
 	export let players: { [key: string]: PlayerInfo } = {};
 	export let allowNewPlayersMidgame = true;
+	export let copyCardUrlOnHold = false;
+	export let moderatorAbsencePromotionDelayS = 480;
 	export let storytellerLossComplement = 0;
 	export let storytellerLossComplementMin = 0;
 	export let storytellerLossComplementMax = 0;
@@ -244,6 +248,16 @@
 			timeout: 2500
 		});
 	}
+
+	function handleCardUrlCopy(url: string) {
+		void copyTextToClipboard(url).then(() => {
+			toastStore.trigger({
+				message: '🖼️ Card image URL copied',
+				autohide: true,
+				timeout: 1800
+			});
+		});
+	}
 </script>
 
 <StageShell
@@ -255,6 +269,8 @@
 	{gameServer}
 	{stage}
 	{allowNewPlayersMidgame}
+	{copyCardUrlOnHold}
+	{moderatorAbsencePromotionDelayS}
 	{storytellerLossComplement}
 	{storytellerLossComplementMin}
 	{storytellerLossComplementMax}
@@ -440,7 +456,7 @@
 
 	<div class="flex h-full min-h-0 flex-col">
 		{#if viewMode === 'hand'}
-			<MyCardsPanel hand={myHandImages} {pinnedCards} {gameServer} />
+			<MyCardsPanel hand={myHandImages} {pinnedCards} {gameServer} {copyCardUrlOnHold} />
 		{:else}
 			<h2 class="mb-2 hidden text-lg font-semibold lg:block">Cards on table</h2>
 			<CardNumberNavigator
@@ -461,6 +477,11 @@
 						class={`${tableButtonClass} ${isDisabled || !isVoter ? 'cursor-default' : ''}`}
 						style:scroll-margin-top={CARD_NUMBER_NAVIGATOR_SCROLL_MARGIN_TOP}
 						disabled={!isVoter || isDisabled}
+						use:longPressCardCopy={{
+							card: image,
+							enabled: copyCardUrlOnHold,
+							onCopy: handleCardUrlCopy
+						}}
 						on:click={() => cycleCardVote(image)}
 					>
 						<CardImage

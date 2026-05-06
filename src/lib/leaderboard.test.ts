@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'vitest';
-import { firstActiveRoundForPlayer, scoreBreakdownsFromSnapshots } from './leaderboard';
+import {
+	firstActiveRoundForPlayer,
+	rankEntriesByMode,
+	rankLeaderboardEntries,
+	scoreBreakdownsFromSnapshots
+} from './leaderboard';
 import type { LeaderboardRoundHistoryEntry } from './types';
 
 function round(round_num: number, active_players: string[]): LeaderboardRoundHistoryEntry {
@@ -57,5 +62,43 @@ describe('scoreBreakdownsFromSnapshots', () => {
 
 	test('treats a missing server map as an empty display map', () => {
 		expect(scoreBreakdownsFromSnapshots(undefined).size).toBe(0);
+	});
+});
+
+describe('rankLeaderboardEntries', () => {
+	test('assigns the same competition rank to equal clue-star scores', () => {
+		const ranked = rankEntriesByMode(
+			[
+				{ name: 'Alice', breakdown: { total: 7, story: 7, beauty: 0 }, clueStars: 4.5 },
+				{ name: 'Bob', breakdown: { total: 9, story: 9, beauty: 0 }, clueStars: 4.5 },
+				{ name: 'Carol', breakdown: { total: 12, story: 12, beauty: 0 }, clueStars: 3 },
+				{ name: 'Drew', breakdown: { total: 2, story: 2, beauty: 0 }, clueStars: null }
+			],
+			'clue_stars'
+		);
+
+		expect(ranked.map(({ name, rank }) => ({ name, rank }))).toEqual([
+			{ name: 'Bob', rank: 1 },
+			{ name: 'Alice', rank: 1 },
+			{ name: 'Carol', rank: 3 },
+			{ name: 'Drew', rank: 4 }
+		]);
+	});
+
+	test('supports future leaderboard rankers through a shared helper', () => {
+		const ranked = rankLeaderboardEntries(
+			[
+				{ name: 'B', value: 8 },
+				{ name: 'A', value: 8 },
+				{ name: 'C', value: 3 }
+			],
+			(entry) => entry.value
+		);
+
+		expect(ranked.map(({ name, rank, isTopScore }) => ({ name, rank, isTopScore }))).toEqual([
+			{ name: 'A', rank: 1, isTopScore: true },
+			{ name: 'B', rank: 1, isTopScore: true },
+			{ name: 'C', rank: 3, isTopScore: false }
+		]);
 	});
 });

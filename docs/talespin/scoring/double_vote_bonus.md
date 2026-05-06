@@ -17,7 +17,7 @@ Each storyteller-loss row has a **Follow normal** checkbox.
 
 Default and bounds:
 
-- normal default: `1`
+- normal default: `2`
 - too-many-wrong default: follow normal
 - too-many-correct default: follow normal
 - allowed range for every branch: `0..10`

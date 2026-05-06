@@ -1,5 +1,5 @@
-import { browser } from '$app/environment';
 import { writable } from 'svelte/store';
+export { copyTextToClipboard } from '$lib/clipboard';
 
 export interface RoomMigrationState {
 	roomCode: string;
@@ -89,24 +89,4 @@ export function buildMigrateDeviceLink({
 	}
 
 	return migrateUrl.toString();
-}
-
-export async function copyTextToClipboard(text: string) {
-	if (!browser || text.trim() === '') {
-		return;
-	}
-
-	try {
-		await navigator.clipboard.writeText(text);
-	} catch {
-		const textArea = document.createElement('textarea');
-		textArea.value = text;
-		textArea.style.position = 'fixed';
-		textArea.style.opacity = '0';
-		document.body.appendChild(textArea);
-		textArea.focus();
-		textArea.select();
-		document.execCommand('copy');
-		document.body.removeChild(textArea);
-	}
 }

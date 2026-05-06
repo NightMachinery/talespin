@@ -7,6 +7,7 @@
 	export let gameServer: GameServer;
 	export let title = 'My Cards';
 	export let canTogglePins = true;
+	export let copyCardUrlOnHold = false;
 
 	$: pinnedSet = new Set(pinnedCards);
 
@@ -23,6 +24,7 @@
 		{#if hand.length > 0}
 			<Images
 				displayImages={hand}
+				{copyCardUrlOnHold}
 				mode="hand"
 				selectable={canTogglePins}
 				pinnedImages={pinnedCards}

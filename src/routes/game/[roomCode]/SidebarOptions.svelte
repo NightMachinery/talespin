@@ -76,6 +76,8 @@
 	export let activePlayer = '';
 	export let gameMode: GameMode = 'dixit_plus';
 	export let allowNewPlayersMidgame = true;
+	export let copyCardUrlOnHold = false;
+	export let moderatorAbsencePromotionDelayS = 480;
 	export let storytellerLossComplement = 0;
 	export let storytellerLossComplementMin = 0;
 	export let storytellerLossComplementMax = 0;
@@ -152,6 +154,7 @@
 	export let gameServer: GameServer;
 
 	$: moderatorSet = new Set(moderators);
+	$: storytellerPoolPlayerSet = new Set(storytellerPoolPlayers);
 	$: sortedPlayerEntries = Object.entries(players).sort(([a], [b]) => a.localeCompare(b));
 	$: sortedObserverEntries = Object.entries(observers).sort(([a], [b]) => a.localeCompare(b));
 	$: isCreator = creator !== '' && creator === name;
@@ -206,6 +209,16 @@
 	$: canChangeStorytellerScoringSettings = isDixitMode
 		? canChangeLiveDixitSettings
 		: stage !== 'End';
+	$: canEditStorytellerPool =
+		isDixitMode &&
+		(stage === 'Joining' ||
+			stage === 'ActiveChooses' ||
+			stage === 'PlayersChoose' ||
+			stage === 'Voting' ||
+			stage === 'BeautyVoting' ||
+			stage === 'ClueRating' ||
+			stage === 'Results' ||
+			stage === 'BeautyResults');
 	$: canChangeNumberOverlaySetting = isStellaMode
 		? stage === 'StellaAssociate'
 		: canChangeLiveDixitSettings;
@@ -354,6 +367,48 @@
 	function updateAllowMidgameJoin(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
 		gameServer.setAllowMidgameJoin(input.checked);
+	}
+
+	function updateCopyCardUrlOnHold(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		if (!isModerator) {
+			input.checked = copyCardUrlOnHold;
+			return;
+		}
+		gameServer.setCopyCardUrlOnHold(input.checked);
+	}
+
+	function updateModeratorAbsencePromotionDelay(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const parsed = Number(input.value);
+		if (!isModerator || !Number.isInteger(parsed) || parsed < 0 || parsed > 24 * 60 * 60) {
+			input.value = `${moderatorAbsencePromotionDelayS}`;
+			return;
+		}
+		if (parsed !== moderatorAbsencePromotionDelayS) {
+			gameServer.setModeratorAbsencePromotionDelay(parsed);
+		}
+	}
+
+	function updateStorytellerPoolEnabled(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		if (!isModerator || !canEditStorytellerPool) {
+			input.checked = storytellerPoolEnabled;
+			return;
+		}
+		gameServer.setStorytellerPoolEnabled(input.checked);
+	}
+
+	function updateStorytellerPoolPlayer(playerName: string, enabled: boolean) {
+		if (!isModerator || !canEditStorytellerPool) return;
+		const nextPlayers = enabled
+			? [...storytellerPoolPlayers, playerName]
+			: storytellerPoolPlayers.filter((entryName) => entryName !== playerName);
+		gameServer.setStorytellerPoolPlayers(nextPlayers);
+	}
+
+	function updateStorytellerPoolPlayerFromEvent(playerName: string, event: Event) {
+		updateStorytellerPoolPlayer(playerName, (event.currentTarget as HTMLInputElement).checked);
 	}
 
 	function updateStorytellerLossComplement(event: Event) {
@@ -1126,6 +1181,13 @@
 			gameServer.refreshHands();
 		}
 	}
+
+	function forceEndGame() {
+		if (!isModerator) return;
+		if (!browser || window.confirm('End this game now? This cannot be undone.')) {
+			gameServer.forceEndGame();
+		}
+	}
 </script>
 
 <div class="card light space-y-3 p-4">
@@ -1425,6 +1487,45 @@
 						/>
 						<span>Allow new players to join</span>
 					</label>
+				</div>
+				<div class="mt-3 rounded border border-white/20 px-2 py-2 space-y-3">
+					<label class="flex items-start gap-3 text-sm">
+						<input
+							type="checkbox"
+							class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
+							checked={copyCardUrlOnHold}
+							on:change={updateCopyCardUrlOnHold}
+							disabled={!isModerator}
+						/>
+						<div>
+							<span class="block font-semibold">Copy card URL on hold</span>
+							<p class="text-xs opacity-70">
+								Long-pressing a card copies its image URL and shows a small message.
+							</p>
+						</div>
+					</label>
+					<div>
+						<label class="block text-sm font-medium" for="auto-mod-delay">
+							Auto-mod delay with no mods online
+						</label>
+						<div class="mt-2 flex items-center gap-2">
+							<input
+								id="auto-mod-delay"
+								type="number"
+								class="w-28 rounded border px-2 py-1 text-gray-700 shadow"
+								min="0"
+								max={24 * 60 * 60}
+								step="1"
+								value={moderatorAbsencePromotionDelayS}
+								on:change={updateModeratorAbsencePromotionDelay}
+								disabled={!isModerator}
+							/>
+							<span class="text-xs opacity-75">seconds; 0 disables</span>
+						</div>
+					</div>
+					<button class="btn variant-filled w-full text-sm" on:click={forceEndGame}>
+						Force End Game
+					</button>
 				</div>
 				<div class="mt-3 rounded border border-white/20 px-2 py-2">
 					<p class="block text-sm font-semibold">Stage timers</p>
@@ -1976,8 +2077,7 @@
 							<div>
 								<p class="block text-sm font-semibold">Storyteller pool</p>
 								<p class="mt-1 text-xs opacity-75">
-									Lobby-only moderator option that restricts storyteller selection to a saved subset
-									of players.
+									Restricts storyteller selection to a saved subset of players.
 								</p>
 							</div>
 							<span class="rounded border border-white/20 px-2 py-0.5 text-xs opacity-80">
@@ -1997,6 +2097,35 @@
 						<p class="mt-2 text-xs opacity-75">
 							Selected: {storytellerPoolSummary}
 						</p>
+						<label class="mt-3 flex items-start gap-3 text-sm">
+							<input
+								type="checkbox"
+								class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
+								checked={storytellerPoolEnabled}
+								on:change={updateStorytellerPoolEnabled}
+								disabled={!isModerator || !canEditStorytellerPool}
+							/>
+							<span>Enable storyteller pool</span>
+						</label>
+						<div class="mt-3 space-y-2">
+							{#each sortedPlayerEntries as [playerName]}
+								<label class="flex items-center gap-3 text-sm">
+									<input
+										type="checkbox"
+										class="h-4 w-4 cursor-pointer accent-primary-500"
+										checked={storytellerPoolPlayerSet.has(playerName)}
+										on:change={(event) => updateStorytellerPoolPlayerFromEvent(playerName, event)}
+										disabled={!isModerator || !canEditStorytellerPool}
+									/>
+									<span>{playerName}</span>
+								</label>
+							{/each}
+						</div>
+						{#if !canEditStorytellerPool}
+							<p class="mt-2 text-xs opacity-70">
+								Can only be changed during live Talespin stages.
+							</p>
+						{/if}
 					</div>
 					<div class="mt-3 rounded border border-white/20 px-2 py-2">
 						<p class="block text-sm font-semibold">Votes per guesser</p>

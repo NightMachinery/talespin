@@ -42,6 +42,8 @@
 	export let stage = 'Joining';
 	export let gameMode: GameMode = 'dixit_plus';
 	export let winCondition: WinCondition = { mode: 'cards_finish' };
+	export let copyCardUrlOnHold = false;
+	export let moderatorAbsencePromotionDelayS = 480;
 	export let storytellerPoolEnabled = false;
 	export let storytellerPoolActive = false;
 	export let storytellerPoolPlayers: string[] = [];
@@ -232,6 +234,19 @@
 		const value = Number(input.value);
 		if (!canEditSettings || !Number.isInteger(value)) return;
 		gameServer.setCardsPerHand(value);
+	}
+
+	function updateCopyCardUrlOnHold(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		if (!canEditSettings) return;
+		gameServer.setCopyCardUrlOnHold(input.checked);
+	}
+
+	function updateModeratorAbsencePromotionDelay(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const value = Number(input.value);
+		if (!canEditSettings || !Number.isInteger(value) || value < 0) return;
+		gameServer.setModeratorAbsencePromotionDelay(value);
 	}
 
 	function updateStorytellerPoolEnabled(event: Event) {
@@ -586,6 +601,37 @@
 							/>
 						{/if}
 						<p class="mt-2 text-xs opacity-70">Current: {formatWinCondition(winCondition)}</p>
+					</div>
+					<div class="rounded border border-white/20 p-3 space-y-3">
+						<label class="flex items-start gap-3 text-sm">
+							<input
+								type="checkbox"
+								class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
+								checked={copyCardUrlOnHold}
+								on:change={updateCopyCardUrlOnHold}
+								disabled={!canEditSettings}
+							/>
+							<div>
+								<span class="block font-semibold">Copy card URL on hold</span>
+								<p class="text-xs opacity-70">Long-pressing a card copies its image URL.</p>
+							</div>
+						</label>
+						<div>
+							<label class="text-sm font-semibold" for="moderatorAbsencePromotionDelay">
+								Auto-mod delay when no mods are online
+							</label>
+							<input
+								id="moderatorAbsencePromotionDelay"
+								class="mt-1 w-full rounded border px-3 py-2 text-gray-700"
+								type="number"
+								min="0"
+								max={24 * 60 * 60}
+								value={moderatorAbsencePromotionDelayS}
+								on:change={updateModeratorAbsencePromotionDelay}
+								disabled={!canEditSettings}
+							/>
+							<p class="mt-1 text-xs opacity-70">Seconds. 0 disables auto-promotion.</p>
+						</div>
 					</div>
 
 					{#if gameMode === 'dixit_plus'}

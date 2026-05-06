@@ -18,8 +18,8 @@ use crate::most_beautiful_stats::{
     MostBeautifulRoundWinRecord, MostBeautifulStatsStore, MostBeautifulVoteRecord,
 };
 
-const MODERATOR_ABSENCE_PROMOTION_DELAY_S: u64 = 5 * 60;
-const DEFAULT_CARDS_PER_HAND: u16 = 12;
+const DEFAULT_MODERATOR_ABSENCE_PROMOTION_DELAY_S: u64 = 8 * 60;
+const DEFAULT_CARDS_PER_HAND: u16 = 26;
 const MAX_CARDS_PER_HAND: u16 = 100;
 const DEFAULT_NOMINATIONS_PER_GUESSER: u16 = 1;
 const THREE_PLAYER_NOMINATIONS_PER_GUESSER: u16 = 2;
@@ -37,11 +37,11 @@ const MAX_STAGE_TIMER_DURATION_S: u16 = 60 * 60;
 const DEFAULT_HINT_CHOOSING_TIMER_DURATION_S: u16 = 60;
 const DEFAULT_CARD_CHOOSING_TIMER_DURATION_S: u16 = 30;
 const DEFAULT_VOTING_TIMER_DURATION_S: u16 = 3 * 60;
-const DEFAULT_BEAUTY_TIMER_DURATION_S: u16 = 60;
-const DEFAULT_CLUE_RATING_TIMER_DURATION_S: u16 = 20;
+const DEFAULT_BEAUTY_TIMER_DURATION_S: u16 = 70;
+const DEFAULT_CLUE_RATING_TIMER_DURATION_S: u16 = 15;
 const DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION: [f64; 1] = [1.0];
 const VOTING_WRONG_CARD_DISABLE_SUM_TOLERANCE: f64 = 1e-6;
-const DEFAULT_BEAUTY_ENABLED: bool = false;
+const DEFAULT_BEAUTY_ENABLED: bool = true;
 const DEFAULT_BEAUTY_VOTES_PER_PLAYER: u16 = 2;
 const DEFAULT_BEAUTY_ALLOW_DUPLICATE_VOTES: bool = false;
 const DEFAULT_BEAUTY_SPLIT_POINTS_ON_TIE: bool = true;
@@ -51,7 +51,7 @@ const MAX_BEAUTY_POINTS_BONUS: u16 = 10;
 const DEFAULT_STORYTELLER_SUCCESS_POINTS: u16 = 3;
 const MIN_STORYTELLER_SUCCESS_POINTS: u16 = 0;
 const MAX_STORYTELLER_SUCCESS_POINTS: u16 = 10;
-const DEFAULT_DOUBLE_VOTE_BONUS_POINTS: u16 = 1;
+const DEFAULT_DOUBLE_VOTE_BONUS_POINTS: u16 = 2;
 const MIN_DOUBLE_VOTE_BONUS_POINTS: u16 = 0;
 const MAX_DOUBLE_VOTE_BONUS_POINTS: u16 = 10;
 const BEAUTY_VOTE_POINTS_DIVISOR_SCALE: u16 = 10;
@@ -61,8 +61,8 @@ const MAX_BEAUTY_VOTE_POINTS_DIVISOR_TENTHS: u16 = 1000;
 const DEFAULT_BEAUTY_VOTE_POINTS_DIVISOR_PLAYER_COUNT_BASE: u16 = 4;
 const MIN_BEAUTY_VOTE_POINTS_DIVISOR_PLAYER_COUNT_BASE: u16 = 1;
 const MAX_BEAUTY_VOTE_POINTS_DIVISOR_PLAYER_COUNT_BASE: u16 = 100;
-const DEFAULT_CLUE_RATING_ENABLED: bool = false;
-const DEFAULT_CLUE_RATING_MAX_STARS: u16 = 3;
+const DEFAULT_CLUE_RATING_ENABLED: bool = true;
+const DEFAULT_CLUE_RATING_MAX_STARS: u16 = 5;
 const MIN_CLUE_RATING_MAX_STARS: u16 = 1;
 const MAX_CLUE_RATING_MAX_STARS: u16 = 10;
 pub(crate) const MAX_MEMBER_NAME_LEN: usize = 30;
@@ -150,6 +150,14 @@ pub enum LeaderboardViewMode {
     BeautyOnly,
     Combined,
     ClueStars,
+}
+
+#[derive(Debug, Serialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ResultsNextAction {
+    NextRound,
+    BeautyResults,
+    EndGame,
 }
 
 #[derive(Debug, Serialize, Clone, PartialEq, Eq)]
@@ -335,6 +343,9 @@ pub enum ServerMsg {
         member_to_clue_rating_rounds: Box<HashMap<String, u16>>,
         leaderboard_view_mode_default: LeaderboardViewMode,
         leaderboard_view_mode_default_version: u64,
+        copy_card_url_on_hold: bool,
+        moderator_absence_promotion_delay_s: u64,
+        results_next_action: ResultsNextAction,
         dixit_end_round_history: Vec<DixitEndRoundHistoryEntry>,
         leaderboard_round_history: Vec<LeaderboardRoundHistoryEntry>,
         leaderboard_since_joined_scores_by_round:
@@ -514,6 +525,12 @@ pub enum ClientMsg {
     },
     SetAllowMidgameJoin {
         enabled: bool,
+    },
+    SetCopyCardUrlOnHold {
+        enabled: bool,
+    },
+    SetModeratorAbsencePromotionDelay {
+        seconds: u64,
     },
     SetGameMode {
         game_mode: GameMode,
@@ -707,6 +724,8 @@ pub enum ClientMsg {
     ForceCurrentStage {},
     ObserverifyOfflinePendingPlayers {},
     ForceStartNextRound {},
+    ForceEndGame {},
+    ResetClue {},
     RefreshHands {},
     ResumeGame {},
     RequestJoinFromObserver {},
@@ -819,6 +838,8 @@ struct RoomState {
     moderators: HashSet<String>,
     // when no moderators are connected, this starts the host-migration timer
     no_connected_moderator_since_s: Option<u64>,
+    // delay before a connected player is randomly promoted when no mods are online; 0 disables
+    moderator_absence_promotion_delay_s: u64,
     // members removed from this room explicitly (leave/kick)
     removed_players: HashSet<String>,
     // observers are room members but not active players in a round
@@ -1046,6 +1067,8 @@ struct RoomState {
     stella_scout_timer_duration_s: u16,
     // auto-reveal a random queued card when the manual stella timeout expires
     force_stella_scout_timer: bool,
+    // room-wide UX option: long-press cards copies their image URL
+    copy_card_url_on_hold: bool,
     // each player's hidden stella selections
     stella_player_selections: HashMap<String, Vec<String>>,
     // private in-progress stella association drafts synced by connected clients
@@ -1155,6 +1178,7 @@ impl Room {
             creator,
             moderators: HashSet::new(),
             no_connected_moderator_since_s: None,
+            moderator_absence_promotion_delay_s: DEFAULT_MODERATOR_ABSENCE_PROMOTION_DELAY_S,
             removed_players: HashSet::new(),
             observers: HashMap::new(),
             observer_since_round: HashMap::new(),
@@ -1214,8 +1238,8 @@ impl Room {
             clue_rating_timer_duration_s: DEFAULT_CLUE_RATING_TIMER_DURATION_S,
             force_card_choosing_timer: false,
             force_voting_timer: false,
-            force_beauty_timer: false,
-            force_clue_rating_timer: false,
+            force_beauty_timer: true,
+            force_clue_rating_timer: true,
             voting_wrong_card_disable_distribution: DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION
                 .to_vec(),
             players: HashMap::new(),
@@ -1269,6 +1293,7 @@ impl Room {
             stella_scout_timer_enabled: true,
             stella_scout_timer_duration_s: DEFAULT_STELLA_SCOUT_TIMER_DURATION_S,
             force_stella_scout_timer: false,
+            copy_card_url_on_hold: true,
             stella_player_selections: HashMap::new(),
             stella_player_selection_drafts: HashMap::new(),
             stella_player_selection_counts: HashMap::new(),
@@ -1348,10 +1373,14 @@ impl Room {
             state.no_connected_moderator_since_s = None;
             return false;
         }
+        if state.moderator_absence_promotion_delay_s == 0 {
+            state.no_connected_moderator_since_s = None;
+            return false;
+        }
 
         let now = get_time_s();
         let since = state.no_connected_moderator_since_s.get_or_insert(now);
-        if now.saturating_sub(*since) < MODERATOR_ABSENCE_PROMOTION_DELAY_S {
+        if now.saturating_sub(*since) < state.moderator_absence_promotion_delay_s {
             return false;
         }
 
@@ -3769,6 +3798,40 @@ impl Room {
         self.set_stage(state, RoomStage::End);
         state.paused_reason = None;
         self.finalize_current_dixit_game(state)
+    }
+
+    fn reset_clue_to_storyteller_choose(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+    ) -> Result<bool> {
+        if !matches!(state.stage, RoomStage::PlayersChoose)
+            || !matches!(state.game_mode, GameMode::DixitPlus)
+        {
+            return Ok(false);
+        }
+
+        if let Some(storyteller) = state.player_order.get(state.active_player).cloned() {
+            if let Some(count) = state.storyteller_counts.get_mut(&storyteller) {
+                *count = count.saturating_sub(1);
+            }
+        }
+
+        state.current_description.clear();
+        state.player_to_current_cards.clear();
+        state.player_to_current_card_drafts.clear();
+        state.player_to_votes.clear();
+        state.player_to_vote_drafts.clear();
+        state.player_to_beauty_votes.clear();
+        state.player_to_beauty_vote_drafts.clear();
+        state.player_to_clue_rating.clear();
+        state.forced_random_voters.clear();
+        state.forced_random_vote_cards.clear();
+        state.storyteller_point_change.clear();
+        state.beauty_point_change.clear();
+        state.beauty_voting_completed_this_round = false;
+        self.clear_ready(state);
+        self.set_stage(state, RoomStage::ActiveChooses);
+        Ok(true)
     }
 
     fn merge_point_changes(
@@ -6427,18 +6490,6 @@ impl Room {
         }
 
         let max_votes = self.effective_beauty_votes_per_player(state);
-        if cards.is_empty() {
-            if let Some(socket) = state.player_to_socket.get(name) {
-                socket
-                    .send(
-                        ServerMsg::ErrorMsg("You must submit at least one beauty vote".to_string())
-                            .into(),
-                    )
-                    .await?;
-            }
-            return Ok(());
-        }
-
         if cards.len() > max_votes {
             if let Some(socket) = state.player_to_socket.get(name) {
                 socket
@@ -8445,6 +8496,47 @@ impl Room {
                 state.allow_new_players_midgame = enabled;
                 self.broadcast_msg(self.room_state(&state))?;
             }
+            ClientMsg::SetCopyCardUrlOnHold { enabled } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change card-copy settings".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+                if matches!(state.stage, RoomStage::End) {
+                    return Ok(());
+                }
+                state.copy_card_url_on_hold = enabled;
+                self.broadcast_msg(self.room_state(&state))?;
+            }
+            ClientMsg::SetModeratorAbsencePromotionDelay { seconds } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change auto-mod settings".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+                if matches!(state.stage, RoomStage::End) {
+                    return Ok(());
+                }
+                state.moderator_absence_promotion_delay_s = seconds.min(24 * 60 * 60);
+                if state.moderator_absence_promotion_delay_s == 0 {
+                    state.no_connected_moderator_since_s = None;
+                }
+                self.broadcast_msg(self.room_state(&state))?;
+            }
             ClientMsg::SetGameMode { game_mode } => {
                 if !self.is_moderator(&state, name) {
                     if let Some(tx) = state.player_to_socket.get(name) {
@@ -8950,7 +9042,8 @@ impl Room {
                     }
                     return Ok(());
                 }
-                if !matches!(state.stage, RoomStage::Joining)
+                if matches!(state.stage, RoomStage::End)
+                    || !Self::is_joining_or_live_dixit_stage(state.stage)
                     || !matches!(state.game_mode, GameMode::DixitPlus)
                 {
                     return Ok(());
@@ -8972,7 +9065,8 @@ impl Room {
                     }
                     return Ok(());
                 }
-                if !matches!(state.stage, RoomStage::Joining)
+                if matches!(state.stage, RoomStage::End)
+                    || !Self::is_joining_or_live_dixit_stage(state.stage)
                     || !matches!(state.game_mode, GameMode::DixitPlus)
                 {
                     return Ok(());
@@ -10723,6 +10817,47 @@ impl Room {
 
                 self.init_round(&mut state).await?;
             }
+            ClientMsg::ForceEndGame {} => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg("Only moderators can force end the game".to_string())
+                                .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if matches!(state.stage, RoomStage::Joining | RoomStage::End) {
+                    return Ok(());
+                }
+
+                self.transition_to_end(&mut state)?;
+                self.broadcast_msg(ServerMsg::EndGame {})?;
+                self.broadcast_msg(self.room_state(&state))?;
+            }
+            ClientMsg::ResetClue {} => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg("Only moderators can reset the clue".to_string())
+                                .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if self.reset_clue_to_storyteller_choose(&mut state)? {
+                    for player in state.player_order.iter() {
+                        let _ = self
+                            .send_msg(&state, player, self.get_msg(Some(player), &state)?)
+                            .await;
+                    }
+                    self.broadcast_msg(self.room_state(&state))?;
+                }
+            }
             ClientMsg::RefreshHands {} => {
                 if !self.is_moderator(&state, name) {
                     if let Some(tx) = state.player_to_socket.get(name) {
@@ -11201,13 +11336,42 @@ impl Room {
                     return false;
                 }
 
-                state
-                    .players
-                    .keys()
-                    .all(|player| self.storyteller_count_for_member(state, player) >= target_cycles)
+                let pool_active = self.storyteller_pool_is_active(state);
+                state.player_order.iter().all(|player| {
+                    if pool_active {
+                        let in_pool = state
+                            .member_room_auth_ids
+                            .get(player)
+                            .map(|room_auth_id| {
+                                state
+                                    .storyteller_pool_member_auth_ids
+                                    .contains(room_auth_id)
+                            })
+                            .unwrap_or(false);
+                        if !in_pool {
+                            return true;
+                        }
+                    }
+                    self.storyteller_count_for_member(state, player) >= target_cycles
+                })
             }
             WinCondition::FixedRounds { target_rounds } => state.round >= target_rounds,
             WinCondition::CardsFinish => false,
+        }
+    }
+
+    fn results_next_action(&self, state: &RwLockWriteGuard<RoomState>) -> ResultsNextAction {
+        if matches!(state.stage, RoomStage::Results) && self.uses_separate_beauty_results_stage(state)
+        {
+            ResultsNextAction::BeautyResults
+        } else if matches!(
+            state.stage,
+            RoomStage::Results | RoomStage::BeautyResults | RoomStage::StellaResults
+        ) && self.should_end_game(state)
+        {
+            ResultsNextAction::EndGame
+        } else {
+            ResultsNextAction::NextRound
         }
     }
 
@@ -11627,6 +11791,7 @@ impl Room {
         };
 
         let (server_time_ms, current_stage_deadline_s) = self.stage_timer_sync(state);
+        let results_next_action = self.results_next_action(state);
 
         ServerMsg::RoomState {
             room_id: state.room_id.clone(),
@@ -11643,6 +11808,8 @@ impl Room {
             deck_refill_count: state.deck_refill_count,
             win_condition: state.win_condition,
             allow_new_players_midgame: state.allow_new_players_midgame,
+            copy_card_url_on_hold: state.copy_card_url_on_hold,
+            moderator_absence_promotion_delay_s: state.moderator_absence_promotion_delay_s,
             paused_reason: state.paused_reason.clone(),
             storyteller_loss_complement: complement,
             storyteller_loss_complement_min: complement_min,
@@ -11737,6 +11904,7 @@ impl Room {
             member_to_clue_rating_rounds: Box::new(state.member_to_clue_rating_rounds.clone()),
             leaderboard_view_mode_default: state.leaderboard_view_mode_default,
             leaderboard_view_mode_default_version: state.leaderboard_view_mode_default_version,
+            results_next_action,
             dixit_end_round_history: if matches!(state.stage, RoomStage::End)
                 && matches!(state.game_mode, GameMode::DixitPlus)
             {
@@ -11820,7 +11988,7 @@ mod tests {
         ])
     }
 
-    fn test_room_with_condition(win_condition: WinCondition) -> Room {
+    fn raw_test_room_with_condition(win_condition: WinCondition) -> Room {
         let deck = (0..512).map(|i| format!("card-{}", i)).collect::<Vec<_>>();
         Room::new(
             "test",
@@ -11840,6 +12008,14 @@ mod tests {
             test_default_stella_word_pack(),
             test_stella_word_pack_presets(),
         )
+    }
+
+    fn test_room_with_condition(win_condition: WinCondition) -> Room {
+        let mut room = raw_test_room_with_condition(win_condition);
+        let state = room.state.get_mut();
+        state.beauty_enabled = false;
+        state.clue_rating_enabled = false;
+        room
     }
 
     fn test_room() -> Room {
@@ -15213,7 +15389,7 @@ mod tests {
             .player_to_current_cards
             .insert("e".into(), vec!["ce".into()]);
 
-        // b double-guesses correctly (+1 bonus).
+        // b double-guesses correctly (+2 bonus by default).
         // c and d both vote for b's decoy, with one duplicate token from c, so b decoy reaches cap 3.
         state
             .player_to_votes
@@ -15236,8 +15412,8 @@ mod tests {
         );
         assert_eq!(
             point_change.get("b").copied(),
-            Some(7),
-            "with default all-loss bonus scope on, b should get +3 loss-branch base, +1 double-correct bonus, +3 capped decoy bonus"
+            Some(8),
+            "with default all-loss bonus scope on, b should get +3 loss-branch base, +2 double-correct bonus, +3 capped decoy bonus"
         );
         assert_eq!(
             point_change.get("c").copied(),
@@ -15520,7 +15696,10 @@ mod tests {
                     ),
                     "Most Beautiful vote divisor should default to 3.0"
                 );
-                assert_eq!(cards_per_hand, 12, "cards per hand should default to 12");
+                assert_eq!(
+                    cards_per_hand, DEFAULT_CARDS_PER_HAND,
+                    "cards per hand should use the configured default"
+                );
                 assert_eq!(
                     cards_per_hand_max, 100,
                     "cards per hand max should be capped at 100"
@@ -15638,8 +15817,8 @@ mod tests {
                     "beauty timer should default to enabled"
                 );
                 assert_eq!(
-                    beauty_timer_duration_s, 60,
-                    "beauty timer should default to 60 seconds"
+                    beauty_timer_duration_s, DEFAULT_BEAUTY_TIMER_DURATION_S,
+                    "beauty timer should use the configured default duration"
                 );
                 assert!(
                     !force_card_choosing_timer,
@@ -15650,8 +15829,8 @@ mod tests {
                     "forced voting timeout should default to off"
                 );
                 assert!(
-                    !force_beauty_timer,
-                    "forced beauty timeout should default to off"
+                    force_beauty_timer,
+                    "forced beauty timeout should default to on"
                 );
                 assert!(
                     beauty_split_points_on_tie,
@@ -18387,6 +18566,196 @@ alpha
             }
             _ => return Err(anyhow!("Expected RoomState")),
         }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn new_dixit_defaults_match_requested_room_settings() -> Result<()> {
+        let room = raw_test_room_with_condition(WinCondition::Points { target_points: 10 });
+        let state = room.state.write().await;
+
+        assert_eq!(state.cards_per_hand, 26);
+        assert!(state.beauty_enabled);
+        assert!(state.beauty_timer_enabled);
+        assert_eq!(state.beauty_timer_duration_s, 70);
+        assert!(state.force_beauty_timer);
+        assert!(state.clue_rating_enabled);
+        assert_eq!(state.clue_rating_max_stars, 5);
+        assert!(state.clue_rating_timer_enabled);
+        assert_eq!(state.clue_rating_timer_duration_s, 15);
+        assert!(state.force_clue_rating_timer);
+        assert_eq!(state.double_vote_bonus_normal_points, 2);
+        assert!(state.copy_card_url_on_hold);
+        assert_eq!(state.moderator_absence_promotion_delay_s, 8 * 60);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn empty_beauty_votes_are_allowed_and_mark_player_ready() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "a", 0);
+            add_player(&mut state, "b", 0);
+            add_player(&mut state, "c", 0);
+            state.player_order = vec!["a".into(), "b".into(), "c".into()];
+            state.active_player = 0;
+            state.stage = RoomStage::BeautyVoting;
+            state
+                .player_to_current_cards
+                .insert("a".into(), vec!["ca".into()]);
+            state
+                .player_to_current_cards
+                .insert("b".into(), vec!["cb".into()]);
+            state
+                .player_to_current_cards
+                .insert("c".into(), vec!["cc".into()]);
+            setup_connected_member(&mut state, "b", "t-b", 55);
+        }
+
+        room.handle_client_msg(
+            "b",
+            55,
+            to_ws(ClientMsg::SubmitBeautyVotes { cards: vec![] }),
+        )
+        .await?;
+
+        let state = room.state.write().await;
+        assert_eq!(
+            state.player_to_beauty_votes.get("b").cloned(),
+            Some(Vec::new()),
+            "empty beauty ballot should be recorded as an intentional submission"
+        );
+        assert_eq!(state.players.get("b").map(|player| player.ready), Some(true));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn moderator_absence_promotion_uses_configurable_delay_and_can_be_disabled() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "a", 0);
+            add_player(&mut state, "b", 0);
+            state.moderators.clear();
+            state.creator = None;
+            state.moderator_absence_promotion_delay_s = 0;
+            state.no_connected_moderator_since_s = Some(get_time_s().saturating_sub(999));
+        }
+
+        room.run_maintenance().await;
+        {
+            let state = room.state.write().await;
+            assert!(
+                state.moderators.is_empty(),
+                "delay 0 should disable auto-promotion"
+            );
+        }
+
+        {
+            let mut state = room.state.write().await;
+            state.moderator_absence_promotion_delay_s = 1;
+            state.no_connected_moderator_since_s = Some(get_time_s().saturating_sub(2));
+        }
+        room.run_maintenance().await;
+
+        let state = room.state.write().await;
+        assert_eq!(
+            state.moderators.len(),
+            1,
+            "a connected player should be promoted after the configured absence delay"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn storyteller_pool_can_be_edited_mid_game_and_limits_cycle_win_condition() -> Result<()> {
+        let room = test_room_with_condition(WinCondition::Cycles { target_cycles: 2 });
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            add_player(&mut state, "p2", 0);
+            add_player(&mut state, "p3", 0);
+            state.stage = RoomStage::Results;
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 77);
+            for player in ["host", "p2", "p3"] {
+                room.room_auth_id_for_member(&mut state, player);
+            }
+            set_storyteller_count(&mut state, "host", 2);
+            set_storyteller_count(&mut state, "p2", 2);
+            set_storyteller_count(&mut state, "p3", 0);
+        }
+
+        room.handle_client_msg(
+            "host",
+            77,
+            to_ws(ClientMsg::SetStorytellerPoolPlayers {
+                players: vec!["host".to_string(), "p2".to_string()],
+            }),
+        )
+        .await?;
+        room.handle_client_msg(
+            "host",
+            77,
+            to_ws(ClientMsg::SetStorytellerPoolEnabled { enabled: true }),
+        )
+        .await?;
+
+        let state = room.state.write().await;
+        assert!(state.storyteller_pool_enabled);
+        assert!(
+            room.should_end_game(&state),
+            "cycle win condition should ignore active non-pool players when the pool is active"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn force_end_game_and_reset_clue_are_moderator_actions() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            add_player(&mut state, "p2", 0);
+            add_player(&mut state, "p3", 0);
+            state.stage = RoomStage::PlayersChoose;
+            state.round = 1;
+            state.active_player = 0;
+            state.player_order = vec!["host".into(), "p2".into(), "p3".into()];
+            state.current_description = "clue".to_string();
+            state
+                .player_to_current_cards
+                .insert("host".into(), vec!["host-1".into()]);
+            state
+                .player_to_current_card_drafts
+                .insert("p2".into(), vec!["p2-1".into()]);
+            set_storyteller_count(&mut state, "host", 1);
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 88);
+        }
+
+        room.handle_client_msg("host", 88, to_ws(ClientMsg::ResetClue {}))
+            .await?;
+
+        {
+            let state = room.state.write().await;
+            assert!(matches!(state.stage, RoomStage::ActiveChooses));
+            assert_eq!(state.current_description, "");
+            assert!(state.player_to_current_cards.is_empty());
+            assert!(state.player_to_current_card_drafts.is_empty());
+            assert_eq!(state.storyteller_counts.get("host").copied(), Some(0));
+        }
+
+        room.handle_client_msg("host", 88, to_ws(ClientMsg::ForceEndGame {}))
+            .await?;
+        let state = room.state.write().await;
+        assert!(matches!(state.stage, RoomStage::End));
 
         Ok(())
     }

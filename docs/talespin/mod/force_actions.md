@@ -6,6 +6,11 @@ Current-stage moderator panels now expose two separate intervention buttons:
   `Force Skip`, `Force Random Reveal`, etc.).
 - **Auto-observerify** converts any **offline active players who still owe an action in the current
   stage** into observers.
+- **Reset Clue** appears during `PlayersChoose` for moderators as a compact icon button. It confirms,
+  clears the storyteller's committed clue/card and nomination drafts, decrements that storyteller's
+  current-game storyteller count for the reverted clue, and returns to `ActiveChooses`.
+- **Force End Game** is available in moderator settings. It confirms client-side and ends a live game
+  immediately.
 
 Force actions count non-observer players' current unsubmitted drafts before filling or skipping:
 
@@ -16,7 +21,7 @@ Force actions count non-observer players' current unsubmitted drafts before fill
   drafted vote tokens are used first, then missing vote tokens are random-filled. Only the
   random-filled tokens are excluded from storyteller-outcome and decoy scoring.
 - `BeautyVoting`: drafted Most Beautiful picks are counted as beauty votes; players with no
-  submitted ballot or draft are skipped.
+  submitted ballot or draft are skipped. Players may also intentionally submit zero beauty votes.
 - `StellaAssociate`: drafted associations are locked in, preserving queue order; players with no
   draft or locked selection receive the force-random fallback.
 

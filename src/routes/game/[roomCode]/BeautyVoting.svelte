@@ -7,6 +7,8 @@
 		CARD_NUMBER_NAVIGATOR_SCROLL_MARGIN_TOP
 	} from '$lib/cardNumberNavigator';
 	import { CARD_IMAGE_ALT_TEXT } from '$lib/cardImageText';
+	import { longPressCardCopy } from '$lib/cardLongPressCopy';
+	import { copyTextToClipboard } from '$lib/clipboard';
 	import CardImage from '$lib/CardImage.svelte';
 	import { http_host } from '$lib/gameServer';
 	import type GameServer from '$lib/gameServer';
@@ -29,6 +31,8 @@
 	export let description = '';
 	export let players: { [key: string]: PlayerInfo } = {};
 	export let allowNewPlayersMidgame = true;
+	export let copyCardUrlOnHold = false;
+	export let moderatorAbsencePromotionDelayS = 480;
 	export let storytellerLossComplement = 0;
 	export let storytellerLossComplementMin = 0;
 	export let storytellerLossComplementMax = 0;
@@ -146,10 +150,7 @@
 	$: tableDesktopFitStyle = tableDesktopFitEnabled
 		? `--voting-desktop-rows: ${tableDesktopRowCount};`
 		: '';
-	$: canSubmit =
-		!isObserver &&
-		effectiveBeautyVotesPerPlayer > 0 &&
-		selectedVotes.length === effectiveBeautyVotesPerPlayer;
+	$: canSubmit = !isObserver && selectedVotes.length <= effectiveBeautyVotesPerPlayer;
 	$: {
 		cardNumberLabelByImage = Object.fromEntries(
 			displayImages.map((image, index) => [image, cardNumberLabels[index] ?? index + 1])
@@ -234,7 +235,7 @@
 	function submitBeautyVotes() {
 		if (!canSubmit) {
 			toastStore.trigger({
-				message: `Use all ${effectiveBeautyVotesPerPlayer} beauty vote token${effectiveBeautyVotesPerPlayer === 1 ? '' : 's'} before submitting.`,
+				message: `Use up to ${effectiveBeautyVotesPerPlayer} beauty vote token${effectiveBeautyVotesPerPlayer === 1 ? '' : 's'} before submitting.`,
 				autohide: true,
 				timeout: 2500
 			});
@@ -248,6 +249,16 @@
 			timeout: 2500
 		});
 	}
+
+	function handleCardUrlCopy(url: string) {
+		void copyTextToClipboard(url).then(() => {
+			toastStore.trigger({
+				message: '🖼️ Card image URL copied',
+				autohide: true,
+				timeout: 1800
+			});
+		});
+	}
 </script>
 
 <StageShell
@@ -259,6 +270,8 @@
 	{gameServer}
 	{stage}
 	{allowNewPlayersMidgame}
+	{copyCardUrlOnHold}
+	{moderatorAbsencePromotionDelayS}
 	{storytellerLossComplement}
 	{storytellerLossComplementMin}
 	{storytellerLossComplementMax}
@@ -354,7 +367,7 @@
 					{/if}
 				</p>
 				<p class="text-xs opacity-80">
-					Beauty votes used: {selectedVotes.length}/{effectiveBeautyVotesPerPlayer} (all votes required)
+					Beauty votes used: {selectedVotes.length}/{effectiveBeautyVotesPerPlayer} (you may submit fewer)
 				</p>
 			</div>
 			<div class="card light p-4">
@@ -405,7 +418,7 @@
 					{/if}
 				</p>
 				<p class="text-xs opacity-80">
-					Beauty votes used: {selectedVotes.length}/{effectiveBeautyVotesPerPlayer} (all votes required)
+					Beauty votes used: {selectedVotes.length}/{effectiveBeautyVotesPerPlayer} (you may submit fewer)
 				</p>
 			</div>
 		{:else}
@@ -456,7 +469,7 @@
 
 	<div class="flex h-full min-h-0 flex-col">
 		{#if viewMode === 'hand'}
-			<MyCardsPanel hand={myHandImages} {pinnedCards} {gameServer} />
+			<MyCardsPanel hand={myHandImages} {pinnedCards} {gameServer} {copyCardUrlOnHold} />
 		{:else}
 			<h2 class="mb-2 hidden text-lg font-semibold lg:block">Cards on table</h2>
 			<CardNumberNavigator
@@ -477,6 +490,11 @@
 						class={`${tableButtonClass} ${isDisabled || isObserver ? 'cursor-default' : ''}`}
 						style:scroll-margin-top={CARD_NUMBER_NAVIGATOR_SCROLL_MARGIN_TOP}
 						disabled={isObserver || isDisabled}
+						use:longPressCardCopy={{
+							card: image,
+							enabled: copyCardUrlOnHold,
+							onCopy: handleCardUrlCopy
+						}}
 						on:click={() => cycleCardVote(image)}
 					>
 						<CardImage

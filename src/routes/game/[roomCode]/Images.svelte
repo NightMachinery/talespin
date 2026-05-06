@@ -1,6 +1,9 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
+	import { getToastStore } from '@skeletonlabs/skeleton';
 	import { getDesktopFitRowCount } from '$lib/cardGrid';
+	import { longPressCardCopy } from '$lib/cardLongPressCopy';
+	import { copyTextToClipboard } from '$lib/clipboard';
 	import { http_host } from '$lib/gameServer';
 	import { CARD_IMAGE_ALT_TEXT } from '$lib/cardImageText';
 	import CardImage from '$lib/CardImage.svelte';
@@ -44,6 +47,9 @@
 	export let pinnedImages: string[] = [];
 	export let showPinBadges = false;
 	export let pinTogglesEnabled = false;
+	export let copyCardUrlOnHold = false;
+
+	const toastStore = getToastStore();
 
 	$: isHandMode = mode === 'hand';
 	$: desktopFitEnabled = $cardsFitToHeight && (isHandMode || desktopFitToHeight);
@@ -90,6 +96,16 @@
 		if (!pinTogglesEnabled) return;
 		dispatch('pinToggle', image);
 	}
+
+	function handleCardUrlCopy(url: string) {
+		void copyTextToClipboard(url).then(() => {
+			toastStore.trigger({
+				message: '🖼️ Card image URL copied',
+				autohide: true,
+				timeout: 1800
+			});
+		});
+	}
 </script>
 
 <section class={`${sectionClass} isolate`} style={desktopFitStyle}>
@@ -128,6 +144,11 @@
 				disabled={isDisabled}
 				aria-disabled={!canSelect}
 				tabindex={canSelect ? 0 : -1}
+				use:longPressCardCopy={{
+					card: image,
+					enabled: copyCardUrlOnHold,
+					onCopy: handleCardUrlCopy
+				}}
 				on:click={() => selectImage(image, isDisabled, canSelect)}
 			>
 				<CardImage
@@ -179,7 +200,14 @@
 				{/if}
 			</button>
 		{:else}
-			<div class={containerClass}>
+			<div
+				class={containerClass}
+				use:longPressCardCopy={{
+					card: image,
+					enabled: copyCardUrlOnHold,
+					onCopy: handleCardUrlCopy
+				}}
+			>
 				<CardImage
 					className={imageClass}
 					src={`${http_host}/cards/${image}`}

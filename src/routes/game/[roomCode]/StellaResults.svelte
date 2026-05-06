@@ -1,7 +1,13 @@
 <script lang="ts">
 	import type GameServer from '$lib/gameServer';
 	import { getStellaCardEffectPresentation } from '$lib/stellaCardEffects';
-	import type { GameMode, ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
+	import type {
+		GameMode,
+		ObserverInfo,
+		PlayerInfo,
+		ResultsNextAction,
+		WinCondition
+	} from '$lib/types';
 	import Images from './Images.svelte';
 	import StageShell from './StageShell.svelte';
 
@@ -14,6 +20,8 @@
 	export let gameServer: GameServer;
 	export let players: { [key: string]: PlayerInfo } = {};
 	export let allowNewPlayersMidgame = true;
+	export let copyCardUrlOnHold = false;
+	export let moderatorAbsencePromotionDelayS = 480;
 	export let storytellerLossComplement = 0;
 	export let storytellerLossComplementMin = 0;
 	export let storytellerLossComplementMax = 0;
@@ -93,6 +101,7 @@
 	export let cardsRemaining = 0;
 	export let deckRefillFlashToken = 0;
 	export let winCondition: WinCondition = { mode: 'cards_finish' };
+	export let resultsNextAction: ResultsNextAction = 'next_round';
 	export let clueWord = '';
 	export let revealedCardChoosers: { [key: string]: string[] } = {};
 	export let cardPoints: { [key: string]: number } = {};
@@ -101,6 +110,8 @@
 
 	$: isObserver = !!observers[name];
 	$: isModerator = new Set(moderators).has(name);
+	$: nextRoundLabel = resultsNextAction === 'end_game' ? 'End Game' : 'Next Round';
+	$: forceNextRoundLabel = resultsNextAction === 'end_game' ? 'Force End Game' : 'Force Next Round';
 	$: revealedCardChooserEntries = Object.fromEntries(
 		Object.entries(revealedCardChoosers).map(([card, choosers]) => [
 			card,
@@ -138,6 +149,8 @@
 	{gameServer}
 	{stage}
 	{allowNewPlayersMidgame}
+	{copyCardUrlOnHold}
+	{moderatorAbsencePromotionDelayS}
 	{storytellerLossComplement}
 	{storytellerLossComplementMin}
 	{storytellerLossComplementMax}
@@ -229,13 +242,13 @@
 			<button
 				class="btn variant-filled w-full"
 				disabled={isObserver}
-				on:click={() => gameServer.ready()}>Next Round</button
+				on:click={() => gameServer.ready()}>{nextRoundLabel}</button
 			>
 			{#if isModerator}
 				<div class="pt-3">
 					<button
 						class="btn variant-filled w-full"
-						on:click={() => gameServer.forceStartNextRound()}>Force next round</button
+						on:click={() => gameServer.forceStartNextRound()}>{forceNextRoundLabel}</button
 					>
 				</div>
 			{/if}
@@ -254,13 +267,13 @@
 			<button
 				class="btn variant-filled w-full"
 				disabled={isObserver}
-				on:click={() => gameServer.ready()}>Next Round</button
+				on:click={() => gameServer.ready()}>{nextRoundLabel}</button
 			>
 			{#if isModerator}
 				<div class="pt-3">
 					<button
 						class="btn variant-filled w-full"
-						on:click={() => gameServer.forceStartNextRound()}>Force next round</button
+						on:click={() => gameServer.forceStartNextRound()}>{forceNextRoundLabel}</button
 					>
 				</div>
 			{/if}
@@ -279,6 +292,7 @@
 				imageHighlightClasses={revealedCardHighlightClasses}
 				showIndexOverlay={showVotingCardNumbers}
 				indexOverlayPosition="left"
+				{copyCardUrlOnHold}
 			/>
 		</div>
 	</div>

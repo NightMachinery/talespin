@@ -59,6 +59,7 @@
 		ObserverInfo,
 		PreviousDixitResultsView,
 		PlayerInfo,
+		ResultsNextAction,
 		StellaQueuedRevealMode,
 		WinCondition
 	} from '$lib/types';
@@ -102,6 +103,8 @@
 	let creator = '';
 	let moderators: string[] = [];
 	let allowNewPlayersMidgame = true;
+	let copyCardUrlOnHold = false;
+	let moderatorAbsencePromotionDelayS = 480;
 	let pausedReason = '';
 	let storytellerLossComplement = 0;
 	let storytellerLossComplementMin = 0;
@@ -197,6 +200,7 @@
 		mode: 'points',
 		target_points: 10
 	};
+	let resultsNextAction: ResultsNextAction = 'next_round';
 
 	// UI state
 	let stageImages: string[] = [];
@@ -446,6 +450,8 @@
 				moderators = data.RoomState.moderators || [];
 				setStage(data.RoomState.stage, { suppressCue: !hasReceivedRoomState });
 				allowNewPlayersMidgame = data.RoomState.allow_new_players_midgame ?? true;
+				copyCardUrlOnHold = data.RoomState.copy_card_url_on_hold ?? false;
+				moderatorAbsencePromotionDelayS = data.RoomState.moderator_absence_promotion_delay_s ?? 480;
 				pausedReason = data.RoomState.paused_reason || '';
 				storytellerLossComplement = data.RoomState.storyteller_loss_complement ?? 0;
 				storytellerLossComplementMin = data.RoomState.storyteller_loss_complement_min ?? 0;
@@ -582,6 +588,7 @@
 				if (data.RoomState.win_condition) {
 					winCondition = data.RoomState.win_condition;
 				}
+				resultsNextAction = data.RoomState.results_next_action ?? 'next_round';
 				if (hasReceivedRoomState && deckRefillCount > previousDeckRefillCount) {
 					deckRefillFlashToken += 1;
 				}
@@ -968,6 +975,8 @@
 				{stellaScoutTimerEnabled}
 				{stellaScoutTimerDurationS}
 				{forceStellaScoutTimer}
+				{copyCardUrlOnHold}
+				{moderatorAbsencePromotionDelayS}
 				roomStateLoaded={hasReceivedRoomState}
 			/>
 		</div>
@@ -982,6 +991,8 @@
 			{gameServer}
 			{players}
 			{allowNewPlayersMidgame}
+			{copyCardUrlOnHold}
+			{moderatorAbsencePromotionDelayS}
 			{storytellerLossComplement}
 			{storytellerLossComplementMin}
 			{storytellerLossComplementMax}
@@ -1076,6 +1087,8 @@
 			{gameServer}
 			{players}
 			{allowNewPlayersMidgame}
+			{copyCardUrlOnHold}
+			{moderatorAbsencePromotionDelayS}
 			{storytellerLossComplement}
 			{storytellerLossComplementMin}
 			{storytellerLossComplementMax}
@@ -1176,6 +1189,8 @@
 			{gameServer}
 			{players}
 			{allowNewPlayersMidgame}
+			{copyCardUrlOnHold}
+			{moderatorAbsencePromotionDelayS}
 			{storytellerLossComplement}
 			{storytellerLossComplementMin}
 			{storytellerLossComplementMax}
@@ -1270,6 +1285,8 @@
 			{previousDixitResults}
 			{players}
 			{allowNewPlayersMidgame}
+			{copyCardUrlOnHold}
+			{moderatorAbsencePromotionDelayS}
 			{storytellerLossComplement}
 			{storytellerLossComplementMin}
 			{storytellerLossComplementMax}
@@ -1367,6 +1384,8 @@
 			{description}
 			{players}
 			{allowNewPlayersMidgame}
+			{copyCardUrlOnHold}
+			{moderatorAbsencePromotionDelayS}
 			{storytellerLossComplement}
 			{storytellerLossComplementMin}
 			{storytellerLossComplementMax}
@@ -1463,6 +1482,8 @@
 			{description}
 			{players}
 			{allowNewPlayersMidgame}
+			{copyCardUrlOnHold}
+			{moderatorAbsencePromotionDelayS}
 			{storytellerLossComplement}
 			{storytellerLossComplementMin}
 			{storytellerLossComplementMax}
@@ -1558,6 +1579,8 @@
 			{description}
 			{players}
 			{allowNewPlayersMidgame}
+			{copyCardUrlOnHold}
+			{moderatorAbsencePromotionDelayS}
 			{storytellerLossComplement}
 			{storytellerLossComplementMin}
 			{storytellerLossComplementMax}
@@ -1659,6 +1682,8 @@
 			{activePlayer}
 			{players}
 			{allowNewPlayersMidgame}
+			{copyCardUrlOnHold}
+			{moderatorAbsencePromotionDelayS}
 			{storytellerLossComplement}
 			{storytellerLossComplementMin}
 			{storytellerLossComplementMax}
@@ -1740,6 +1765,7 @@
 			{cardsRemaining}
 			{deckRefillFlashToken}
 			{winCondition}
+			{resultsNextAction}
 		/>
 	{:else if stage === 'BeautyResults'}
 		<BeautyResults
@@ -1757,6 +1783,9 @@
 			{playerToBeautyVotes}
 			{players}
 			{allowNewPlayersMidgame}
+			{copyCardUrlOnHold}
+			{moderatorAbsencePromotionDelayS}
+			{resultsNextAction}
 			{storytellerLossComplement}
 			{storytellerLossComplementMin}
 			{storytellerLossComplementMax}
@@ -1850,6 +1879,8 @@
 			{gameServer}
 			{players}
 			{allowNewPlayersMidgame}
+			{copyCardUrlOnHold}
+			{moderatorAbsencePromotionDelayS}
 			{storytellerLossComplement}
 			{storytellerLossComplementMin}
 			{storytellerLossComplementMax}
@@ -1944,6 +1975,8 @@
 			{players}
 			{gameServer}
 			{allowNewPlayersMidgame}
+			{copyCardUrlOnHold}
+			{moderatorAbsencePromotionDelayS}
 			{storytellerLossComplement}
 			{storytellerLossComplementMin}
 			{storytellerLossComplementMax}

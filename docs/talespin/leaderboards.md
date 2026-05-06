@@ -37,3 +37,9 @@ active round were the start of the game.
 The server sends both compact leaderboard round history and precomputed since-joined score maps in
 room state. The live sidebar and end-game screens select the current viewer's first-active-round
 map instead of replaying scoring rules in the browser.
+
+## Ranking ties
+
+Leaderboard ranks use shared competition-ranking logic. Equal displayed values share the same rank
+and the following rank skips ahead, e.g. `1, 1, 3`. This applies to total/story/beauty views and to
+Clue Stars, so same-average clue-rating players display with the same rank.

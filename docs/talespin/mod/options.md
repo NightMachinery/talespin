@@ -24,7 +24,9 @@ Lobby / Joining-stage setup remains available where the room already exposes it.
 | Correct-guess loss bonus toggle                   | `BeautyResults`       | end of live round flow      | Same as `W`: safe until live scoring is already complete.                                                                                                                                                                                                                                                                             |
 | Double-vote bonus settings                        | `BeautyResults`       | end of live round flow      | Same as the other storyteller scoring controls; they only affect future scoring until the current round has already been scored.                                                                                                                                                                                                      |
 | Threshold-loss correct-bonus scope toggle         | `BeautyResults`       | end of live round flow      | Same scoring rationale as the other storyteller-loss controls.                                                                                                                                                                                                                                                                        |
-| Storyteller pool restriction / selected members   | `Joining` only        | game start                  | This is intentionally lobby-only. Mid-round edits could change who is eligible to become storyteller next and would also change the leaderboard storyteller-pool indicators. When enabled, the saved pool auto-disables whenever no selected member is currently active, then re-enables automatically if one returns to active play. |
+| Storyteller pool restriction / selected members   | `BeautyResults`       | end of live round flow      | Moderators may edit the saved pool mid-game. Changes do not reset the current clue, but they affect future storyteller selection. When enabled, the saved pool auto-disables whenever no selected member is currently active, then re-enables automatically if one returns to active play. |
+| Copy card URL on hold                             | `Joining` + live game | game end                    | Room-scoped UX option. When enabled, long-pressing a card copies its image URL to the clipboard.                                                                                                                                                                                                                                      |
+| Auto-mod delay when no mods are online            | `Joining` + live game | game end                    | Room-scoped moderation safety option. The default is 480 seconds; 0 disables random auto-promotion.                                                                                                                                                                                                                                   |
 | Show previous results during storyteller choosing | `BeautyResults`       | end of live round flow      | Affects the next storyteller-choosing screen and the following nominations stage.                                                                                                                                                                                                                                                     |
 | Show card numbers in voting/results stages        | `BeautyResults`       | end of live round flow      | Pure presentation.                                                                                                                                                                                                                                                                                                                    |
 | Randomize voting card order per player            | `BeautyResults`       | end of live round flow      | Safe throughout the live Dixit round; voting uses a stable per-round seed.                                                                                                                                                                                                                                                            |
@@ -46,7 +48,8 @@ Lobby / Joining-stage setup remains available where the room already exposes it.
 - **Locks when beauty voting starts:** Most Beautiful participation / ballot-shape settings.
 - **Locks when clue rating starts:** clue-rating participation / max-star settings.
 - **Locks when results start:** beauty result-flow selection.
-- **Lobby-only:** storyteller pool membership / restriction.
+- **Live room controls:** storyteller pool membership / restriction, card-URL long-press copying,
+  and no-mod auto-promotion delay.
 - **Otherwise stays editable for the whole live Dixit round:** storyteller scoring, scoring presentation, next-round behavior, and timer settings.
 
 ## Moderator dev mode
@@ -58,3 +61,14 @@ When Dev mode is enabled, **Copy Current Info** asks the server for moderator-ve
 Markdown and copies it to the clipboard. The copied note includes the room ID, current Dixit audit
 game ID, current / previous round numbers, stage, active player, the Most Beautiful SQLite DB path,
 and ready-to-run `sqlite3` commands for the current and previous round audit tables.
+
+## Current defaults
+
+Dixit/Talespin rooms start with:
+
+- 26 cards per hand, clamped down if the room's deck cannot support that many active players.
+- Most Beautiful enabled, with a 70 second auto-force timer that skips missing beauty ballots.
+- Clue rating enabled, with 5 stars and a 15 second auto-force timer that skips missing ratings.
+- Double-vote bonus defaulting to +2.
+- Card URL long-press copying enabled.
+- Random auto-promotion after 8 minutes with no connected moderator; 0 disables it.

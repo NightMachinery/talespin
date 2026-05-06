@@ -1,11 +1,15 @@
 # Most Beautiful
 
-Most Beautiful is the optional Dixit/Talespin post-voting beauty round.
+Most Beautiful is the optional Dixit/Talespin post-voting beauty round. New Talespin rooms enable it
+by default.
 
 ## Settings
 
 - **Enable Most Beautiful**: adds a second vote after storyteller voting.
 - **Beauty votes per player**: how many beauty votes each active player can cast. Default: `2`.
+- Players may submit **zero or fewer than the maximum** beauty votes when they do not want to spend
+  every beauty vote token.
+- The beauty voting timer defaults to `70s` and auto-forces by skipping missing ballots.
 - **Allow duplicate beauty votes**: allows spending multiple beauty votes on the same card.
 - **Split beauty bonus among ties**: when enabled, tied winning owners split the beauty bonus and each gets `ceil(bonus / tied_owner_count)`.
 - **Beauty winner bonus**: the per-round beauty bonus before any tie split.

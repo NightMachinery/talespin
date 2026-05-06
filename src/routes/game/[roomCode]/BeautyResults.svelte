@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { getToastStore } from '@skeletonlabs/skeleton';
 	import { getDesktopFitRowCount } from '$lib/cardGrid';
 	import { buildBeautyBadgeMetadata } from '$lib/beautyResults';
 	import {
@@ -6,6 +7,8 @@
 		CARD_NUMBER_NAVIGATOR_SCROLL_MARGIN_TOP
 	} from '$lib/cardNumberNavigator';
 	import { CARD_IMAGE_ALT_TEXT } from '$lib/cardImageText';
+	import { longPressCardCopy } from '$lib/cardLongPressCopy';
+	import { copyTextToClipboard } from '$lib/clipboard';
 	import CardImage from '$lib/CardImage.svelte';
 	import { http_host } from '$lib/gameServer';
 	import {
@@ -15,7 +18,7 @@
 	} from '$lib/mostBeautiful';
 	import { cardsFitToHeight } from '$lib/viewOptions';
 	import type GameServer from '$lib/gameServer';
-	import type { ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
+	import type { ObserverInfo, PlayerInfo, ResultsNextAction, WinCondition } from '$lib/types';
 	import CardNumberNavigator from './CardNumberNavigator.svelte';
 	import ChooserNameOverlay from './ChooserNameOverlay.svelte';
 	import MyCardsPanel from './MyCardsPanel.svelte';
@@ -34,6 +37,8 @@
 	export let playerToBeautyVotes: { [key: string]: string[] } = {};
 	export let players: { [key: string]: PlayerInfo } = {};
 	export let allowNewPlayersMidgame = true;
+	export let copyCardUrlOnHold = false;
+	export let moderatorAbsencePromotionDelayS = 480;
 	export let storytellerLossComplement = 0;
 	export let storytellerLossComplementMin = 0;
 	export let storytellerLossComplementMax = 0;
@@ -118,6 +123,7 @@
 		mode: 'points',
 		target_points: 10
 	};
+	export let resultsNextAction: ResultsNextAction = 'next_round';
 	export let myHandImages: string[] = [];
 	export let pinnedCards: string[] = [];
 
@@ -130,6 +136,7 @@
 	let viewMode: 'results' | 'hand' = 'results';
 	let winningCardSet = new Set<string>();
 	let beautyBadges: ReturnType<typeof buildBeautyBadgeMetadata> = {};
+	const toastStore = getToastStore();
 	$: formattedEffectiveBeautyDivisor =
 		$beautyVotePointsDivisorEffective === null
 			? 'pending first beauty results'
@@ -137,6 +144,8 @@
 	$: isObserver = !!observers[name];
 	$: isModerator = new Set(moderators).has(name);
 	$: canForceStartNextRound = stage === 'BeautyResults';
+	$: nextRoundLabel = resultsNextAction === 'end_game' ? 'End Game' : 'Next Round';
+	$: forceNextRoundLabel = resultsNextAction === 'end_game' ? 'Force End Game' : 'Force Next Round';
 	$: resultsDesktopFitEnabled = $cardsFitToHeight;
 	$: resultsDesktopFitClass = resultsDesktopFitEnabled ? 'lg:h-full' : '';
 	$: resultsDesktopRowCount = getDesktopFitRowCount(displayImages?.length);
@@ -149,6 +158,16 @@
 	$: resultsCardClass = (isWinningCard: boolean) =>
 		`${isWinningCard ? 'result-highlight-beauty' : ''} relative overflow-hidden rounded-lg bg-slate-900/35 ${resultsDesktopFitClass}`;
 	$: resultsImageClass = `relative w-full object-cover object-center aspect-[2/3] ${resultsDesktopFitClass}`;
+
+	function handleCardUrlCopy(url: string) {
+		void copyTextToClipboard(url).then(() => {
+			toastStore.trigger({
+				message: '🖼️ Card image URL copied',
+				autohide: true,
+				timeout: 1800
+			});
+		});
+	}
 
 	$: {
 		cardToPlayer = {};
@@ -197,6 +216,8 @@
 	{gameServer}
 	{stage}
 	{allowNewPlayersMidgame}
+	{copyCardUrlOnHold}
+	{moderatorAbsencePromotionDelayS}
 	{storytellerLossComplement}
 	{storytellerLossComplementMin}
 	{storytellerLossComplementMax}
@@ -296,7 +317,7 @@
 				<button
 					class="btn variant-filled w-full"
 					disabled={isObserver}
-					on:click={() => gameServer.ready()}>Next Round</button
+					on:click={() => gameServer.ready()}>{nextRoundLabel}</button
 				>
 				{#if isModerator}
 					<button
@@ -304,7 +325,7 @@
 						disabled={!canForceStartNextRound}
 						on:click={() => gameServer.forceStartNextRound()}
 					>
-						Force start next round
+						{forceNextRoundLabel}
 					</button>
 				{/if}
 			</div>
@@ -344,7 +365,7 @@
 			<button
 				class="btn variant-filled w-full"
 				disabled={isObserver}
-				on:click={() => gameServer.ready()}>Next Round</button
+				on:click={() => gameServer.ready()}>{nextRoundLabel}</button
 			>
 			{#if isModerator}
 				<button
@@ -352,7 +373,7 @@
 					disabled={!canForceStartNextRound}
 					on:click={() => gameServer.forceStartNextRound()}
 				>
-					Force start next round
+					{forceNextRoundLabel}
 				</button>
 			{/if}
 		</div>
@@ -360,7 +381,7 @@
 
 	<div class="flex h-full min-h-0 flex-col">
 		{#if viewMode === 'hand'}
-			<MyCardsPanel hand={myHandImages} {pinnedCards} {gameServer} />
+			<MyCardsPanel hand={myHandImages} {pinnedCards} {gameServer} {copyCardUrlOnHold} />
 		{:else}
 			<h2 class="mb-2 hidden text-lg font-semibold lg:block">Beauty cards</h2>
 			<CardNumberNavigator
@@ -375,6 +396,11 @@
 						id={buildCardNumberNavigatorTargetId('beauty-results', cardNumberLabel)}
 						class={resultsCardClass(winningCardSet.has(image))}
 						style:scroll-margin-top={CARD_NUMBER_NAVIGATOR_SCROLL_MARGIN_TOP}
+						use:longPressCardCopy={{
+							card: image,
+							enabled: copyCardUrlOnHold,
+							onCopy: handleCardUrlCopy
+						}}
 					>
 						<CardImage
 							src={`${http_host}/cards/${image}`}

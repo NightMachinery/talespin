@@ -21,8 +21,10 @@ voting and results.
 - **Enable clue rating stage**
 - **Max stars**: `1..10`
 - **Clue rating timer enabled**
-- **Clue rating timer duration**: default `20s`
+- **Clue rating timer duration**: default `15s`
 - **Force timeout by skipping missing star votes**
+
+New Talespin rooms enable clue rating by default with 5 stars.
 
 Entry settings lock when `ClueRating` starts. Timer settings stay editable through live Dixit
 stages like the other stage timers.
