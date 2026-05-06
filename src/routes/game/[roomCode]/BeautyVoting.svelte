@@ -16,6 +16,7 @@
 	import MyCardsPanel from './MyCardsPanel.svelte';
 	import StageActionButtons from './StageActionButtons.svelte';
 	import StageShell from './StageShell.svelte';
+	import ViewModeToggle from './ViewModeToggle.svelte';
 
 	export let displayImages: string[] = [];
 	export let cardNumberLabels: number[] = [];
@@ -420,6 +421,15 @@
 
 	<svelte:fragment slot="mobileActions">
 		<div class="space-y-4">
+			{#if myHandImages.length > 0}
+				<ViewModeToggle
+					bind:value={viewMode}
+					modes={[
+						{ id: 'table', label: 'Table', icon: 'table' },
+						{ id: 'hand', label: 'My Cards', icon: 'hand' }
+					]}
+				/>
+			{/if}
 			{#if !isObserver}
 				<button
 					class="btn variant-filled w-full"
@@ -445,20 +455,6 @@
 	</svelte:fragment>
 
 	<div class="flex h-full min-h-0 flex-col">
-		{#if myHandImages.length > 0}
-			<div class="mb-2 grid grid-cols-2 gap-2 lg:max-w-md">
-				<button
-					type="button"
-					class={`btn w-full ${viewMode === 'table' ? 'variant-filled' : 'variant-ghost'}`}
-					on:click={() => (viewMode = 'table')}>Table</button
-				>
-				<button
-					type="button"
-					class={`btn w-full ${viewMode === 'hand' ? 'variant-filled' : 'variant-ghost'}`}
-					on:click={() => (viewMode = 'hand')}>My Cards</button
-				>
-			</div>
-		{/if}
 		{#if viewMode === 'hand'}
 			<MyCardsPanel hand={myHandImages} {pinnedCards} {gameServer} />
 		{:else}

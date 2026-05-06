@@ -5,6 +5,7 @@
 	import MyCardsPanel from './MyCardsPanel.svelte';
 	import StageActionButtons from './StageActionButtons.svelte';
 	import StageShell from './StageShell.svelte';
+	import ViewModeToggle from './ViewModeToggle.svelte';
 
 	export let name = '';
 	export let creator = '';
@@ -238,23 +239,21 @@
 			<h2 class="mt-2 text-2xl font-semibold text-white">{description}</h2>
 			<p class="mt-2 text-sm text-white/75">Storyteller: {activePlayer}</p>
 		</div>
+		{#if myHandImages.length > 0}
+			<div class="card light space-y-3 p-4">
+				<p class="text-sm font-semibold">Your view</p>
+				<ViewModeToggle
+					bind:value={viewMode}
+					modes={[
+						{ id: 'rating', label: 'Rating', icon: 'table' },
+						{ id: 'hand', label: 'My Cards', icon: 'hand' }
+					]}
+				/>
+			</div>
+		{/if}
 	</svelte:fragment>
 
 	<div class="flex h-full min-h-0 flex-col justify-center">
-		{#if myHandImages.length > 0}
-			<div class="mb-2 grid grid-cols-2 gap-2 lg:max-w-md">
-				<button
-					type="button"
-					class={`btn w-full ${viewMode === 'rating' ? 'variant-filled' : 'variant-ghost'}`}
-					on:click={() => (viewMode = 'rating')}>Rating</button
-				>
-				<button
-					type="button"
-					class={`btn w-full ${viewMode === 'hand' ? 'variant-filled' : 'variant-ghost'}`}
-					on:click={() => (viewMode = 'hand')}>My Cards</button
-				>
-			</div>
-		{/if}
 		{#if viewMode === 'hand'}
 			<MyCardsPanel hand={myHandImages} {pinnedCards} {gameServer} />
 		{:else}
