@@ -4,6 +4,7 @@ import { configDefaults, defineConfig } from 'vitest/config';
 
 export default defineConfig({
 	plugins: [sveltekit(), purgeCss()],
+	envPrefix: ['VITE_', 'TALESPIN_'],
 	build: {
 		chunkSizeWarningLimit: 700
 	},

@@ -129,6 +129,14 @@ pub enum PreviousDixitResultsView {
     },
 }
 
+#[derive(Debug, Serialize, Clone)]
+pub struct RoundDeltaScores {
+    stage: RoomStage,
+    point_change: HashMap<String, i32>,
+    storyteller_point_change: HashMap<String, i32>,
+    beauty_point_change: HashMap<String, i32>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum BeautyScoringMode {
@@ -309,6 +317,7 @@ pub enum ServerMsg {
         randomize_voting_card_order_per_viewer: bool,
         voting_layout_seed: Option<String>,
         previous_dixit_results: Option<PreviousDixitResultsView>,
+        current_delta_scores: Option<RoundDeltaScores>,
         cards_per_hand: u16,
         cards_per_hand_min: u16,
         cards_per_hand_max: u16,
@@ -377,6 +386,7 @@ pub enum ServerMsg {
     StartRound {
         hand: Vec<String>,
         pinned_cards: Vec<String>,
+        previous_dixit_results: Option<PreviousDixitResultsView>,
         server_time_ms: u64,
         current_stage_deadline_s: Option<u64>,
     },
@@ -386,6 +396,7 @@ pub enum ServerMsg {
         pinned_cards: Vec<String>,
         chosen_card: Option<String>,
         selected_cards: Vec<String>,
+        previous_dixit_results: Option<PreviousDixitResultsView>,
         server_time_ms: u64,
         current_stage_deadline_s: Option<u64>,
     },
@@ -3912,6 +3923,57 @@ impl Room {
             .collect()
     }
 
+    fn stella_signed_point_change(point_change: &HashMap<String, u16>) -> HashMap<String, i32> {
+        point_change
+            .iter()
+            .map(|(player, points)| (player.clone(), i32::from(*points)))
+            .collect()
+    }
+
+    fn current_delta_scores(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+    ) -> Option<RoundDeltaScores> {
+        match state.stage {
+            RoomStage::Results => Some(RoundDeltaScores {
+                stage: RoomStage::Results,
+                point_change: if self.uses_separate_beauty_results_stage(state) {
+                    Self::signed_point_change(&state.storyteller_point_change)
+                } else {
+                    self.merge_point_changes(
+                        &state.storyteller_point_change,
+                        &state.beauty_point_change,
+                    )
+                },
+                storyteller_point_change: Self::signed_point_change(
+                    &state.storyteller_point_change,
+                ),
+                beauty_point_change: state.beauty_point_change.clone(),
+            }),
+            RoomStage::BeautyResults => Some(RoundDeltaScores {
+                stage: RoomStage::BeautyResults,
+                point_change: state.beauty_point_change.clone(),
+                storyteller_point_change: HashMap::new(),
+                beauty_point_change: state.beauty_point_change.clone(),
+            }),
+            RoomStage::StellaReveal => Some(RoundDeltaScores {
+                stage: RoomStage::StellaReveal,
+                point_change: Self::stella_signed_point_change(
+                    &self.effective_stella_point_change(state),
+                ),
+                storyteller_point_change: HashMap::new(),
+                beauty_point_change: HashMap::new(),
+            }),
+            RoomStage::StellaResults => Some(RoundDeltaScores {
+                stage: RoomStage::StellaResults,
+                point_change: Self::stella_signed_point_change(&state.stella_point_change),
+                storyteller_point_change: HashMap::new(),
+                beauty_point_change: HashMap::new(),
+            }),
+            _ => None,
+        }
+    }
+
     fn live_member_total_points(state: &RwLockWriteGuard<'_, RoomState>) -> HashMap<String, u16> {
         let mut totals = HashMap::new();
         for (member_name, info) in &state.players {
@@ -6109,6 +6171,7 @@ impl Room {
                     state,
                     name.ok_or_else(|| anyhow!("No name provided"))?,
                 ),
+                previous_dixit_results: state.previous_dixit_results.clone(),
                 server_time_ms,
                 current_stage_deadline_s,
             }),
@@ -6159,6 +6222,7 @@ impl Room {
                         }
                     })
                     .unwrap_or_default(),
+                previous_dixit_results: state.previous_dixit_results.clone(),
                 server_time_ms,
                 current_stage_deadline_s,
             }),
@@ -12014,6 +12078,7 @@ impl Room {
             } else {
                 None
             },
+            current_delta_scores: self.current_delta_scores(state),
             cards_per_hand,
             cards_per_hand_min: cards_min,
             cards_per_hand_max: cards_max,
@@ -20250,6 +20315,172 @@ alpha
                 stage
             );
             drop(state);
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn room_state_exposes_current_delta_scores_for_result_stages() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            state.stage = RoomStage::Results;
+            state.storyteller_point_change = HashMap::from([("storyteller".into(), 3)]);
+            state.beauty_point_change = HashMap::from([("guesser".into(), 2)]);
+            state.beauty_enabled = true;
+        }
+
+        let state = room.state.write().await;
+        match room.room_state(&state) {
+            ServerMsg::RoomState {
+                current_delta_scores,
+                ..
+            } => {
+                let current_delta_scores = current_delta_scores.ok_or_else(|| {
+                    anyhow!("expected current delta scores in Results room state")
+                })?;
+                assert!(
+                    matches!(current_delta_scores.stage, RoomStage::Results),
+                    "current delta scores should retain the result stage"
+                );
+                assert_eq!(
+                    current_delta_scores
+                        .point_change
+                        .get("storyteller")
+                        .copied(),
+                    Some(3),
+                    "current total deltas should include storyteller deltas"
+                );
+                assert_eq!(
+                    current_delta_scores.point_change.get("guesser").copied(),
+                    Some(2),
+                    "current total deltas should include beauty deltas"
+                );
+                assert_eq!(
+                    current_delta_scores
+                        .storyteller_point_change
+                        .get("storyteller")
+                        .copied(),
+                    Some(3),
+                    "current storyteller deltas should be included separately"
+                );
+                assert_eq!(
+                    current_delta_scores
+                        .beauty_point_change
+                        .get("guesser")
+                        .copied(),
+                    Some(2),
+                    "current beauty deltas should be included separately"
+                );
+            }
+            other => return Err(anyhow!("Expected RoomState, got {:?}", other)),
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn active_chooses_stage_message_exposes_previous_results_payload() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "storyteller", 0);
+            state.stage = RoomStage::ActiveChooses;
+            state.player_order = vec!["storyteller".into()];
+            state.active_player = 0;
+            state
+                .player_hand
+                .insert("storyteller".into(), vec!["hand-card".into()]);
+            state.previous_dixit_results = Some(PreviousDixitResultsView::Results {
+                center_cards: vec!["a".into()],
+                player_to_votes: HashMap::new(),
+                player_to_beauty_votes: HashMap::new(),
+                player_to_clue_rating: HashMap::new(),
+                clue_rating_average: None,
+                clue_rating_count: 0,
+                clue_rating_bonus: 0,
+                player_to_current_cards: HashMap::from([("storyteller".into(), vec!["a".into()])]),
+                active_card: "a".into(),
+                beauty_results_display_mode: BeautyResultsDisplayMode::Combined,
+                point_change: HashMap::from([("storyteller".into(), 3)]),
+                storyteller_point_change: HashMap::from([("storyteller".into(), 3)]),
+                beauty_point_change: HashMap::new(),
+                beauty_vote_totals: HashMap::new(),
+                beauty_winning_cards: Vec::new(),
+            });
+        }
+
+        let state = room.state.write().await;
+        match room.get_msg(Some("storyteller"), &state)? {
+            ServerMsg::StartRound {
+                previous_dixit_results,
+                ..
+            } => match previous_dixit_results {
+                Some(PreviousDixitResultsView::Results { point_change, .. }) => {
+                    assert_eq!(
+                        point_change.get("storyteller").copied(),
+                        Some(3),
+                        "ActiveChooses stage payload should include previous result deltas"
+                    );
+                }
+                other => {
+                    return Err(anyhow!(
+                        "Expected previous results payload, got {:?}",
+                        other
+                    ))
+                }
+            },
+            other => return Err(anyhow!("Expected StartRound, got {:?}", other)),
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn players_choose_stage_message_exposes_previous_results_payload() -> Result<()> {
+        let room = test_room();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "storyteller", 0);
+            add_player(&mut state, "guesser", 0);
+            state.stage = RoomStage::PlayersChoose;
+            state.player_order = vec!["storyteller".into(), "guesser".into()];
+            state.active_player = 0;
+            state.current_description = "clue".into();
+            state
+                .player_hand
+                .insert("guesser".into(), vec!["hand-card".into()]);
+            state.previous_dixit_results = Some(PreviousDixitResultsView::BeautyResults {
+                center_cards: vec!["a".into()],
+                player_to_beauty_votes: HashMap::new(),
+                player_to_clue_rating: HashMap::new(),
+                clue_rating_average: None,
+                clue_rating_count: 0,
+                clue_rating_bonus: 0,
+                player_to_current_cards: HashMap::from([("storyteller".into(), vec!["a".into()])]),
+                point_change: HashMap::from([("guesser".into(), 2)]),
+                beauty_vote_totals: HashMap::new(),
+                beauty_winning_cards: Vec::new(),
+            });
+        }
+
+        let state = room.state.write().await;
+        match room.get_msg(Some("guesser"), &state)? {
+            ServerMsg::PlayersChoose {
+                previous_dixit_results,
+                ..
+            } => match previous_dixit_results {
+                Some(PreviousDixitResultsView::BeautyResults { point_change, .. }) => {
+                    assert_eq!(
+                        point_change.get("guesser").copied(),
+                        Some(2),
+                        "PlayersChoose stage payload should include previous beauty-result deltas"
+                    );
+                }
+                other => return Err(anyhow!("Expected previous beauty payload, got {:?}", other)),
+            },
+            other => return Err(anyhow!("Expected PlayersChoose, got {:?}", other)),
         }
 
         Ok(())

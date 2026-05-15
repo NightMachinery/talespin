@@ -54,6 +54,7 @@
 		BeautyResultsDisplayMode,
 		BeautyScoringMode,
 		BeautyVotePointsDivisorMode,
+		CurrentDeltaScoresPayload,
 		GameMode,
 		LeaderboardViewMode,
 		ObserverInfo,
@@ -289,6 +290,15 @@
 		}, 1100);
 	}
 
+	function applyCurrentDeltaScoresPayload(payload: CurrentDeltaScoresPayload | null | undefined) {
+		if (!payload) return;
+		pointChange = payload.point_change || {};
+		storytellerPointChange = payload.storyteller_point_change || {};
+		beautyPointChange = payload.beauty_point_change || {};
+		storytellerLeaderboardPointChange.set(storytellerPointChange);
+		beautyLeaderboardPointChange.set(beautyPointChange);
+	}
+
 	function syncStageTimer(
 		nextServerTimeMs: number | null | undefined,
 		nextDeadlineS: number | null | undefined
@@ -502,6 +512,7 @@
 					data.RoomState.randomize_voting_card_order_per_viewer ?? false;
 				votingLayoutSeed = data.RoomState.voting_layout_seed ?? null;
 				previousDixitResults = data.RoomState.previous_dixit_results ?? null;
+				applyCurrentDeltaScoresPayload(data.RoomState.current_delta_scores);
 				cardsPerHand = data.RoomState.cards_per_hand ?? 12;
 				cardsPerHandMin = data.RoomState.cards_per_hand_min ?? 1;
 				cardsPerHandMax = data.RoomState.cards_per_hand_max ?? 18;
@@ -616,6 +627,7 @@
 				stageImages = data.StartRound.hand;
 				myHandImages = data.StartRound.hand || [];
 				pinnedCards = data.StartRound.pinned_cards || [];
+				previousDixitResults = data.StartRound.previous_dixit_results ?? null;
 				playerToVotes = {};
 				playerToBeautyVotes = {};
 				storytellerPointChange = {};
@@ -638,6 +650,7 @@
 				myHandImages = data.PlayersChoose.hand || [];
 				pinnedCards = data.PlayersChoose.pinned_cards || [];
 				description = data.PlayersChoose.description;
+				previousDixitResults = data.PlayersChoose.previous_dixit_results ?? null;
 				playerToVotes = {};
 				playerToBeautyVotes = {};
 				storytellerPointChange = {};

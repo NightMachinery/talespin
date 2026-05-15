@@ -7,10 +7,7 @@
 		WinCondition
 	} from '$lib/types';
 	import { getToastStore } from '@skeletonlabs/skeleton';
-	import {
-		previousDixitResultsLeaderboardContext,
-		type PreviousDixitResultsLeaderboardContext
-	} from '$lib/previousDixitResultsLeaderboard';
+	import { previousRoundDeltaScores, type DeltaScores } from '$lib/deltaScores';
 	import Images from './Images.svelte';
 	import BottomStickyPanelViewSwitch from './BottomStickyPanelViewSwitch.svelte';
 	import PreviousDixitResultsPreview from './PreviousDixitResultsPreview.svelte';
@@ -130,7 +127,8 @@
 	let shouldShowPreviousResults = false;
 	let lastViewResetKey = '';
 	let lastActivePlayer = '';
-	let previousResultsLeaderboardContext: PreviousDixitResultsLeaderboardContext | null = null;
+	let previousDeltaScores: DeltaScores | null = null;
+	let previousRoundClueRatingOverride: Record<string, number> | null = null;
 
 	$: isObserver = !!observers[name];
 	$: isActivePlayer = activePlayer === name && !isObserver;
@@ -143,9 +141,11 @@
 	$: canToggleResultsView = !isObserver && hasPreviousResultsPreview;
 	$: shouldShowPreviousResults =
 		hasPreviousResultsPreview && (isObserver || waitingViewMode === 'results');
-	$: previousResultsLeaderboardContext = shouldShowPreviousResults
-		? previousDixitResultsLeaderboardContext(previousDixitResults)
-		: null;
+	$: previousDeltaScores = previousRoundDeltaScores(previousDixitResults);
+	$: previousRoundClueRatingOverride =
+		previousDixitResults && Object.keys(previousDixitResults.player_to_clue_rating ?? {}).length > 0
+			? previousDixitResults.player_to_clue_rating
+			: null;
 	$: viewResetKey = `${roundNum}:${activePlayer}:${previousDixitResults?.kind ?? 'none'}`;
 	$: if (viewResetKey !== lastViewResetKey) {
 		lastViewResetKey = viewResetKey;
@@ -278,13 +278,11 @@
 	{cardsRemaining}
 	{deckRefillFlashToken}
 	{winCondition}
-	leaderboardPointChangeStageOverride={previousResultsLeaderboardContext?.stage ?? ''}
-	leaderboardPointChangeOverride={previousResultsLeaderboardContext?.pointChange ?? null}
-	leaderboardStoryPointChangeOverride={previousResultsLeaderboardContext?.storyPointChange ?? null}
-	leaderboardBeautyPointChangeOverride={previousResultsLeaderboardContext?.beautyPointChange ??
-		null}
-	leaderboardRoundClueRatingOverride={previousResultsLeaderboardContext?.clueRatingOverride ?? null}
-	leaderboardShowPointChangeOverride={hasPreviousResultsPreview}
+	{previousDeltaScores}
+	leaderboardRoundClueRatingOverride={shouldShowPreviousResults
+		? previousRoundClueRatingOverride
+		: null}
+	leaderboardPreviousResultsMode={shouldShowPreviousResults}
 	showMobileActions={isActivePlayer || isModerator || canToggleResultsView}
 >
 	<svelte:fragment slot="leftRail">

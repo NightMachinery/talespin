@@ -14,6 +14,7 @@
 		StellaQueuedRevealMode,
 		WinCondition
 	} from '$lib/types';
+	import type { DeltaScores } from '$lib/deltaScores';
 
 	export let players: { [key: string]: PlayerInfo } = {};
 	export let observers: { [key: string]: ObserverInfo } = {};
@@ -112,12 +113,9 @@
 	};
 	export let gameMode: GameMode = 'dixit_plus';
 	export let showMobileActions = true;
-	export let leaderboardPointChangeStageOverride = '';
-	export let leaderboardPointChangeOverride: { [key: string]: number } | null = null;
-	export let leaderboardStoryPointChangeOverride: { [key: string]: number } | null = null;
-	export let leaderboardBeautyPointChangeOverride: { [key: string]: number } | null = null;
 	export let leaderboardRoundClueRatingOverride: { [key: string]: number } | null = null;
-	export let leaderboardShowPointChangeOverride = false;
+	export let previousDeltaScores: DeltaScores | null = null;
+	export let leaderboardPreviousResultsMode = false;
 
 	const hasMobileTop = !!$$slots.mobileTop;
 	const hasMobileActions = !!$$slots.mobileActions;
@@ -266,12 +264,9 @@
 						{winCondition}
 						{gameMode}
 						{beautyEnabled}
-						{leaderboardPointChangeStageOverride}
-						{leaderboardPointChangeOverride}
-						{leaderboardStoryPointChangeOverride}
-						{leaderboardBeautyPointChangeOverride}
 						{leaderboardRoundClueRatingOverride}
-						{leaderboardShowPointChangeOverride}
+						{previousDeltaScores}
+						{leaderboardPreviousResultsMode}
 					/>
 
 					{#if hasMobileBottom}

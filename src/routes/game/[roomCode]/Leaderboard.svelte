@@ -40,6 +40,11 @@
 		shouldRenderPointChange as shouldRenderPointChangeForStage,
 		shouldShowPointChange as shouldShowPointChangeForStage
 	} from '$lib/leaderboardPointChange';
+	import {
+		currentRoundDeltaScores,
+		displayedDeltaScores as selectDisplayedDeltaScores,
+		type DeltaScores
+	} from '$lib/deltaScores';
 
 	type CombinedScoreKey = 'total' | 'story' | 'beauty';
 
@@ -66,12 +71,9 @@
 	export let darkPlayer = '';
 	export let gameMode: GameMode = 'dixit_plus';
 	export let beautyEnabled = false;
-	export let leaderboardPointChangeStageOverride = '';
-	export let leaderboardPointChangeOverride: { [key: string]: number } | null = null;
-	export let leaderboardStoryPointChangeOverride: { [key: string]: number } | null = null;
-	export let leaderboardBeautyPointChangeOverride: { [key: string]: number } | null = null;
 	export let leaderboardRoundClueRatingOverride: { [key: string]: number } | null = null;
-	export let leaderboardShowPointChangeOverride = false;
+	export let previousDeltaScores: DeltaScores | null = null;
+	export let leaderboardPreviousResultsMode = false;
 	export let winCondition: WinCondition = {
 		mode: 'points',
 		target_points: 10
@@ -94,6 +96,8 @@
 	let showSinceJoined = false;
 	let digitWidths = { total: 1, story: 1, beauty: 1 };
 	let combinedDeltaWidths = { total: 2, story: 2, beauty: 2 };
+	let currentDeltaScores: DeltaScores | null = null;
+	let activeDeltaScores: DeltaScores | null = null;
 
 	$: isModerator = new Set(moderators).has(name);
 	$: storytellerPoolPlayerSet = new Set(storytellerPoolPlayers);
@@ -107,12 +111,21 @@
 	$: if ($leaderboardViewMode !== activeLeaderboardViewMode) {
 		setLeaderboardViewModePreference(activeLeaderboardViewMode);
 	}
-	$: pointChangeStage = leaderboardPointChangeStageOverride || stage;
-	$: effectivePointChange = leaderboardPointChangeOverride ?? pointChange;
-	$: effectiveStorytellerPointChange =
-		leaderboardStoryPointChangeOverride ?? $storytellerLeaderboardPointChange;
-	$: effectiveBeautyPointChange =
-		leaderboardBeautyPointChangeOverride ?? $beautyLeaderboardPointChange;
+	$: currentDeltaScores = currentRoundDeltaScores({
+		stage,
+		pointChange,
+		storytellerPointChange: $storytellerLeaderboardPointChange,
+		beautyPointChange: $beautyLeaderboardPointChange
+	});
+	$: activeDeltaScores = selectDisplayedDeltaScores({
+		current: currentDeltaScores,
+		previous: previousDeltaScores,
+		isPreviousResultsMode: leaderboardPreviousResultsMode
+	});
+	$: pointChangeStage = activeDeltaScores?.stage ?? stage;
+	$: effectivePointChange = activeDeltaScores?.pointChange ?? {};
+	$: effectiveStorytellerPointChange = activeDeltaScores?.storyPointChange ?? {};
+	$: effectiveBeautyPointChange = activeDeltaScores?.beautyPointChange ?? {};
 	$: viewerJoinedRound = firstActiveRoundForPlayer($leaderboardRoundHistory, name, {
 		roundNum,
 		activePlayers: Object.keys(players)
@@ -200,7 +213,7 @@
 	}
 
 	function shouldShowPointChange() {
-		return shouldShowPointChangeForStage(pointChangeStage, leaderboardShowPointChangeOverride);
+		return shouldShowPointChangeForStage(pointChangeStage, activeDeltaScores !== null);
 	}
 
 	function shouldShowCombinedDeltaColumns() {
@@ -209,7 +222,7 @@
 			shouldRenderPointChangeForStage(
 				pointChangeStage,
 				0,
-				leaderboardShowPointChangeOverride,
+				activeDeltaScores !== null,
 				activeLeaderboardViewMode
 			)
 		);
@@ -221,7 +234,7 @@
 			shouldRenderPointChangeForStage(
 				pointChangeStage,
 				delta,
-				leaderboardShowPointChangeOverride,
+				activeDeltaScores !== null,
 				activeLeaderboardViewMode
 			)
 		);

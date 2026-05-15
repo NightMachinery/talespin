@@ -25,6 +25,8 @@ next storyteller is choosing and while nominations are happening.
   **Total**, **Story Only**, **Beauty Only**, and **Combined**; **Clue Stars** continues to show
   clue-star standings instead of score deltas. Score views render an explicit zero delta such as
   `(+0)` / `+0` whenever result delta display is active.
+- Leaderboard delta selection is centralized in the frontend: current-round deltas win when present,
+  otherwise previous-round deltas are used according to `TALESPIN_DELTA_DISPLAY_MODE`.
 - If the previewed round recorded clue-star submissions, the sidebar leaderboard also carries the
   same temporary **per-player clue-star chips** from that previewed round.
 
@@ -59,6 +61,12 @@ next storyteller is choosing and while nominations are happening.
 - Leaderboard deltas come from the cached previous-results snapshot, so they match the previewed
   board rather than the current live stage. The preview keeps delta display forced on after the
   live stage advances to storyteller choosing or nominations.
+- `TALESPIN_DELTA_DISPLAY_MODE=always` is the default and lets the leaderboard fall back to the
+  previous round's deltas whenever no current-round delta payload is available.
+- `TALESPIN_DELTA_DISPLAY_MODE=only_in_previous_results` limits that previous-round fallback to the
+  local **Previous Results** view.
+- `StartRound` and `PlayersChoose` messages include the cached previous-results payload directly so
+  deltas remain available immediately after stage changes and reconnects.
 
 ## Next-round auto-advance
 

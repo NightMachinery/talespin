@@ -30,6 +30,13 @@ export type LeaderboardViewMode =
 
 export type ResultsNextAction = 'next_round' | 'beauty_results' | 'end_game';
 
+export interface CurrentDeltaScoresPayload {
+	stage: 'Results' | 'BeautyResults' | 'StellaReveal' | 'StellaResults';
+	point_change: Record<string, number>;
+	storyteller_point_change: Record<string, number>;
+	beauty_point_change: Record<string, number>;
+}
+
 export type PreviousDixitResultsView =
 	| {
 			kind: 'results';

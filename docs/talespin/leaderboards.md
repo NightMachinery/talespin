@@ -38,6 +38,19 @@ The server sends both compact leaderboard round history and precomputed since-jo
 room state. The live sidebar and end-game screens select the current viewer's first-active-round
 map instead of replaying scoring rules in the browser.
 
+## Delta display
+
+The frontend uses one delta-score selector for sidebar leaderboard deltas. It first returns the
+current round's delta scores when the room is in a result stage. If no current-round delta payload
+is available, it can fall back to the previous round's cached Dixit result deltas.
+
+- `TALESPIN_DELTA_DISPLAY_MODE=always` is the default and enables previous-round fallback whenever
+  previous deltas are available.
+- `TALESPIN_DELTA_DISPLAY_MODE=only_in_previous_results` only enables previous-round fallback while
+  the viewer's local view is **Previous Results**.
+- The server includes current delta scores in room state for result stages and sends previous Dixit
+  results in `StartRound` and `PlayersChoose` stage messages.
+
 ## Ranking ties
 
 Leaderboard ranks use shared competition-ranking logic. Equal displayed values share the same rank
