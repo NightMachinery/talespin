@@ -12,6 +12,7 @@
 		type PreviousDixitResultsLeaderboardContext
 	} from '$lib/previousDixitResultsLeaderboard';
 	import Images from './Images.svelte';
+	import BottomStickyPanelViewSwitch from './BottomStickyPanelViewSwitch.svelte';
 	import PreviousDixitResultsPreview from './PreviousDixitResultsPreview.svelte';
 	import StageActionButtons from './StageActionButtons.svelte';
 	import StageShell from './StageShell.svelte';
@@ -415,20 +416,13 @@
 		<div class="space-y-4">
 			{#if isActivePlayer}
 				{#if canToggleResultsView}
-					<div class="grid grid-cols-2 gap-2">
-						<button
-							class={`btn w-full ${
-								waitingViewMode === 'results' ? 'variant-filled' : 'variant-ghost'
-							}`}
-							on:click={() => (waitingViewMode = 'results')}>Previous Results</button
-						>
-						<button
-							class={`btn w-full ${
-								waitingViewMode === 'hand' ? 'variant-filled' : 'variant-ghost'
-							}`}
-							on:click={() => (waitingViewMode = 'hand')}>My Cards</button
-						>
-					</div>
+					<BottomStickyPanelViewSwitch
+						bind:value={waitingViewMode}
+						modes={[
+							{ id: 'results', label: 'Previous Results', icon: 'results' },
+							{ id: 'hand', label: 'My Cards', icon: 'hand' }
+						]}
+					/>
 				{/if}
 				<input
 					id="description-mobile"
@@ -443,18 +437,13 @@
 					on:click={activePlayerChoose}>Choose</button
 				>
 			{:else if canToggleResultsView}
-				<div class="grid grid-cols-2 gap-2">
-					<button
-						class={`btn w-full ${
-							waitingViewMode === 'results' ? 'variant-filled' : 'variant-ghost'
-						}`}
-						on:click={() => (waitingViewMode = 'results')}>Previous Results</button
-					>
-					<button
-						class={`btn w-full ${waitingViewMode === 'hand' ? 'variant-filled' : 'variant-ghost'}`}
-						on:click={() => (waitingViewMode = 'hand')}>My Cards</button
-					>
-				</div>
+				<BottomStickyPanelViewSwitch
+					bind:value={waitingViewMode}
+					modes={[
+						{ id: 'results', label: 'Previous Results', icon: 'results' },
+						{ id: 'hand', label: 'My Cards', icon: 'hand' }
+					]}
+				/>
 			{/if}
 			{#if isModerator}
 				<StageActionButtons

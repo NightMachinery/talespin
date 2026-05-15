@@ -18,6 +18,8 @@
 		type PreviousDixitResultsLeaderboardContext
 	} from '$lib/previousDixitResultsLeaderboard';
 	import Images from './Images.svelte';
+	import BottomStickyPanelActionGroup from './BottomStickyPanelActionGroup.svelte';
+	import BottomStickyPanelViewSwitch from './BottomStickyPanelViewSwitch.svelte';
 	import PreviousDixitResultsPreview from './PreviousDixitResultsPreview.svelte';
 	import StageActionButtons from './StageActionButtons.svelte';
 	import StageShell from './StageShell.svelte';
@@ -438,23 +440,10 @@
 			{/if}
 		{/if}
 		{#if isModerator}
-			<div class="card light space-y-3 p-4">
-				<button
-					type="button"
-					class="btn variant-filled h-10 w-10 p-0"
-					title="Reset clue"
-					aria-label="Reset clue"
-					on:click={resetClue}
-				>
-					<svg class="mx-auto h-5 w-5" viewBox="0 0 24 24" aria-hidden="true">
-						<path
-							fill="currentColor"
-							d="M12 4a8 8 0 0 1 7.7 5.9l1.1-1.1a1 1 0 1 1 1.4 1.4l-3 3a1 1 0 0 1-1.4 0l-3-3a1 1 0 1 1 1.4-1.4l1.4 1.4A6 6 0 1 0 12 18a6 6 0 0 0 4.2-1.7 1 1 0 0 1 1.4 1.4A8 8 0 1 1 12 4Z"
-						/>
-					</svg>
-				</button>
+			<div class="card light p-4">
 				<StageActionButtons
 					actions={[
+						{ label: 'Reset clue', onClick: resetClue },
 						{ label: 'Force Random', onClick: () => gameServer.forceCurrentStage() },
 						{
 							label: 'Auto-observerify',
@@ -522,34 +511,18 @@
 				>
 			{/if}
 			{#if canToggleResultsView}
-				<div class="grid grid-cols-2 gap-2">
-					<button
-						class={`btn w-full ${viewMode === 'results' ? 'variant-filled' : 'variant-ghost'}`}
-						on:click={() => (viewMode = 'results')}>Previous Results</button
-					>
-					<button
-						class={`btn w-full ${viewMode === 'hand' ? 'variant-filled' : 'variant-ghost'}`}
-						on:click={() => (viewMode = 'hand')}>My Cards</button
-					>
-				</div>
+				<BottomStickyPanelViewSwitch
+					bind:value={viewMode}
+					modes={[
+						{ id: 'results', label: 'Previous Results', icon: 'results' },
+						{ id: 'hand', label: 'My Cards', icon: 'hand' }
+					]}
+				/>
 			{/if}
 			{#if isModerator}
-				<button
-					type="button"
-					class="btn variant-filled h-10 w-10 p-0"
-					title="Reset clue"
-					aria-label="Reset clue"
-					on:click={resetClue}
-				>
-					<svg class="mx-auto h-5 w-5" viewBox="0 0 24 24" aria-hidden="true">
-						<path
-							fill="currentColor"
-							d="M12 4a8 8 0 0 1 7.7 5.9l1.1-1.1a1 1 0 1 1 1.4 1.4l-3 3a1 1 0 0 1-1.4 0l-3-3a1 1 0 1 1 1.4-1.4l1.4 1.4A6 6 0 1 0 12 18a6 6 0 0 0 4.2-1.7 1 1 0 0 1 1.4 1.4A8 8 0 1 1 12 4Z"
-						/>
-					</svg>
-				</button>
-				<StageActionButtons
+				<BottomStickyPanelActionGroup
 					actions={[
+						{ label: 'Reset clue', onClick: resetClue },
 						{ label: 'Force Random', onClick: () => gameServer.forceCurrentStage() },
 						{
 							label: 'Auto-observerify',

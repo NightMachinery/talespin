@@ -15,10 +15,10 @@
 	import type { ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
 	import { cardsFitToHeight } from '$lib/viewOptions';
 	import CardNumberNavigator from './CardNumberNavigator.svelte';
+	import BottomStickyPanelViewSwitch from './BottomStickyPanelViewSwitch.svelte';
 	import MyCardsPanel from './MyCardsPanel.svelte';
 	import StageActionButtons from './StageActionButtons.svelte';
 	import StageShell from './StageShell.svelte';
-	import ViewModeToggle from './ViewModeToggle.svelte';
 
 	export let displayImages: string[] = [];
 	export let cardNumberLabels: number[] = [];
@@ -435,7 +435,7 @@
 	<svelte:fragment slot="mobileActions">
 		<div class="space-y-4">
 			{#if myHandImages.length > 0}
-				<ViewModeToggle
+				<BottomStickyPanelViewSwitch
 					bind:value={viewMode}
 					modes={[
 						{ id: 'table', label: 'Table', icon: 'table' },

@@ -20,10 +20,10 @@
 	import type GameServer from '$lib/gameServer';
 	import type { ObserverInfo, PlayerInfo, ResultsNextAction, WinCondition } from '$lib/types';
 	import CardNumberNavigator from './CardNumberNavigator.svelte';
+	import BottomStickyPanelViewSwitch from './BottomStickyPanelViewSwitch.svelte';
 	import ChooserNameOverlay from './ChooserNameOverlay.svelte';
 	import MyCardsPanel from './MyCardsPanel.svelte';
 	import StageShell from './StageShell.svelte';
-	import ViewModeToggle from './ViewModeToggle.svelte';
 
 	export let displayImages: string[] = [];
 	export let cardNumberLabels: number[] = [];
@@ -354,7 +354,7 @@
 	<svelte:fragment slot="mobileActions">
 		<div class="space-y-4">
 			{#if myHandImages.length > 0}
-				<ViewModeToggle
+				<BottomStickyPanelViewSwitch
 					bind:value={viewMode}
 					modes={[
 						{ id: 'results', label: 'Table', icon: 'table' },
