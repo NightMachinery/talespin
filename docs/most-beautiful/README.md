@@ -6,7 +6,10 @@ by default.
 ## Settings
 
 - **Enable Most Beautiful**: adds a second vote after storyteller voting.
-- **Beauty votes per player**: how many beauty votes each active player can cast. Default: `2`.
+- **Auto beauty votes**: enabled by default. The server gives each active player `1` beauty vote
+  below 10 active players and `2` beauty votes at 10+ active players.
+- **Beauty votes per player**: manual override for how many beauty votes each active player can
+  cast when auto beauty votes is off.
 - Players may submit **zero or fewer than the maximum** beauty votes when they do not want to spend
   every beauty vote token.
 - The beauty voting timer defaults to `70s` and auto-forces by skipping missing ballots.

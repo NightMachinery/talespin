@@ -38,10 +38,12 @@
 	export let votesPerGuesser = 1;
 	export let votesPerGuesserMin = 1;
 	export let votesPerGuesserMax = 1;
+	export let votesPerGuesserAuto = true;
 	export let beautyEnabled = false;
-	export let beautyVotesPerPlayer = 2;
+	export let beautyVotesPerPlayer = 1;
 	export let beautyVotesPerPlayerMin = 1;
 	export let beautyVotesPerPlayerMax = 1;
+	export let beautyVotesPerPlayerAuto = true;
 	export let beautyAllowDuplicateVotes = false;
 	export let beautySplitPointsOnTie = true;
 	export let beautyPointsBonus = 2;
@@ -304,10 +306,12 @@
 								{votesPerGuesser}
 								{votesPerGuesserMin}
 								{votesPerGuesserMax}
+								{votesPerGuesserAuto}
 								{beautyEnabled}
 								{beautyVotesPerPlayer}
 								{beautyVotesPerPlayerMin}
 								{beautyVotesPerPlayerMax}
+								{beautyVotesPerPlayerAuto}
 								{beautyAllowDuplicateVotes}
 								{beautySplitPointsOnTie}
 								{beautyPointsBonus}
@@ -393,10 +397,12 @@
 							{votesPerGuesser}
 							{votesPerGuesserMin}
 							{votesPerGuesserMax}
+							{votesPerGuesserAuto}
 							{beautyEnabled}
 							{beautyVotesPerPlayer}
 							{beautyVotesPerPlayerMin}
 							{beautyVotesPerPlayerMax}
+							{beautyVotesPerPlayerAuto}
 							{beautyAllowDuplicateVotes}
 							{beautySplitPointsOnTie}
 							{beautyPointsBonus}

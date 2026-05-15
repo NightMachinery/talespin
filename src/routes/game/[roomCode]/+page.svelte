@@ -119,10 +119,12 @@
 	let votesPerGuesser = 1;
 	let votesPerGuesserMin = 1;
 	let votesPerGuesserMax = 1;
+	let votesPerGuesserAuto = true;
 	let beautyEnabled = false;
-	let beautyVotesPerPlayer = 2;
+	let beautyVotesPerPlayer = 1;
 	let beautyVotesPerPlayerMin = 1;
 	let beautyVotesPerPlayerMax = 1;
+	let beautyVotesPerPlayerAuto = true;
 	let beautyAllowDuplicateVotes = false;
 	let beautySplitPointsOnTie = true;
 	let beautyPointsBonus = 2;
@@ -466,10 +468,12 @@
 				votesPerGuesser = data.RoomState.votes_per_guesser ?? 1;
 				votesPerGuesserMin = data.RoomState.votes_per_guesser_min ?? 1;
 				votesPerGuesserMax = data.RoomState.votes_per_guesser_max ?? 1;
+				votesPerGuesserAuto = data.RoomState.votes_per_guesser_auto ?? true;
 				beautyEnabled = data.RoomState.beauty_enabled ?? false;
-				beautyVotesPerPlayer = data.RoomState.beauty_votes_per_player ?? 2;
+				beautyVotesPerPlayer = data.RoomState.beauty_votes_per_player ?? 1;
 				beautyVotesPerPlayerMin = data.RoomState.beauty_votes_per_player_min ?? 1;
 				beautyVotesPerPlayerMax = data.RoomState.beauty_votes_per_player_max ?? 1;
+				beautyVotesPerPlayerAuto = data.RoomState.beauty_votes_per_player_auto ?? true;
 				beautyAllowDuplicateVotes = data.RoomState.beauty_allow_duplicate_votes ?? false;
 				beautySplitPointsOnTie = data.RoomState.beauty_split_points_on_tie ?? true;
 				beautyPointsBonus = data.RoomState.beauty_points_bonus ?? 2;
@@ -1006,10 +1010,12 @@
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}
+			{votesPerGuesserAuto}
 			{beautyEnabled}
 			{beautyVotesPerPlayer}
 			{beautyVotesPerPlayerMin}
 			{beautyVotesPerPlayerMax}
+			{beautyVotesPerPlayerAuto}
 			{beautyAllowDuplicateVotes}
 			{beautySplitPointsOnTie}
 			{beautyPointsBonus}
@@ -1102,10 +1108,12 @@
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}
+			{votesPerGuesserAuto}
 			{beautyEnabled}
 			{beautyVotesPerPlayer}
 			{beautyVotesPerPlayerMin}
 			{beautyVotesPerPlayerMax}
+			{beautyVotesPerPlayerAuto}
 			{beautyAllowDuplicateVotes}
 			{beautySplitPointsOnTie}
 			{beautyPointsBonus}
@@ -1204,10 +1212,12 @@
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}
+			{votesPerGuesserAuto}
 			{beautyEnabled}
 			{beautyVotesPerPlayer}
 			{beautyVotesPerPlayerMin}
 			{beautyVotesPerPlayerMax}
+			{beautyVotesPerPlayerAuto}
 			{beautyAllowDuplicateVotes}
 			{beautySplitPointsOnTie}
 			{beautyPointsBonus}
@@ -1300,10 +1310,12 @@
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}
+			{votesPerGuesserAuto}
 			{beautyEnabled}
 			{beautyVotesPerPlayer}
 			{beautyVotesPerPlayerMin}
 			{beautyVotesPerPlayerMax}
+			{beautyVotesPerPlayerAuto}
 			{beautyAllowDuplicateVotes}
 			{beautySplitPointsOnTie}
 			{beautyPointsBonus}
@@ -1399,10 +1411,12 @@
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}
+			{votesPerGuesserAuto}
 			{beautyEnabled}
 			{beautyVotesPerPlayer}
 			{beautyVotesPerPlayerMin}
 			{beautyVotesPerPlayerMax}
+			{beautyVotesPerPlayerAuto}
 			{beautyAllowDuplicateVotes}
 			{beautySplitPointsOnTie}
 			{beautyPointsBonus}
@@ -1497,10 +1511,12 @@
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}
+			{votesPerGuesserAuto}
 			{beautyEnabled}
 			{beautyVotesPerPlayer}
 			{beautyVotesPerPlayerMin}
 			{beautyVotesPerPlayerMax}
+			{beautyVotesPerPlayerAuto}
 			{beautyAllowDuplicateVotes}
 			{beautySplitPointsOnTie}
 			{beautyPointsBonus}
@@ -1594,10 +1610,12 @@
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}
+			{votesPerGuesserAuto}
 			{beautyEnabled}
 			{beautyVotesPerPlayer}
 			{beautyVotesPerPlayerMin}
 			{beautyVotesPerPlayerMax}
+			{beautyVotesPerPlayerAuto}
 			{beautyAllowDuplicateVotes}
 			{beautySplitPointsOnTie}
 			{beautyPointsBonus}
@@ -1697,10 +1715,12 @@
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}
+			{votesPerGuesserAuto}
 			{beautyEnabled}
 			{beautyVotesPerPlayer}
 			{beautyVotesPerPlayerMin}
 			{beautyVotesPerPlayerMax}
+			{beautyVotesPerPlayerAuto}
 			{beautyAllowDuplicateVotes}
 			{beautySplitPointsOnTie}
 			{beautyPointsBonus}
@@ -1799,10 +1819,12 @@
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}
+			{votesPerGuesserAuto}
 			{beautyEnabled}
 			{beautyVotesPerPlayer}
 			{beautyVotesPerPlayerMin}
 			{beautyVotesPerPlayerMax}
+			{beautyVotesPerPlayerAuto}
 			{beautyAllowDuplicateVotes}
 			{beautySplitPointsOnTie}
 			{beautyPointsBonus}
@@ -1894,10 +1916,12 @@
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}
+			{votesPerGuesserAuto}
 			{beautyEnabled}
 			{beautyVotesPerPlayer}
 			{beautyVotesPerPlayerMin}
 			{beautyVotesPerPlayerMax}
+			{beautyVotesPerPlayerAuto}
 			{beautyAllowDuplicateVotes}
 			{beautySplitPointsOnTie}
 			{beautyPointsBonus}
@@ -1990,10 +2014,12 @@
 			{votesPerGuesser}
 			{votesPerGuesserMin}
 			{votesPerGuesserMax}
+			{votesPerGuesserAuto}
 			{beautyEnabled}
 			{beautyVotesPerPlayer}
 			{beautyVotesPerPlayerMin}
 			{beautyVotesPerPlayerMax}
+			{beautyVotesPerPlayerAuto}
 			{beautyAllowDuplicateVotes}
 			{beautySplitPointsOnTie}
 			{beautyPointsBonus}

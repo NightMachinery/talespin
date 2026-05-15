@@ -297,6 +297,14 @@ class GameServer {
 		});
 	}
 
+	setVotesPerGuesserAuto(enabled: boolean) {
+		this.send({
+			SetVotesPerGuesserAuto: {
+				enabled
+			}
+		});
+	}
+
 	setBeautyEnabled(enabled: boolean) {
 		this.send({
 			SetBeautyEnabled: {
@@ -309,6 +317,14 @@ class GameServer {
 		this.send({
 			SetBeautyVotesPerPlayer: {
 				votes
+			}
+		});
+	}
+
+	setBeautyVotesPerPlayerAuto(enabled: boolean) {
+		this.send({
+			SetBeautyVotesPerPlayerAuto: {
+				enabled
 			}
 		});
 	}

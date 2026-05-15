@@ -41,8 +41,10 @@ const DEFAULT_BEAUTY_TIMER_DURATION_S: u16 = 70;
 const DEFAULT_CLUE_RATING_TIMER_DURATION_S: u16 = 15;
 const DEFAULT_VOTING_WRONG_CARD_DISABLE_DISTRIBUTION: [f64; 1] = [1.0];
 const VOTING_WRONG_CARD_DISABLE_SUM_TOLERANCE: f64 = 1e-6;
+const STORY_VOTE_AUTO_VOTABLE_TABLE_CARD_THRESHOLD: usize = 10;
+const BEAUTY_VOTE_AUTO_ACTIVE_PLAYER_THRESHOLD: usize = 10;
 const DEFAULT_BEAUTY_ENABLED: bool = true;
-const DEFAULT_BEAUTY_VOTES_PER_PLAYER: u16 = 2;
+const DEFAULT_BEAUTY_VOTES_PER_PLAYER: u16 = 1;
 const DEFAULT_BEAUTY_ALLOW_DUPLICATE_VOTES: bool = false;
 const DEFAULT_BEAUTY_SPLIT_POINTS_ON_TIE: bool = true;
 const DEFAULT_BEAUTY_POINTS_BONUS: u16 = 2;
@@ -286,10 +288,12 @@ pub enum ServerMsg {
         votes_per_guesser: u16,
         votes_per_guesser_min: u16,
         votes_per_guesser_max: u16,
+        votes_per_guesser_auto: bool,
         beauty_enabled: bool,
         beauty_votes_per_player: u16,
         beauty_votes_per_player_min: u16,
         beauty_votes_per_player_max: u16,
+        beauty_votes_per_player_auto: bool,
         beauty_allow_duplicate_votes: bool,
         beauty_split_points_on_tie: bool,
         beauty_points_bonus: u16,
@@ -571,11 +575,17 @@ pub enum ClientMsg {
     SetVotesPerGuesser {
         votes: u16,
     },
+    SetVotesPerGuesserAuto {
+        enabled: bool,
+    },
     SetBeautyEnabled {
         enabled: bool,
     },
     SetBeautyVotesPerPlayer {
         votes: u16,
+    },
+    SetBeautyVotesPerPlayerAuto {
+        enabled: bool,
     },
     SetBeautyAllowDuplicateVotes {
         enabled: bool,
@@ -887,10 +897,14 @@ struct RoomState {
     double_vote_bonus_too_many_correct_follows_normal: bool,
     // number of vote tokens each guesser can cast in Voting
     votes_per_guesser: u16,
+    // auto-derive storyteller vote tokens from the current per-guesser votable table-card count
+    votes_per_guesser_auto: bool,
     // whether Dixit uses the optional Most Beautiful stage
     beauty_enabled: bool,
     // number of beauty votes each active player can cast
     beauty_votes_per_player: u16,
+    // auto-derive beauty vote tokens from active player count
+    beauty_votes_per_player_auto: bool,
     // whether beauty voting allows duplicate votes on the same card
     beauty_allow_duplicate_votes: bool,
     // whether to split beauty bonus among tied winning owners, rounding up
@@ -1203,8 +1217,10 @@ impl Room {
             double_vote_bonus_too_many_correct_points: DEFAULT_DOUBLE_VOTE_BONUS_POINTS,
             double_vote_bonus_too_many_correct_follows_normal: true,
             votes_per_guesser: 1,
+            votes_per_guesser_auto: true,
             beauty_enabled: DEFAULT_BEAUTY_ENABLED,
             beauty_votes_per_player: DEFAULT_BEAUTY_VOTES_PER_PLAYER,
+            beauty_votes_per_player_auto: true,
             beauty_allow_duplicate_votes: DEFAULT_BEAUTY_ALLOW_DUPLICATE_VOTES,
             beauty_split_points_on_tie: DEFAULT_BEAUTY_SPLIT_POINTS_ON_TIE,
             beauty_points_bonus: DEFAULT_BEAUTY_POINTS_BONUS,
@@ -1513,18 +1529,45 @@ impl Room {
     }
 
     fn beauty_votes_per_player_bounds(&self, state: &RwLockWriteGuard<RoomState>) -> (u16, u16) {
+        let max_votes = self
+            .non_observer_player_count(state)
+            .saturating_sub(1)
+            .max(1)
+            .min(usize::from(u16::MAX)) as u16;
+        (1, max_votes)
+    }
+
+    fn per_guesser_votable_table_card_count(&self, state: &RwLockWriteGuard<RoomState>) -> usize {
         let (_, nomination_max) = self.nominations_per_guesser_bounds(state);
         let nominations_per_guesser =
             usize::from(state.nominations_per_guesser.clamp(1, nomination_max));
         let guesser_count = self.guesser_count(state);
         let total_center_cards =
             1usize.saturating_add(guesser_count.saturating_mul(nominations_per_guesser));
-        let max_own_cards = nominations_per_guesser.max(1);
-        let max_votes = total_center_cards
-            .saturating_sub(max_own_cards)
-            .max(usize::from(DEFAULT_BEAUTY_VOTES_PER_PLAYER))
-            .min(usize::from(u16::MAX)) as u16;
-        (1, max_votes)
+        total_center_cards.saturating_sub(nominations_per_guesser.max(1))
+    }
+
+    fn auto_votes_per_guesser(&self, state: &RwLockWriteGuard<RoomState>) -> u16 {
+        let default_votes = if self.per_guesser_votable_table_card_count(state)
+            >= STORY_VOTE_AUTO_VOTABLE_TABLE_CARD_THRESHOLD
+        {
+            2
+        } else {
+            1
+        };
+        let (min_votes, max_votes) = self.votes_per_guesser_bounds(state);
+        default_votes.clamp(min_votes, max_votes)
+    }
+
+    fn auto_beauty_votes_per_player(&self, state: &RwLockWriteGuard<RoomState>) -> u16 {
+        let default_votes =
+            if self.non_observer_player_count(state) >= BEAUTY_VOTE_AUTO_ACTIVE_PLAYER_THRESHOLD {
+                2
+            } else {
+                1
+            };
+        let (min_votes, max_votes) = self.beauty_votes_per_player_bounds(state);
+        default_votes.clamp(min_votes, max_votes)
     }
 
     fn beauty_points_bonus_bounds(&self) -> (u16, u16) {
@@ -2172,12 +2215,25 @@ impl Room {
 
     fn clamp_votes_per_guesser(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
         let (min_votes, max_votes) = self.votes_per_guesser_bounds(state);
-        state.votes_per_guesser = state.votes_per_guesser.clamp(min_votes, max_votes);
+        state.votes_per_guesser = if state.votes_per_guesser_auto {
+            self.auto_votes_per_guesser(state)
+        } else {
+            state.votes_per_guesser.clamp(min_votes, max_votes)
+        };
     }
 
     fn clamp_beauty_votes_per_player(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
         let (min_votes, max_votes) = self.beauty_votes_per_player_bounds(state);
-        state.beauty_votes_per_player = state.beauty_votes_per_player.clamp(min_votes, max_votes);
+        state.beauty_votes_per_player = if state.beauty_votes_per_player_auto {
+            self.auto_beauty_votes_per_player(state)
+        } else {
+            state.beauty_votes_per_player.clamp(min_votes, max_votes)
+        };
+    }
+
+    fn apply_auto_vote_counts(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
+        self.clamp_votes_per_guesser(state);
+        self.clamp_beauty_votes_per_player(state);
     }
 
     fn clamp_beauty_points_bonus(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
@@ -2223,7 +2279,9 @@ impl Room {
     fn clamp_nominations_per_guesser(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
         let (min_cards, max_cards) = self.nominations_per_guesser_bounds(state);
         state.nominations_per_guesser = state.nominations_per_guesser.clamp(min_cards, max_cards);
+        self.clamp_votes_per_guesser(state);
         self.clamp_beauty_votes_per_player(state);
+        self.clamp_vote_submission_lengths(state);
         self.clamp_beauty_vote_submission_lengths(state);
     }
 
@@ -4285,9 +4343,14 @@ impl Room {
     }
 
     fn clamp_vote_submission_lengths(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
-        let (_, max_votes) = self.votes_per_guesser_bounds(state);
-        let max_votes = usize::from(max_votes);
+        let max_votes = self.effective_votes_per_guesser(state);
         for votes in state.player_to_votes.values_mut() {
+            if votes.len() > max_votes {
+                let keep_start = votes.len().saturating_sub(max_votes);
+                *votes = votes.split_off(keep_start);
+            }
+        }
+        for votes in state.player_to_vote_drafts.values_mut() {
             if votes.len() > max_votes {
                 let keep_start = votes.len().saturating_sub(max_votes);
                 *votes = votes.split_off(keep_start);
@@ -4296,9 +4359,14 @@ impl Room {
     }
 
     fn clamp_beauty_vote_submission_lengths(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
-        let (_, max_votes) = self.beauty_votes_per_player_bounds(state);
-        let max_votes = usize::from(max_votes);
+        let max_votes = self.effective_beauty_votes_per_player(state);
         for votes in state.player_to_beauty_votes.values_mut() {
+            if votes.len() > max_votes {
+                let keep_start = votes.len().saturating_sub(max_votes);
+                *votes = votes.split_off(keep_start);
+            }
+        }
+        for votes in state.player_to_beauty_vote_drafts.values_mut() {
             if votes.len() > max_votes {
                 let keep_start = votes.len().saturating_sub(max_votes);
                 *votes = votes.split_off(keep_start);
@@ -4365,9 +4433,7 @@ impl Room {
         &self,
         state: &RwLockWriteGuard<'_, RoomState>,
     ) -> u16 {
-        let default_votes = if state.players.len() >= 8 { 2 } else { 1 };
-        let (min_votes, max_votes) = self.votes_per_guesser_bounds(state);
-        default_votes.clamp(min_votes, max_votes)
+        self.auto_votes_per_guesser(state)
     }
 
     fn default_nominations_per_guesser_on_game_start(
@@ -7860,9 +7926,10 @@ impl Room {
             state.player_order.shuffle(&mut rand::thread_rng());
             state.storyteller_loss_complement =
                 self.default_storyteller_loss_complement_on_game_start(state);
-            state.votes_per_guesser = self.default_votes_per_guesser_on_game_start(state);
             state.nominations_per_guesser =
                 self.default_nominations_per_guesser_on_game_start(state);
+            state.votes_per_guesser = self.default_votes_per_guesser_on_game_start(state);
+            state.beauty_votes_per_player = self.auto_beauty_votes_per_player(state);
             state.member_to_beauty_points.clear();
             self.start_new_dixit_game_tracking(state);
         }
@@ -9337,7 +9404,45 @@ impl Room {
                     return Ok(());
                 }
 
+                state.votes_per_guesser_auto = false;
                 state.votes_per_guesser = votes;
+                self.clamp_votes_per_guesser(&mut state);
+                self.clamp_vote_submission_lengths(&mut state);
+                self.broadcast_msg(self.room_state(&state))?;
+            }
+            ClientMsg::SetVotesPerGuesserAuto { enabled } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change vote count settings".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if matches!(state.stage, RoomStage::End) {
+                    return Ok(());
+                }
+
+                if !Self::is_before_voting_stage(state.stage) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Votes per guesser can only be changed before voting starts"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                state.votes_per_guesser_auto = enabled;
                 self.clamp_votes_per_guesser(&mut state);
                 self.clamp_vote_submission_lengths(&mut state);
                 self.broadcast_msg(self.room_state(&state))?;
@@ -9417,7 +9522,49 @@ impl Room {
                     return Ok(());
                 }
 
+                state.beauty_votes_per_player_auto = false;
                 state.beauty_votes_per_player = votes;
+                self.clamp_beauty_votes_per_player(&mut state);
+                self.clamp_beauty_vote_submission_lengths(&mut state);
+                self.broadcast_msg(self.room_state(&state))?;
+            }
+            ClientMsg::SetBeautyVotesPerPlayerAuto { enabled } => {
+                if !self.is_moderator(&state, name) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can change Most Beautiful settings".to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                if matches!(state.stage, RoomStage::End) {
+                    return Ok(());
+                }
+
+                if !matches!(state.game_mode, GameMode::DixitPlus) {
+                    return Ok(());
+                }
+
+                if !Self::is_before_beauty_voting_stage(state.stage) {
+                    if let Some(tx) = state.player_to_socket.get(name) {
+                        tx.send(
+                            ServerMsg::ErrorMsg(
+                                "Some Most Beautiful settings can only be changed before beauty voting starts"
+                                    .to_string(),
+                            )
+                            .into(),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+
+                state.beauty_votes_per_player_auto = enabled;
                 self.clamp_beauty_votes_per_player(&mut state);
                 self.clamp_beauty_vote_submission_lengths(&mut state);
                 self.broadcast_msg(self.room_state(&state))?;
@@ -10821,8 +10968,10 @@ impl Room {
                 if !self.is_moderator(&state, name) {
                     if let Some(tx) = state.player_to_socket.get(name) {
                         tx.send(
-                            ServerMsg::ErrorMsg("Only moderators can force end the game".to_string())
-                                .into(),
+                            ServerMsg::ErrorMsg(
+                                "Only moderators can force end the game".to_string(),
+                            )
+                            .into(),
                         )
                         .await?;
                     }
@@ -11361,7 +11510,8 @@ impl Room {
     }
 
     fn results_next_action(&self, state: &RwLockWriteGuard<RoomState>) -> ResultsNextAction {
-        if matches!(state.stage, RoomStage::Results) && self.uses_separate_beauty_results_stage(state)
+        if matches!(state.stage, RoomStage::Results)
+            && self.uses_separate_beauty_results_stage(state)
         {
             ResultsNextAction::BeautyResults
         } else if matches!(
@@ -11833,10 +11983,12 @@ impl Room {
             votes_per_guesser,
             votes_per_guesser_min: votes_min,
             votes_per_guesser_max: votes_max,
+            votes_per_guesser_auto: state.votes_per_guesser_auto,
             beauty_enabled: state.beauty_enabled,
             beauty_votes_per_player,
             beauty_votes_per_player_min: beauty_votes_min,
             beauty_votes_per_player_max: beauty_votes_max,
+            beauty_votes_per_player_auto: state.beauty_votes_per_player_auto,
             beauty_allow_duplicate_votes: state.beauty_allow_duplicate_votes,
             beauty_split_points_on_tie: state.beauty_split_points_on_tie,
             beauty_points_bonus,
@@ -15045,7 +15197,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn votes_per_guesser_defaults_to_thresholds_and_clamps_with_player_count() -> Result<()> {
+    async fn manual_votes_per_guesser_clamps_with_player_count() -> Result<()> {
         let room = test_room();
         let mut state = room.state.write().await;
 
@@ -15060,6 +15212,7 @@ mod tests {
             "votes per guesser should default to 1 at game start"
         );
 
+        state.votes_per_guesser_auto = false;
         state.votes_per_guesser = 99;
         room.clamp_votes_per_guesser(&mut state);
         assert_eq!(
@@ -15078,16 +15231,89 @@ mod tests {
 
         let room = test_room();
         let mut state = room.state.write().await;
-        for i in 0..8 {
+        for i in 0..10 {
             add_player(&mut state, &format!("p{}", i), 0);
         }
         state.stage = RoomStage::Joining;
 
         room.init_round(&mut state).await?;
         assert_eq!(
-            state.votes_per_guesser, 2,
-            "votes per guesser should default to 2 when the game starts with at least 8 players"
+            state.votes_per_guesser, 1,
+            "with one nomination each, 10 active players still gives each guesser only 9 votable table cards"
         );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn auto_story_votes_use_votable_table_cards_not_active_player_count() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        for i in 0..10 {
+            add_player(&mut state, &format!("p{}", i), 0);
+        }
+        state.nominations_per_guesser = 1;
+        state.votes_per_guesser_auto = true;
+        room.apply_auto_vote_counts(&mut state);
+        assert_eq!(
+            state.votes_per_guesser, 1,
+            "10 active players with one nomination each gives a guesser 9 votable table cards"
+        );
+
+        state.nominations_per_guesser = 2;
+        room.apply_auto_vote_counts(&mut state);
+        assert_eq!(
+            state.votes_per_guesser, 2,
+            "two nominations each pushes per-guesser votable table cards above the story auto threshold"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn auto_beauty_votes_use_active_player_count_not_nominations() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        for i in 0..9 {
+            add_player(&mut state, &format!("p{}", i), 0);
+        }
+        state.nominations_per_guesser = 3;
+        state.beauty_votes_per_player_auto = true;
+        room.apply_auto_vote_counts(&mut state);
+        assert_eq!(
+            state.beauty_votes_per_player, 1,
+            "beauty vote auto should ignore nominations and stay at 1 below 10 active players"
+        );
+
+        add_player(&mut state, "p9", 0);
+        room.apply_auto_vote_counts(&mut state);
+        assert_eq!(
+            state.beauty_votes_per_player, 2,
+            "beauty vote auto should switch to 2 at 10 active players"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn manual_vote_counts_are_preserved_when_auto_is_disabled() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        for i in 0..10 {
+            add_player(&mut state, &format!("p{}", i), 0);
+        }
+        state.nominations_per_guesser = 2;
+        state.votes_per_guesser_auto = false;
+        state.beauty_votes_per_player_auto = false;
+        state.votes_per_guesser = 1;
+        state.beauty_votes_per_player = 1;
+
+        room.apply_auto_vote_counts(&mut state);
+        assert_eq!(state.votes_per_guesser, 1);
+        assert_eq!(state.beauty_votes_per_player, 1);
 
         Ok(())
     }
@@ -18628,13 +18854,17 @@ alpha
             Some(Vec::new()),
             "empty beauty ballot should be recorded as an intentional submission"
         );
-        assert_eq!(state.players.get("b").map(|player| player.ready), Some(true));
+        assert_eq!(
+            state.players.get("b").map(|player| player.ready),
+            Some(true)
+        );
 
         Ok(())
     }
 
     #[tokio::test]
-    async fn moderator_absence_promotion_uses_configurable_delay_and_can_be_disabled() -> Result<()> {
+    async fn moderator_absence_promotion_uses_configurable_delay_and_can_be_disabled() -> Result<()>
+    {
         let room = test_room();
         {
             let mut state = room.state.write().await;
@@ -18673,7 +18903,8 @@ alpha
     }
 
     #[tokio::test]
-    async fn storyteller_pool_can_be_edited_mid_game_and_limits_cycle_win_condition() -> Result<()> {
+    async fn storyteller_pool_can_be_edited_mid_game_and_limits_cycle_win_condition() -> Result<()>
+    {
         let room = test_room_with_condition(WinCondition::Cycles { target_cycles: 2 });
         {
             let mut state = room.state.write().await;

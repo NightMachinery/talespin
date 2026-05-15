@@ -54,9 +54,10 @@
 	export let cardsPerHandMin = 1;
 	export let cardsPerHandMax = 100;
 	export let beautyEnabled = false;
-	export let beautyVotesPerPlayer = 2;
+	export let beautyVotesPerPlayer = 1;
 	export let beautyVotesPerPlayerMin = 1;
 	export let beautyVotesPerPlayerMax = 1;
+	export let beautyVotesPerPlayerAuto = true;
 	export let beautyAllowDuplicateVotes = false;
 	export let beautySplitPointsOnTie = true;
 	export let beautyPointsBonus = 2;
@@ -283,8 +284,14 @@
 	function updateBeautyVotesPerPlayer(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
 		const value = Number(input.value);
-		if (!canEditSettings || !Number.isInteger(value)) return;
+		if (!canEditSettings || beautyVotesPerPlayerAuto || !Number.isInteger(value)) return;
 		gameServer.setBeautyVotesPerPlayer(value);
+	}
+
+	function updateBeautyVotesPerPlayerAuto(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		if (!canEditSettings) return;
+		gameServer.setBeautyVotesPerPlayerAuto(input.checked);
 	}
 
 	function updateBeautyAllowDuplicateVotes(event: Event) {
@@ -741,11 +748,21 @@
 											max={beautyVotesPerPlayerMax}
 											value={beautyVotesPerPlayer}
 											on:change={updateBeautyVotesPerPlayer}
-											disabled={!canEditSettings}
+											disabled={!canEditSettings || beautyVotesPerPlayerAuto}
 										/>
 										<p class="mt-1 text-xs opacity-70">
 											Range: {beautyVotesPerPlayerMin}–{beautyVotesPerPlayerMax}
 										</p>
+										<label class="mt-2 flex items-start gap-2 text-xs">
+											<input
+												type="checkbox"
+												class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
+												checked={beautyVotesPerPlayerAuto}
+												on:change={updateBeautyVotesPerPlayerAuto}
+												disabled={!canEditSettings}
+											/>
+											<span>Auto-set from active player count</span>
+										</label>
 									</div>
 									<div>
 										<label class="text-sm font-semibold" for="beautyPointsBonus">

@@ -91,10 +91,12 @@
 	export let votesPerGuesser = 1;
 	export let votesPerGuesserMin = 1;
 	export let votesPerGuesserMax = 1;
+	export let votesPerGuesserAuto = true;
 	export let beautyEnabled = false;
-	export let beautyVotesPerPlayer = 2;
+	export let beautyVotesPerPlayer = 1;
 	export let beautyVotesPerPlayerMin = 1;
 	export let beautyVotesPerPlayerMax = 1;
+	export let beautyVotesPerPlayerAuto = true;
 	export let beautyAllowDuplicateVotes = false;
 	export let beautySplitPointsOnTie = true;
 	export let beautyPointsBonus = 2;
@@ -550,7 +552,7 @@
 	function updateVotesPerGuesser(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
 		const parsed = Number(input.value);
-		if (!isModerator || !canChangeBeforeVotingSettings) {
+		if (!isModerator || !canChangeBeforeVotingSettings || votesPerGuesserAuto) {
 			input.value = `${votesPerGuesser}`;
 			return;
 		}
@@ -561,6 +563,15 @@
 		if (parsed !== votesPerGuesser) {
 			gameServer.setVotesPerGuesser(parsed);
 		}
+	}
+
+	function updateVotesPerGuesserAuto(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		if (!isModerator || !canChangeBeforeVotingSettings) {
+			input.checked = votesPerGuesserAuto;
+			return;
+		}
+		gameServer.setVotesPerGuesserAuto(input.checked);
 	}
 
 	function updateBeautyEnabled(event: Event) {
@@ -575,7 +586,7 @@
 	function updateBeautyVotesPerPlayer(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
 		const parsed = Number(input.value);
-		if (!isModerator || !canChangeBeforeBeautyVotingSettings) {
+		if (!isModerator || !canChangeBeforeBeautyVotingSettings || beautyVotesPerPlayerAuto) {
 			input.value = `${beautyVotesPerPlayer}`;
 			return;
 		}
@@ -590,6 +601,15 @@
 		if (parsed !== beautyVotesPerPlayer) {
 			gameServer.setBeautyVotesPerPlayer(parsed);
 		}
+	}
+
+	function updateBeautyVotesPerPlayerAuto(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		if (!isModerator || !canChangeBeforeBeautyVotingSettings) {
+			input.checked = beautyVotesPerPlayerAuto;
+			return;
+		}
+		gameServer.setBeautyVotesPerPlayerAuto(input.checked);
 	}
 
 	function updateBeautyAllowDuplicateVotes(event: Event) {
@@ -2141,12 +2161,22 @@
 								step="1"
 								value={votesPerGuesser}
 								on:change={updateVotesPerGuesser}
-								disabled={!isModerator || !canChangeBeforeVotingSettings}
+								disabled={!isModerator || !canChangeBeforeVotingSettings || votesPerGuesserAuto}
 							/>
 							<span class="text-xs opacity-75"
 								>Range: {votesPerGuesserMin}–{votesPerGuesserMax}</span
 							>
 						</div>
+						<label class="mt-2 flex items-start gap-3 text-sm">
+							<input
+								type="checkbox"
+								class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
+								checked={votesPerGuesserAuto}
+								on:change={updateVotesPerGuesserAuto}
+								disabled={!isModerator || !canChangeBeforeVotingSettings}
+							/>
+							<span>Auto-set from votable table cards</span>
+						</label>
 						{#if !canChangeBeforeVotingSettings}
 							<p class="mt-1 text-xs opacity-70">{BEFORE_VOTING_HINT}</p>
 						{/if}
@@ -2180,11 +2210,23 @@
 									step="1"
 									value={beautyVotesPerPlayer}
 									on:change={updateBeautyVotesPerPlayer}
-									disabled={!isModerator || !canChangeBeforeBeautyVotingSettings}
+									disabled={!isModerator ||
+										!canChangeBeforeBeautyVotingSettings ||
+										beautyVotesPerPlayerAuto}
 								/>
 								<p class="mt-1 text-xs opacity-75">
 									Range: {beautyVotesPerPlayerMin}–{beautyVotesPerPlayerMax}
 								</p>
+								<label class="mt-2 flex items-start gap-3 text-sm">
+									<input
+										type="checkbox"
+										class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
+										checked={beautyVotesPerPlayerAuto}
+										on:change={updateBeautyVotesPerPlayerAuto}
+										disabled={!isModerator || !canChangeBeforeBeautyVotingSettings}
+									/>
+									<span>Auto-set from active player count</span>
+								</label>
 							</div>
 							<div>
 								<label class="text-sm font-medium" for="beauty-scoring-mode">

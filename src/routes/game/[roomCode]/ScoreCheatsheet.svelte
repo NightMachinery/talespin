@@ -21,7 +21,7 @@
 	export let doubleVoteBonusTooManyCorrectFollowsNormal = true;
 	export let bonusThresholdLossTogglesApplyToAllStorytellerLossRounds = true;
 	export let beautyEnabled = false;
-	export let beautyVotesPerPlayer = 2;
+	export let beautyVotesPerPlayer = 1;
 	export let beautyVotesPerPlayerMax = 1;
 	export let beautyAllowDuplicateVotes = false;
 	export let beautySplitPointsOnTie = true;
