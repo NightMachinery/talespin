@@ -485,6 +485,8 @@
 				selectable={!isObserver}
 				desktopFitToHeight={true}
 				showIndexOverlay={showVotingCardNumbers}
+				showCardNumberNavigator
+				cardNumberNavigatorScope="stella-associate-board"
 				imageSecondaryBadges={selectedCardQueueBadges}
 				on:select={handleSelect}
 				{copyCardUrlOnHold}

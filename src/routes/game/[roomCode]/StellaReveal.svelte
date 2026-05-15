@@ -141,6 +141,9 @@
 					return labels;
 				}, [])
 			: [];
+	$: visibleBoardNavigatorLabels = visibleBoardIndexOverlayLabels.filter(
+		(label): label is number => typeof label === 'number'
+	);
 	$: revealedCardChooserEntries = Object.fromEntries(
 		Object.entries(revealedCardChoosers).map(([card, choosers]) => [
 			card,
@@ -407,6 +410,9 @@
 				showIndexOverlay={showVotingCardNumbers}
 				indexOverlayPosition="left"
 				indexOverlayLabels={visibleBoardIndexOverlayLabels}
+				showCardNumberNavigator
+				cardNumberLabels={visibleBoardNavigatorLabels}
+				cardNumberNavigatorScope="stella-reveal-board"
 				on:select={handleRevealSelect}
 			/>
 		</div>

@@ -296,6 +296,8 @@
 				imageHighlightClasses={revealedCardHighlightClasses}
 				showIndexOverlay={showVotingCardNumbers}
 				indexOverlayPosition="left"
+				showCardNumberNavigator
+				cardNumberNavigatorScope="stella-results-board"
 				{copyCardUrlOnHold}
 			/>
 		</div>

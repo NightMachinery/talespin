@@ -2,10 +2,15 @@
 	import { buildBeautyBadgeMetadata } from '$lib/beautyResults';
 	import { getDesktopFitRowCount } from '$lib/cardGrid';
 	import { CARD_IMAGE_ALT_TEXT } from '$lib/cardImageText';
+	import {
+		buildCardNumberNavigatorTargetId,
+		CARD_NUMBER_NAVIGATOR_SCROLL_MARGIN_TOP
+	} from '$lib/cardNumberNavigator';
 	import CardImage from '$lib/CardImage.svelte';
 	import { http_host } from '$lib/gameServer';
 	import type { PreviousDixitResultsView } from '$lib/types';
 	import { cardsFitToHeight } from '$lib/viewOptions';
+	import CardNumberNavigator from './CardNumberNavigator.svelte';
 	import ChooserNameOverlay from './ChooserNameOverlay.svelte';
 
 	export let snapshot: PreviousDixitResultsView;
@@ -97,9 +102,18 @@
 			</p>
 		</div>
 	{/if}
+	<CardNumberNavigator
+		cardNumberLabels={snapshot.center_cards.map((_, index) => index + 1)}
+		targetIdScope="previous-results"
+		collapsedLabel="previous results card navigator"
+	/>
 	<section class={resultsSectionClass} style={resultsDesktopFitStyle}>
 		{#each snapshot.center_cards as image, cardIndex}
-			<div class={resultsCardClass(image)}>
+			<div
+				id={buildCardNumberNavigatorTargetId('previous-results', cardIndex + 1)}
+				class={resultsCardClass(image)}
+				style:scroll-margin-top={CARD_NUMBER_NAVIGATOR_SCROLL_MARGIN_TOP}
+			>
 				<CardImage
 					src={`${http_host}/cards/${image}`}
 					alt={CARD_IMAGE_ALT_TEXT}

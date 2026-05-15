@@ -482,6 +482,8 @@
 					pinnedImages={pinnedCards}
 					showPinBadges
 					pinTogglesEnabled={!isObserver}
+					showCardNumberNavigator
+					cardNumberNavigatorScope="active-chooses-hand"
 					on:select={handleCardSelect}
 					on:pinToggle={handlePinToggle}
 					{copyCardUrlOnHold}

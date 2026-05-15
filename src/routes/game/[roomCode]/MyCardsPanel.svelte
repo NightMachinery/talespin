@@ -8,6 +8,7 @@
 	export let title = 'My Cards';
 	export let canTogglePins = true;
 	export let copyCardUrlOnHold = false;
+	export let cardNumberNavigatorScope = 'my-cards';
 
 	$: pinnedSet = new Set(pinnedCards);
 
@@ -30,6 +31,8 @@
 				pinnedImages={pinnedCards}
 				showPinBadges
 				pinTogglesEnabled={canTogglePins}
+				showCardNumberNavigator
+				{cardNumberNavigatorScope}
 				on:select={handlePinToggle}
 				on:pinToggle={handlePinToggle}
 			/>

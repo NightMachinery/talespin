@@ -1,7 +1,7 @@
 # Sticky card navigator
 
-This note covers the **local-only** Dixit view option that adds a small sticky card-number
-navigator for the shared table layouts.
+This note covers the **local-only** view option that adds a small sticky card-number navigator
+for card grids across Talespin stages.
 
 ## Local preference
 
@@ -12,10 +12,11 @@ navigator for the shared table layouts.
 
 ## Behavior
 
-- When enabled, Dixit **Voting**, **BeautyVoting**, **Results**, and **BeautyResults** show a
-  compact sticky bar above the card grid.
-- The bar lists the round's **canonical card numbers** (`#1`, `#2`, etc.), even if the room's
-  badge overlays are hidden.
+- When enabled, card grids across the live stage flow show a compact sticky bar above the cards.
+  This includes hands, shared boards, voting/results tables, previous-results previews, and
+  Resonance board stages.
+- The bar lists the grid's card numbers (`#1`, `#2`, etc.), even if the room's badge overlays are
+  hidden.
 - The expanded bar auto-sizes between **1 and 3 rows** depending on how many cards are in the
   round. It does not reserve extra empty rows.
 - If more than 3 rows are needed, the chip grid keeps its height and **scrolls vertically inside
@@ -35,3 +36,4 @@ navigator for the shared table layouts.
 - Voting stages also mirror local state in the bar:
   - selected cards get highlighted chips
   - locally disabled / non-votable cards get muted chips
+- Stages with filtered visible boards keep navigator labels aligned with the visible cards.

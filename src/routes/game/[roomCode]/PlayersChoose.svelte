@@ -553,6 +553,8 @@
 					pinnedImages={pinnedCards}
 					showPinBadges
 					pinTogglesEnabled={isChooser || isStoryteller}
+					showCardNumberNavigator
+					cardNumberNavigatorScope="players-choose-hand"
 					on:select={handleCardSelect}
 					on:pinToggle={handlePinToggle}
 					{copyCardUrlOnHold}

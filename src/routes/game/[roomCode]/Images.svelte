@@ -6,8 +6,14 @@
 	import { copyTextToClipboard } from '$lib/clipboard';
 	import { http_host } from '$lib/gameServer';
 	import { CARD_IMAGE_ALT_TEXT } from '$lib/cardImageText';
+	import {
+		buildCardNumberNavigatorTargetId,
+		CARD_NUMBER_NAVIGATOR_SCROLL_MARGIN_TOP,
+		getCardNumberNavigatorLabels
+	} from '$lib/cardNumberNavigator';
 	import CardImage from '$lib/CardImage.svelte';
 	import { cardsFitToHeight } from '$lib/viewOptions';
+	import CardNumberNavigator from './CardNumberNavigator.svelte';
 	import ChooserNameOverlay from './ChooserNameOverlay.svelte';
 
 	// Toggle dimming of cards that are not currently selected.
@@ -41,6 +47,9 @@
 	export let showIndexOverlay = false;
 	export let indexOverlayPosition: 'left' | 'right' = 'right';
 	export let indexOverlayLabels: Array<string | number> = [];
+	export let showCardNumberNavigator = false;
+	export let cardNumberLabels: number[] = [];
+	export let cardNumberNavigatorScope = 'images';
 	export let imageSecondaryBadges: Record<string, string | number> = {};
 	export let secondaryBadgePosition: 'left' | 'right' = 'left';
 	export let desktopFitToHeight = false;
@@ -76,6 +85,7 @@
 	$: indexOverlayPositionClass = indexOverlayPosition === 'left' ? 'left-2' : 'right-2';
 	$: secondaryBadgePositionClass = secondaryBadgePosition === 'left' ? 'left-2' : 'right-2';
 	$: pinnedImageSet = new Set(pinnedImages.filter((image) => visibleImageSet.has(image)));
+	$: navigatorLabels = getCardNumberNavigatorLabels(displayImages, cardNumberLabels);
 
 	function selectImage(image: string, isDisabled: boolean, canSelect: boolean) {
 		if (!selectable || isDisabled || !canSelect) return;
@@ -108,6 +118,14 @@
 	}
 </script>
 
+{#if showCardNumberNavigator}
+	<CardNumberNavigator
+		cardNumberLabels={navigatorLabels}
+		targetIdScope={cardNumberNavigatorScope}
+		collapsedLabel="card navigator"
+	/>
+{/if}
+
 <section class={`${sectionClass} isolate`} style={desktopFitStyle}>
 	{#each displayImages as image, imageIndex}
 		{@const isDisabled = disabledImageSet.has(image)}
@@ -116,6 +134,7 @@
 		{@const chooserEntries = imageChooserOverlays[image] ?? []}
 		{@const highlightClass = imageHighlightClasses[image] ?? ''}
 		{@const indexOverlayLabel = indexOverlayLabels[imageIndex] ?? imageIndex + 1}
+		{@const navigatorLabel = navigatorLabels[imageIndex] ?? imageIndex + 1}
 		{@const secondaryBadgeLabel = imageSecondaryBadges[image]}
 		{@const isPinned = pinnedImageSet.has(image)}
 		{@const shouldDim = selectedImageSet.size > 0 && !isSelected}
@@ -140,7 +159,11 @@
 		{#if selectable}
 			<button
 				type="button"
+				id={showCardNumberNavigator
+					? buildCardNumberNavigatorTargetId(cardNumberNavigatorScope, navigatorLabel)
+					: undefined}
 				class={containerClass}
+				style:scroll-margin-top={CARD_NUMBER_NAVIGATOR_SCROLL_MARGIN_TOP}
 				disabled={isDisabled}
 				aria-disabled={!canSelect}
 				tabindex={canSelect ? 0 : -1}
@@ -201,7 +224,11 @@
 			</button>
 		{:else}
 			<div
+				id={showCardNumberNavigator
+					? buildCardNumberNavigatorTargetId(cardNumberNavigatorScope, navigatorLabel)
+					: undefined}
 				class={containerClass}
+				style:scroll-margin-top={CARD_NUMBER_NAVIGATOR_SCROLL_MARGIN_TOP}
 				use:longPressCardCopy={{
 					card: image,
 					enabled: copyCardUrlOnHold,
