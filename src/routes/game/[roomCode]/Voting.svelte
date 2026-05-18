@@ -424,7 +424,7 @@
 	</svelte:fragment>
 
 	<svelte:fragment slot="mobileActions">
-		<div class="space-y-4">
+		<div class="space-y-2">
 			{#if myHandImages.length > 0}
 				<BottomStickyPanelViewSwitch
 					bind:value={viewMode}
@@ -441,14 +441,19 @@
 			{/if}
 			{#if isModerator}
 				<StageActionButtons
+					layout="row"
 					actions={[
 						{
 							label: 'Force Random',
+							shortLabel: 'Random',
+							icon: 'shuffle',
 							disabled: !canForceRandomVote,
 							onClick: () => gameServer.forceCurrentStage()
 						},
 						{
 							label: 'Auto-observerify',
+							shortLabel: 'Auto-obs',
+							icon: 'user-x',
 							disabled: !canAutoObserverify,
 							onClick: () => gameServer.autoObserverifyOfflinePendingPlayers()
 						}

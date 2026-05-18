@@ -232,7 +232,7 @@
 
 			{#if hasMobileActions && showMobileActions}
 				<div class="order-2 sticky bottom-2 z-20 lg:hidden">
-					<div class="card light p-4">
+					<div class="card light p-2.5">
 						<slot name="mobileActions" />
 					</div>
 				</div>

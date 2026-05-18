@@ -333,10 +333,18 @@
 	{#if isModerator}
 		<StageActionButtons
 			slot="mobileActions"
+			layout="row"
 			actions={[
-				{ label: 'Force Skip', onClick: () => gameServer.forceCurrentStage() },
+				{
+					label: 'Force Skip',
+					shortLabel: 'Skip',
+					icon: 'skip-forward',
+					onClick: () => gameServer.forceCurrentStage()
+				},
 				{
 					label: 'Auto-observerify offline',
+					shortLabel: 'Auto-obs',
+					icon: 'user-x',
 					disabled: !canAutoObserverify,
 					onClick: () => gameServer.autoObserverifyOfflinePendingPlayers()
 				}

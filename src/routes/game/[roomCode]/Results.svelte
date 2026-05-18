@@ -23,6 +23,7 @@
 	import BottomStickyPanelViewSwitch from './BottomStickyPanelViewSwitch.svelte';
 	import ChooserNameOverlay from './ChooserNameOverlay.svelte';
 	import MyCardsPanel from './MyCardsPanel.svelte';
+	import StageActionButtons from './StageActionButtons.svelte';
 	import StageShell from './StageShell.svelte';
 
 	export let displayImages: string[] = [];
@@ -423,7 +424,7 @@
 	</svelte:fragment>
 
 	<svelte:fragment slot="mobileActions">
-		<div class="space-y-4">
+		<div class="space-y-2">
 			{#if myHandImages.length > 0}
 				<BottomStickyPanelViewSwitch
 					bind:value={viewMode}
@@ -441,13 +442,18 @@
 				{nextRoundLabel}
 			</button>
 			{#if isModerator}
-				<button
-					class="btn variant-filled w-full"
-					disabled={!canForceStartNextRound}
-					on:click={() => gameServer.forceStartNextRound()}
-				>
-					{forceNextRoundLabel}
-				</button>
+				<StageActionButtons
+					layout="row"
+					actions={[
+						{
+							label: forceNextRoundLabel,
+							shortLabel: 'Force',
+							icon: 'fast-forward',
+							disabled: !canForceStartNextRound,
+							onClick: () => gameServer.forceStartNextRound()
+						}
+					]}
+				/>
 			{/if}
 		</div>
 	</svelte:fragment>

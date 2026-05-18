@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
+	import { onMount } from 'svelte';
+	import { MaximizeIcon, MinimizeIcon } from 'svelte-feather-icons';
 	import MigrateDeviceButton from '$lib/MigrateDeviceButton.svelte';
 	import type GameServer from '$lib/gameServer';
 	import {
@@ -283,6 +285,20 @@
 			? 'pending first beauty results'
 			: $beautyVotePointsDivisorEffectiveStore.toFixed(1);
 	const supportsStageChangeAudio = isStageChangeAudioSupported();
+	let fullscreenSupported = false;
+	let isFullscreen = false;
+
+	onMount(() => {
+		fullscreenSupported = document.fullscreenEnabled;
+		isFullscreen = document.fullscreenElement !== null;
+
+		function updateFullscreenState() {
+			isFullscreen = document.fullscreenElement !== null;
+		}
+
+		document.addEventListener('fullscreenchange', updateFullscreenState);
+		return () => document.removeEventListener('fullscreenchange', updateFullscreenState);
+	});
 
 	function isPlayerModerator(playerName: string) {
 		return moderatorSet.has(playerName);
@@ -291,6 +307,19 @@
 	function handleStageChangeSoundToggle() {
 		if ($stageChangeSoundCuesEnabled) {
 			void unlockStageChangeAudio();
+		}
+	}
+
+	async function toggleFullscreen() {
+		if (!browser || !fullscreenSupported) return;
+		try {
+			if (document.fullscreenElement) {
+				await document.exitFullscreen();
+				return;
+			}
+			await document.documentElement.requestFullscreen();
+		} catch {
+			fullscreenSupported = document.fullscreenEnabled;
 		}
 	}
 
@@ -1218,6 +1247,25 @@
 			Copy a room-specific link that moves this room identity, plus the room password when set, to
 			another device.
 		</p>
+	</div>
+	<div class="space-y-2">
+		<button
+			type="button"
+			class="btn variant-filled w-full gap-2"
+			disabled={!fullscreenSupported}
+			on:click={() => void toggleFullscreen()}
+		>
+			{#if isFullscreen}
+				<MinimizeIcon size="16" />
+				Exit fullscreen
+			{:else}
+				<MaximizeIcon size="16" />
+				Enter fullscreen
+			{/if}
+		</button>
+		{#if !fullscreenSupported}
+			<p class="text-xs opacity-70">Fullscreen is not supported in this browser.</p>
+		{/if}
 	</div>
 	<label class="flex items-start gap-3">
 		<input

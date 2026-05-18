@@ -9,6 +9,7 @@
 		WinCondition
 	} from '$lib/types';
 	import Images from './Images.svelte';
+	import StageActionButtons from './StageActionButtons.svelte';
 	import StageShell from './StageShell.svelte';
 
 	export let displayImages: string[] = [];
@@ -249,12 +250,14 @@
 				on:click={() => gameServer.ready()}>{nextRoundLabel}</button
 			>
 			{#if isModerator}
-				<div class="pt-3">
-					<button
-						class="btn variant-filled w-full"
-						on:click={() => gameServer.forceStartNextRound()}>{forceNextRoundLabel}</button
-					>
-				</div>
+				<StageActionButtons
+					actions={[
+						{
+							label: forceNextRoundLabel,
+							onClick: () => gameServer.forceStartNextRound()
+						}
+					]}
+				/>
 			{/if}
 		</div>
 	</svelte:fragment>
@@ -274,12 +277,17 @@
 				on:click={() => gameServer.ready()}>{nextRoundLabel}</button
 			>
 			{#if isModerator}
-				<div class="pt-3">
-					<button
-						class="btn variant-filled w-full"
-						on:click={() => gameServer.forceStartNextRound()}>{forceNextRoundLabel}</button
-					>
-				</div>
+				<StageActionButtons
+					layout="row"
+					actions={[
+						{
+							label: forceNextRoundLabel,
+							shortLabel: 'Force',
+							icon: 'fast-forward',
+							onClick: () => gameServer.forceStartNextRound()
+						}
+					]}
+				/>
 			{/if}
 		</div>
 	</svelte:fragment>

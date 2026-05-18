@@ -506,7 +506,7 @@
 	</svelte:fragment>
 
 	<svelte:fragment slot="mobileActions">
-		<div class="space-y-4">
+		<div class="space-y-2">
 			{#if isChooser}
 				<button class="btn variant-filled w-full" disabled={!canSubmit} on:click={choose}
 					>Choose</button
@@ -524,10 +524,23 @@
 			{#if isModerator}
 				<BottomStickyPanelActionGroup
 					actions={[
-						{ label: 'Reset clue', onClick: resetClue },
-						{ label: 'Force Random', onClick: () => gameServer.forceCurrentStage() },
+						{
+							label: 'Reset clue',
+							icon: 'rotate-ccw',
+							iconOnly: true,
+							tooltip: 'Reset clue and return to storyteller choosing',
+							onClick: resetClue
+						},
+						{
+							label: 'Force Random',
+							shortLabel: 'Random',
+							icon: 'shuffle',
+							onClick: () => gameServer.forceCurrentStage()
+						},
 						{
 							label: 'Auto-observerify',
+							shortLabel: 'Auto-obs',
+							icon: 'user-x',
 							disabled: !canAutoObserverify,
 							onClick: () => gameServer.autoObserverifyOfflinePendingPlayers()
 						}

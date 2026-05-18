@@ -212,6 +212,24 @@
 			timeout: 2000
 		});
 	}
+
+	function resetStellaClueMobile() {
+		if (
+			typeof window === 'undefined' ||
+			window.confirm('Reset the Resonance clue and return to clue selection?')
+		) {
+			gameServer.resetStellaClue();
+		}
+	}
+
+	function resetStellaBoardMobile() {
+		if (
+			typeof window === 'undefined' ||
+			window.confirm('Reset the Resonance board? This replaces the shared board for everyone.')
+		) {
+			gameServer.resetStellaBoard();
+		}
+	}
 </script>
 
 <StageShell
@@ -414,35 +432,48 @@
 	</svelte:fragment>
 
 	<svelte:fragment slot="mobileActions">
-		{#if !isObserver}
-			<button class="btn variant-filled w-full" disabled={!canSubmit} on:click={submitSelection}
-				>{submitLabel}</button
-			>
-		{/if}
-		{#if isModerator}
-			<StageActionButtons
-				actions={[
-					{
-						label: 'Force Random',
-						disabled: !canForceRandomSelection,
-						onClick: () => gameServer.forceCurrentStage()
-					},
-					{
-						label: 'Auto-observerify',
-						disabled: !canAutoObserverify,
-						onClick: () => gameServer.autoObserverifyOfflinePendingPlayers()
-					}
-				]}
-			/>
-		{/if}
-		{#if isModerator}
-			<button class="btn variant-filled w-full" on:click={() => gameServer.resetStellaClue()}
-				>Reset clue</button
-			>
-			<button class="btn variant-filled w-full" on:click={() => gameServer.resetStellaBoard()}
-				>Reset board</button
-			>
-		{/if}
+		<div class="space-y-2">
+			{#if !isObserver}
+				<button class="btn variant-filled w-full" disabled={!canSubmit} on:click={submitSelection}
+					>{submitLabel}</button
+				>
+			{/if}
+			{#if isModerator}
+				<StageActionButtons
+					layout="row"
+					actions={[
+						{
+							label: 'Force Random',
+							shortLabel: 'Random',
+							icon: 'shuffle',
+							disabled: !canForceRandomSelection,
+							onClick: () => gameServer.forceCurrentStage()
+						},
+						{
+							label: 'Auto-observerify',
+							shortLabel: 'Auto-obs',
+							icon: 'user-x',
+							disabled: !canAutoObserverify,
+							onClick: () => gameServer.autoObserverifyOfflinePendingPlayers()
+						},
+						{
+							label: 'Reset clue',
+							icon: 'rotate-ccw',
+							iconOnly: true,
+							tooltip: 'Reset clue and return to clue selection',
+							onClick: resetStellaClueMobile
+						},
+						{
+							label: 'Reset board',
+							shortLabel: 'Board',
+							icon: 'refresh-cw',
+							tooltip: 'Reset the shared Resonance board',
+							onClick: resetStellaBoardMobile
+						}
+					]}
+				/>
+			{/if}
+		</div>
 	</svelte:fragment>
 
 	<div class="flex h-full flex-col">

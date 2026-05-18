@@ -415,7 +415,7 @@
 	</svelte:fragment>
 
 	<svelte:fragment slot="mobileActions">
-		<div class="space-y-4">
+		<div class="space-y-2">
 			{#if isActivePlayer}
 				{#if canToggleResultsView}
 					<BottomStickyPanelViewSwitch
@@ -449,14 +449,19 @@
 			{/if}
 			{#if isModerator}
 				<StageActionButtons
+					layout="row"
 					actions={[
 						{
 							label: 'Switch Storyteller',
+							shortLabel: 'Switch',
+							icon: 'refresh-cw',
 							disabled: !canForceSwitchStoryteller,
 							onClick: () => gameServer.forceCurrentStage()
 						},
 						{
 							label: 'Auto-observerify',
+							shortLabel: 'Auto-obs',
+							icon: 'user-x',
 							disabled: !canAutoObserverify,
 							onClick: () => gameServer.autoObserverifyOfflinePendingPlayers()
 						}

@@ -15,20 +15,23 @@ edit by hand.
 - Use `BottomStickyPanelActionGroup.svelte` for grouped moderator actions that belong together.
 - The grouped-action default lives in `src/lib/bottomStickyPanel.ts`:
   `BOTTOM_STICKY_PANEL_ACTION_LAYOUT`.
-  - `stack` gives each action a full-width row.
   - `row` puts the action group into one equal-width row.
+  - `stack` gives each action a full-width row for desktop/sidebar contexts.
 
 ## Current conventions
 
 - View switches are icon tabs by default. They still carry labels through `aria-label` and
   `title`, so the labels remain available to assistive tech and browser tooltips.
-- Real actions stay labeled. Icon-only action buttons are avoided in the bottom sticky panel
-  because they can be unclear and can waste a full row when mixed with stacked actions.
+- Moderator action groups use compact row buttons by default. Prefer icon plus a short visible
+  label for actions that are not obvious.
+- Icon-only action buttons are only appropriate for obvious reset-style controls, and they must
+  provide a full `aria-label`, `tooltip`, and confirmation before changing shared room state.
+- Compact action buttons show a custom tooltip on hover, keyboard focus, and touch long-press.
+  Do not rely on native `title` tooltips for mobile comprehension.
 - Primary player actions such as **Choose**, **Submit Votes**, and **Next Round** remain
   full-width buttons.
-- Moderator action groups can be stacked or changed to a single row through the shared action
-  group layout. `PlayersChoose` uses this for **Reset clue**, **Force Random**, and
-  **Auto-observerify**.
+- Reset confirmations currently apply to the mobile sticky controls for **Reset clue** and
+  **Reset board**. Force/random/skip/reveal actions stay fast.
 
 ## Stages using the shared view switch
 
@@ -47,10 +50,10 @@ To switch the bottom panel from icons to text labels, change:
 export const BOTTOM_STICKY_PANEL_VIEW_PRESENTATION: BottomStickyPanelViewPresentation = 'text';
 ```
 
-To make grouped bottom-panel actions occupy a single row, change:
+To make grouped bottom-panel actions stack full-width, change:
 
 ```ts
-export const BOTTOM_STICKY_PANEL_ACTION_LAYOUT: BottomStickyPanelActionLayout = 'row';
+export const BOTTOM_STICKY_PANEL_ACTION_LAYOUT: BottomStickyPanelActionLayout = 'stack';
 ```
 
 Prefer changing those defaults before editing individual stage files. Override a single component

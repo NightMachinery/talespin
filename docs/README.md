@@ -11,6 +11,7 @@ Deploy note: routine Talespin redeploys now keep benign Browserslist/Caddy noise
 - `docs/win_condition.md`: supported win modes, defaults, and deck-finish behavior
 - `docs/user_auth.md`: player identity persistence, room-scoped device migration links, and password-carrying migrate URLs
 - `docs/fit_to_height_cards.md`: fit-to-height option notes and caveats
+- `docs/fullscreen.md`: local fullscreen option for hiding browser chrome on small screens
 - `docs/bottom-sticky-panel.md`: mobile bottom sticky panel controls and DRY component conventions
 - `docs/talespin/dixit_previous_results_preview.md`: Dixit storyteller-stage previous-results preview and next-round auto-advance
 - `docs/talespin/leaderboards.md`: live and end-game leaderboard views, including since-joined filtering for Dixit and Stella

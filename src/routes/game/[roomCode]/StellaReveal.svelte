@@ -380,12 +380,27 @@
 	<svelte:fragment slot="mobileActions">
 		{#if isModerator}
 			<StageActionButtons
+				layout="row"
 				actions={stellaQueueDuringAssociation
-					? [{ label: forceRevealLabel, onClick: () => gameServer.forceCurrentStage() }]
+					? [
+							{
+								label: forceRevealLabel,
+								shortLabel: 'Reveal',
+								icon: 'fast-forward',
+								onClick: () => gameServer.forceCurrentStage()
+							}
+						]
 					: [
-							{ label: forceRevealLabel, onClick: () => gameServer.forceCurrentStage() },
+							{
+								label: forceRevealLabel,
+								shortLabel: 'Reveal',
+								icon: 'fast-forward',
+								onClick: () => gameServer.forceCurrentStage()
+							},
 							{
 								label: 'Auto-observerify',
+								shortLabel: 'Auto-obs',
+								icon: 'user-x',
 								disabled: !canAutoObserverify,
 								onClick: () => gameServer.autoObserverifyOfflinePendingPlayers()
 							}
