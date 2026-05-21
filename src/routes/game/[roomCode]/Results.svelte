@@ -182,9 +182,9 @@
 	}
 
 	function handleCardUrlCopy(url: string) {
-		void copyTextToClipboard(url).then(() => {
+		void copyTextToClipboard(url).then((copied) => {
 			toastStore.trigger({
-				message: '🖼️ Card image URL copied',
+				message: copied ? '🖼️ Card image URL copied' : 'Could not copy card image URL',
 				autohide: true,
 				timeout: 1800
 			});

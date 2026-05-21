@@ -846,9 +846,11 @@
 								roomPassword
 							});
 				if (migrateLink !== '') {
-					void copyTextToClipboard(migrateLink).then(() => {
+					void copyTextToClipboard(migrateLink).then((copied) => {
 						toastStore.trigger({
-							message: `📱 ${targetPlayer || 'Player'} migration link copied`,
+							message: copied
+								? `📱 ${targetPlayer || 'Player'} migration link copied`
+								: `Could not copy ${targetPlayer || 'player'} migration link`,
 							autohide: true,
 							timeout: 2500
 						});
@@ -857,9 +859,9 @@
 			} else if (data.CurrentInfoMarkdown) {
 				const markdown = data.CurrentInfoMarkdown.markdown || '';
 				if (markdown.trim() !== '') {
-					void copyTextToClipboard(markdown).then(() => {
+					void copyTextToClipboard(markdown).then((copied) => {
 						toastStore.trigger({
-							message: '🛠️ Current game info copied',
+							message: copied ? '🛠️ Current game info copied' : 'Could not copy current game info',
 							autohide: true,
 							timeout: 2500
 						});

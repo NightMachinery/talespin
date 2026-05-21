@@ -156,8 +156,12 @@
 	async function copyInviteLink() {
 		const inviteLink = getInviteLink();
 		if (!inviteLink) return;
-		await copyTextToClipboard(inviteLink);
-		toastStore.trigger({ message: '🔗 Invite link copied', autohide: true, timeout: 2000 });
+		const copied = await copyTextToClipboard(inviteLink);
+		toastStore.trigger({
+			message: copied ? '🔗 Invite link copied' : 'Could not copy invite link',
+			autohide: true,
+			timeout: 2000
+		});
 	}
 
 	function startGame() {

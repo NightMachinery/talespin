@@ -27,9 +27,9 @@
 
 	async function copyMigrateLink() {
 		if (migrateLink === '') return;
-		await copyTextToClipboard(migrateLink);
+		const copied = await copyTextToClipboard(migrateLink);
 		toastStore.trigger({
-			message: '📱 Device migration link copied',
+			message: copied ? '📱 Device migration link copied' : 'Could not copy device migration link',
 			autohide: true,
 			timeout: 2500
 		});

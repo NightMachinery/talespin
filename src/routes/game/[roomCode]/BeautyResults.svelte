@@ -163,9 +163,9 @@
 	$: resultsImageClass = `relative w-full object-cover object-center aspect-[2/3] ${resultsDesktopFitClass}`;
 
 	function handleCardUrlCopy(url: string) {
-		void copyTextToClipboard(url).then(() => {
+		void copyTextToClipboard(url).then((copied) => {
 			toastStore.trigger({
-				message: '🖼️ Card image URL copied',
+				message: copied ? '🖼️ Card image URL copied' : 'Could not copy card image URL',
 				autohide: true,
 				timeout: 1800
 			});
