@@ -20,7 +20,7 @@ export type BottomStickyPanelAction = {
 	onClick: () => void;
 };
 
-export const BOTTOM_STICKY_PANEL_VIEW_PRESENTATION: BottomStickyPanelViewPresentation = 'icon';
+export const BOTTOM_STICKY_PANEL_VIEW_PRESENTATION: BottomStickyPanelViewPresentation = 'text';
 export const BOTTOM_STICKY_PANEL_ACTION_LAYOUT: BottomStickyPanelActionLayout = 'row';
 
 export function bottomStickyPanelGridStyle(itemCount: number) {
@@ -29,7 +29,6 @@ export function bottomStickyPanelGridStyle(itemCount: number) {
 }
 
 export function bottomStickyPanelVisibleLabel(action: BottomStickyPanelAction) {
-	if (action.iconOnly) return '';
 	return action.shortLabel ?? action.label;
 }
 

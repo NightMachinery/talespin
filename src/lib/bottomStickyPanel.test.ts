@@ -11,7 +11,7 @@ import {
 
 describe('bottom sticky panel defaults', () => {
 	test('keeps view and action defaults centralized for hand edits', () => {
-		expect(BOTTOM_STICKY_PANEL_VIEW_PRESENTATION).toBe('icon');
+		expect(BOTTOM_STICKY_PANEL_VIEW_PRESENTATION).toBe('text');
 		expect(BOTTOM_STICKY_PANEL_ACTION_LAYOUT).toBe('row');
 	});
 
@@ -33,17 +33,28 @@ describe('bottom sticky panel defaults', () => {
 		expect(bottomStickyPanelVisibleLabel(action)).toBe('Auto-obs');
 	});
 
-	test('keeps a full tooltip label for compact action buttons', () => {
+	test('uses compact visible labels for reset-style rectangular buttons', () => {
 		const action: BottomStickyPanelAction = {
 			label: 'Reset clue',
+			shortLabel: 'Reset',
 			tooltip: 'Reset clue and return to storyteller choosing',
 			iconOnly: true,
 			onClick: () => undefined
 		};
 
-		expect(bottomStickyPanelVisibleLabel(action)).toBe('');
+		expect(bottomStickyPanelVisibleLabel(action)).toBe('Reset');
 		expect(bottomStickyPanelActionTooltip(action)).toBe(
 			'Reset clue and return to storyteller choosing'
 		);
+	});
+
+	test('falls back to the full label when a compact action has no short label', () => {
+		const action: BottomStickyPanelAction = {
+			label: 'Reset board',
+			iconOnly: true,
+			onClick: () => undefined
+		};
+
+		expect(bottomStickyPanelVisibleLabel(action)).toBe('Reset board');
 	});
 });

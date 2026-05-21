@@ -458,6 +458,7 @@
 						},
 						{
 							label: 'Reset clue',
+							shortLabel: 'Clue',
 							icon: 'rotate-ccw',
 							iconOnly: true,
 							tooltip: 'Reset clue and return to clue selection',

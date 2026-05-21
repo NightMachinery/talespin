@@ -84,9 +84,7 @@
 				{@const tooltip = bottomStickyPanelActionTooltip(action)}
 				<button
 					type="button"
-					class={`btn variant-filled relative min-h-10 w-full min-w-0 gap-1 px-1.5 text-xs leading-tight sm:text-sm ${
-						action.iconOnly ? 'aspect-square' : 'whitespace-normal'
-					}`}
+					class="btn variant-filled relative min-h-10 w-full min-w-0 gap-1 whitespace-normal px-1.5 text-xs leading-tight sm:text-sm"
 					disabled={action.disabled ?? false}
 					aria-label={action.label}
 					title={tooltip}

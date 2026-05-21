@@ -526,6 +526,7 @@
 					actions={[
 						{
 							label: 'Reset clue',
+							shortLabel: 'Reset',
 							icon: 'rotate-ccw',
 							iconOnly: true,
 							tooltip: 'Reset clue and return to storyteller choosing',
