@@ -2133,6 +2133,14 @@ impl Room {
         match state.stage {
             RoomStage::ActiveChooses | RoomStage::StellaReveal => {
                 while let Some(player_name) = self.offline_pending_player_to_observerify(state) {
+                    let was_preclue_storyteller = matches!(state.stage, RoomStage::ActiveChooses)
+                        && self.active_player_name(state) == Some(player_name.as_str())
+                        && state.current_description.trim().is_empty()
+                        && state
+                            .player_to_current_cards
+                            .get(player_name.as_str())
+                            .map(|cards| cards.is_empty())
+                            .unwrap_or(true);
                     if !self
                         .convert_player_to_observer(state, &player_name, false)
                         .await?
@@ -2140,6 +2148,9 @@ impl Room {
                         break;
                     }
                     observerified_any = true;
+                    if was_preclue_storyteller && self.transition_to_end_if_game_complete(state)? {
+                        return Ok(true);
+                    }
                 }
             }
             RoomStage::PlayersChoose
@@ -3867,6 +3878,20 @@ impl Room {
         self.set_stage(state, RoomStage::End);
         state.paused_reason = None;
         self.finalize_current_dixit_game(state)
+    }
+
+    fn transition_to_end_if_game_complete(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+    ) -> Result<bool> {
+        if !self.should_end_game(state) {
+            return Ok(false);
+        }
+
+        self.transition_to_end(state)?;
+        self.broadcast_msg(ServerMsg::EndGame {})?;
+        self.broadcast_msg(self.room_state(state))?;
+        Ok(true)
     }
 
     fn reset_clue_to_storyteller_choose(
@@ -8577,6 +8602,12 @@ impl Room {
                         .convert_player_to_observer(&mut state, target, false)
                         .await?;
                     if converted {
+                        if target_is_storyteller
+                            && storyteller_can_switch_before_clue
+                            && self.transition_to_end_if_game_complete(&mut state)?
+                        {
+                            return Ok(());
+                        }
                         self.after_member_removed_or_observered(&mut state).await?;
                     }
                 } else if state.observers.contains_key(target) {
@@ -15111,6 +15142,55 @@ mod tests {
         assert_eq!(
             state.player_order[state.active_player], "b",
             "storyteller turn should pass to next player"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn storyteller_observering_before_clue_ends_completed_cycle_game() -> Result<()> {
+        let room = test_room_with_condition(WinCondition::Cycles { target_cycles: 1 });
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "a", 0);
+            add_player(&mut state, "b", 0);
+            add_player(&mut state, "c", 0);
+            add_player(&mut state, "d", 0);
+            state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into()];
+            state.active_player = 0;
+            state.stage = RoomStage::ActiveChooses;
+            state.current_description.clear();
+            state.player_to_current_cards.clear();
+            set_storyteller_count(&mut state, "a", 0);
+            set_storyteller_count(&mut state, "b", 1);
+            set_storyteller_count(&mut state, "c", 1);
+            set_storyteller_count(&mut state, "d", 1);
+            setup_connected_member(&mut state, "a", "t-a", 21_001);
+        }
+
+        room.handle_client_msg(
+            "a",
+            21_001,
+            to_ws(ClientMsg::SetObserver {
+                player: "a".to_string(),
+                enabled: true,
+            }),
+        )
+        .await?;
+
+        let state = room.state.read().await;
+        assert!(
+            matches!(state.stage, RoomStage::End),
+            "observering the only remaining below-target active storyteller should end a completed cycle game"
+        );
+        assert!(
+            state.observers.contains_key("a"),
+            "storyteller should still be moved to observers"
+        );
+        assert_eq!(
+            state.storyteller_counts.get("a").copied(),
+            Some(0),
+            "pre-clue storyteller observering should not count as a storyteller turn"
         );
 
         Ok(())

@@ -41,6 +41,8 @@ Force actions count non-observer players' current unsubmitted drafts before fill
   action.
 - After each conversion, the server re-runs the normal stage reconciliation logic. That means the
   room may:
+  - end immediately when observerifying the `ActiveChooses` storyteller satisfies the configured
+    win condition,
   - stay on the same stage with a new active player/scout,
   - advance once enough remaining players are ready,
   - or pause if the room drops below the minimum active-player count.

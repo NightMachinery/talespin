@@ -27,6 +27,9 @@ If unset or invalid, fallback is `10`.
 ## When Win Conditions Are Checked
 
 - `points` and `cycles` are checked during `Ready` handling in round transition flow (`Joining`/`Results`)
+- `points` and `cycles` are also checked when the current `ActiveChooses` storyteller becomes an
+  observer before locking a clue/card; if the condition is satisfied, ending the game wins over
+  pausing for too few active players
 - `cards_finish` is checked when starting a new round; if dealing fails due to deck depletion, stage transitions to `End`
 
 ## End-State Behavior
