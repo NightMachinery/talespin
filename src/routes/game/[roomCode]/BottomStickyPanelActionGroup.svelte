@@ -1,13 +1,11 @@
 <script lang="ts">
-	import {
-		FastForwardIcon,
-		PlayIcon,
-		RefreshCwIcon,
-		RotateCcwIcon,
-		ShuffleIcon,
-		SkipForwardIcon,
-		UserXIcon
-	} from 'svelte-feather-icons';
+	import FastForwardIcon from 'svelte-feather-icons/src/icons/FastForwardIcon.svelte';
+	import PlayIcon from 'svelte-feather-icons/src/icons/PlayIcon.svelte';
+	import RefreshCwIcon from 'svelte-feather-icons/src/icons/RefreshCwIcon.svelte';
+	import RotateCcwIcon from 'svelte-feather-icons/src/icons/RotateCcwIcon.svelte';
+	import ShuffleIcon from 'svelte-feather-icons/src/icons/ShuffleIcon.svelte';
+	import SkipForwardIcon from 'svelte-feather-icons/src/icons/SkipForwardIcon.svelte';
+	import UserXIcon from 'svelte-feather-icons/src/icons/UserXIcon.svelte';
 	import {
 		BOTTOM_STICKY_PANEL_ACTION_LAYOUT,
 		bottomStickyPanelActionTooltip,

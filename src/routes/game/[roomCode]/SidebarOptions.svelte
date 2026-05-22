@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { onMount } from 'svelte';
-	import { MaximizeIcon, MinimizeIcon } from 'svelte-feather-icons';
+	import MaximizeIcon from 'svelte-feather-icons/src/icons/MaximizeIcon.svelte';
+	import MinimizeIcon from 'svelte-feather-icons/src/icons/MinimizeIcon.svelte';
 	import MigrateDeviceButton from '$lib/MigrateDeviceButton.svelte';
 	import type GameServer from '$lib/gameServer';
 	import {
