@@ -623,8 +623,8 @@
 								disabled={!canEditSettings}
 							/>
 							<div>
-								<span class="block font-semibold">Copy card URL on hold</span>
-								<p class="text-xs opacity-70">Long-pressing a card copies its image URL.</p>
+								<span class="block font-semibold">Card preview on hold</span>
+								<p class="text-xs opacity-70">Long-pressing a card opens a full image preview.</p>
 							</div>
 						</label>
 						<div>

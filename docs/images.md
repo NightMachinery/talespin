@@ -24,8 +24,21 @@ Set `TALESPIN_SNIFF_EXTENSIONLESS_IMAGES_P=y` to sniff extensionless files and a
 The backend normalizes all source images into cached cards and serves them through:
 
 - `GET /cards/:card_id`
+- `GET /cards/:card_id_original`
 
 Cards are not copied/symlinked into `static/assets/cards/` at runtime anymore.
+
+The `_original` route serves the source image bytes for the card without Talespin's crop, resize,
+or cache encoding. The in-game card preview uses this route for copy, open, and download actions.
+
+## Dev Source Metadata
+
+Set `TALESPIN_IMAGES_SHOW_PATH_P=y` while `TALESPIN_PRODUCTION_P` is not `y` to expose:
+
+- `GET /cards/:card_id/source-info`
+
+That endpoint returns the card's path relative to its source image root so local/dev operators can
+find the file. It returns 404 unless explicitly enabled outside production mode.
 
 ## Cache
 

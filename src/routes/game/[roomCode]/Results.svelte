@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { getToastStore } from '@skeletonlabs/skeleton';
 	import { getDesktopFitRowCount } from '$lib/cardGrid';
 	import { buildBeautyBadgeMetadata } from '$lib/beautyResults';
 	import {
@@ -13,8 +12,8 @@
 	} from '$lib/cardNumberNavigator';
 	import { CARD_IMAGE_ALT_TEXT } from '$lib/cardImageText';
 	import { longPressCardCopy } from '$lib/cardLongPressCopy';
-	import { copyTextToClipboard } from '$lib/clipboard';
 	import CardImage from '$lib/CardImage.svelte';
+	import CardImagePopup from '$lib/CardImagePopup.svelte';
 	import { http_host } from '$lib/gameServer';
 	import { cardsFitToHeight } from '$lib/viewOptions';
 	import type GameServer from '$lib/gameServer';
@@ -139,7 +138,7 @@
 	let beautyCardToChooserEntries: { [key: string]: { name: string; count?: number }[] } = {};
 	let beautyWinningCardSet = new Set<string>();
 	let beautyBadges: ReturnType<typeof buildBeautyBadgeMetadata> = {};
-	const toastStore = getToastStore();
+	let popupCard = '';
 	let isObserver = false;
 	let isModerator = false;
 	let canForceStartNextRound = false;
@@ -181,14 +180,8 @@
 		return '';
 	}
 
-	function handleCardUrlCopy(url: string) {
-		void copyTextToClipboard(url).then((copied) => {
-			toastStore.trigger({
-				message: copied ? '🖼️ Card image URL copied' : 'Could not copy card image URL',
-				autohide: true,
-				timeout: 1800
-			});
-		});
+	function openCardPopup(card: string) {
+		popupCard = card;
 	}
 
 	$: {
@@ -478,7 +471,7 @@
 						use:longPressCardCopy={{
 							card: image,
 							enabled: copyCardUrlOnHold,
-							onCopy: handleCardUrlCopy
+							onCopy: () => openCardPopup(image)
 						}}
 					>
 						<CardImage
@@ -530,6 +523,8 @@
 		{/if}
 	</div>
 </StageShell>
+
+<CardImagePopup card={popupCard} on:close={() => (popupCard = '')} />
 
 <style>
 	@media (min-width: 1024px) {

@@ -13,7 +13,7 @@ use axum::{
 use dashmap::DashMap;
 use image::{codecs::jpeg::JpegEncoder, imageops::FilterType, GenericImageView};
 use indicatif::{ProgressBar, ProgressStyle};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
@@ -58,6 +58,7 @@ const CARD_AVIF_ENCODER_ENV: &str = "TALESPIN_CARD_AVIF_ENCODER";
 const CARD_AVIF_THREADS_ENV: &str = "TALESPIN_CARD_AVIF_THREADS";
 const VALIDATE_CACHE_HITS_ENV: &str = "TALESPIN_VALIDATE_CACHE_HITS_P";
 const PRODUCTION_ENV: &str = "TALESPIN_PRODUCTION_P";
+const SHOW_IMAGE_PATH_ENV: &str = "TALESPIN_IMAGES_SHOW_PATH_P";
 const DEFAULT_WIN_POINTS_ENV: &str = "TALESPIN_DEFAULT_WIN_POINTS";
 const MAX_MEMBERS_ENV: &str = "TALESPIN_MAX_MEMBERS";
 const MB_STATS_DB_PATH_ENV: &str = "TALESPIN_MB_STATS_DB_PATH";
@@ -200,9 +201,17 @@ impl NormalizationConfig {
 struct LoadedCards {
     deck: Vec<String>,
     cards: HashMap<String, PathBuf>,
+    original_cards: HashMap<String, OriginalCardInfo>,
     loaded_builtin: usize,
     loaded_extra: usize,
     failed_sources: usize,
+}
+
+#[derive(Debug, Clone)]
+struct OriginalCardInfo {
+    path: PathBuf,
+    relative_source_path: String,
+    content_type: &'static str,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -542,6 +551,28 @@ fn is_supported_image(path: &Path, sniff_extensionless_images: bool) -> bool {
         && sniff_supported_extensionless_image(path)
 }
 
+fn source_image_content_type(path: &Path) -> &'static str {
+    match path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("png") => "image/png",
+        Some("webp") => "image/webp",
+        _ => "application/octet-stream",
+    }
+}
+
+fn relative_source_path(source_root: &Path, source: &Path) -> String {
+    source
+        .strip_prefix(source_root)
+        .unwrap_or(source)
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
 fn cleanup_legacy_generated_cards() -> Result<()> {
     let builtin_dir = Path::new(BUILTIN_IMAGE_DIR);
     if !builtin_dir.exists() {
@@ -835,6 +866,7 @@ fn load_cards(
     disable_builtin_images: bool,
     sniff_extensionless_images: bool,
 ) -> Result<LoadedCards> {
+    let builtin_root = fs::canonicalize(Path::new(BUILTIN_IMAGE_DIR)).ok();
     let builtin_sources = if disable_builtin_images {
         Vec::new()
     } else {
@@ -847,11 +879,10 @@ fn load_cards(
 
     let mut extra_sources = Vec::new();
     for dir in extra_image_dirs {
-        extra_sources.extend(collect_image_files_recursive(
-            dir,
-            false,
-            sniff_extensionless_images,
-        )?);
+        let source_root = fs::canonicalize(dir).unwrap_or_else(|_| dir.clone());
+        for source in collect_image_files_recursive(dir, false, sniff_extensionless_images)? {
+            extra_sources.push((source_root.clone(), source));
+        }
     }
 
     if !extra_image_dirs.is_empty() && extra_sources.is_empty() {
@@ -879,6 +910,7 @@ fn load_cards(
     let mut seen_card_ids = HashSet::new();
     let mut deck = Vec::new();
     let mut cards = HashMap::new();
+    let mut original_cards = HashMap::new();
     let mut loaded_builtin = 0usize;
     let mut loaded_extra = 0usize;
     let mut failed_sources = 0usize;
@@ -886,13 +918,16 @@ fn load_cards(
 
     for source in builtin_sources {
         if seen_sources.insert(source.clone()) {
-            sources_to_process.push((SourceKind::Builtin, source));
+            let source_root = builtin_root
+                .clone()
+                .unwrap_or_else(|| Path::new(BUILTIN_IMAGE_DIR).to_path_buf());
+            sources_to_process.push((SourceKind::Builtin, source_root, source));
         }
     }
 
-    for source in extra_sources {
+    for (source_root, source) in extra_sources {
         if seen_sources.insert(source.clone()) {
-            sources_to_process.push((SourceKind::Extra, source));
+            sources_to_process.push((SourceKind::Extra, source_root, source));
         }
     }
 
@@ -915,7 +950,7 @@ fn load_cards(
     let progress = create_normalization_progress(total_sources);
     progress.set_message("warming up...");
 
-    for (kind, source) in sources_to_process {
+    for (kind, source_root, source) in sources_to_process {
         progress.set_message(source_progress_message(kind, &source));
 
         match normalize_source_to_cache(&source, config) {
@@ -923,6 +958,14 @@ fn load_cards(
                 if seen_card_ids.insert(card_id.clone()) {
                     deck.push(card_id.clone());
                     cards.insert(card_id, cache_path);
+                    original_cards.insert(
+                        deck.last().expect("card id was just pushed").clone(),
+                        OriginalCardInfo {
+                            path: source.clone(),
+                            relative_source_path: relative_source_path(&source_root, &source),
+                            content_type: source_image_content_type(&source),
+                        },
+                    );
                     match kind {
                         SourceKind::Builtin => loaded_builtin += 1,
                         SourceKind::Extra => loaded_extra += 1,
@@ -962,6 +1005,7 @@ fn load_cards(
     Ok(LoadedCards {
         deck,
         cards,
+        original_cards,
         loaded_builtin,
         loaded_extra,
         failed_sources,
@@ -1048,7 +1092,9 @@ struct ServerState {
     rooms: DashMap<String, Arc<Room>>,
     base_deck: Arc<Vec<String>>,
     cards: Arc<HashMap<String, PathBuf>>,
+    original_cards: Arc<HashMap<String, OriginalCardInfo>>,
     card_content_type: &'static str,
+    show_image_source_paths: bool,
     most_beautiful_stats: Arc<MostBeautifulStatsStore>,
     default_stella_word_pack: Arc<Vec<String>>,
     stella_word_pack_presets: Arc<Vec<StellaWordPackPreset>>,
@@ -1110,7 +1156,9 @@ impl ServerState {
             rooms: DashMap::new(),
             base_deck: Arc::new(loaded_cards.deck),
             cards: Arc::new(loaded_cards.cards),
+            original_cards: Arc::new(loaded_cards.original_cards),
             card_content_type: config.cache_format.mime_type(),
+            show_image_source_paths: !config.production_mode && env_is_y(SHOW_IMAGE_PATH_ENV),
             most_beautiful_stats,
             default_stella_word_pack: Arc::new(default_word_pack.words.clone()),
             stella_word_pack_presets: Arc::new(word_pack_presets),
@@ -1249,6 +1297,7 @@ async fn main() {
     let app = Router::new()
         .route("/ws", get(ws_handler))
         .route("/cards/:card_id", get(card_handler))
+        .route("/cards/:card_id/source-info", get(card_source_info_handler))
         .route("/create", post(create_room_handler))
         .route("/exists", post(exists_handler))
         .route("/stats", get(stats_handler))
@@ -1272,6 +1321,31 @@ async fn card_handler(
     AxumPath(card_id): AxumPath<String>,
     State(state): State<Arc<ServerState>>,
 ) -> Response {
+    if let Some(original_card_id) = card_id.strip_suffix("_original") {
+        let Some(original_info) = state.original_cards.get(original_card_id).cloned() else {
+            return (StatusCode::NOT_FOUND, "Card not found").into_response();
+        };
+
+        return match tokio::fs::read(&original_info.path).await {
+            Ok(bytes) => (
+                [
+                    (header::CONTENT_TYPE, original_info.content_type),
+                    (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
+                ],
+                bytes,
+            )
+                .into_response(),
+            Err(err) => {
+                println!(
+                    "Warning: failed to read original card image {}: {}",
+                    original_info.path.display(),
+                    err
+                );
+                (StatusCode::NOT_FOUND, "Original card image unavailable").into_response()
+            }
+        };
+    }
+
     let Some(cache_path) = state.cards.get(&card_id).cloned() else {
         return (StatusCode::NOT_FOUND, "Card not found").into_response();
     };
@@ -1294,6 +1368,29 @@ async fn card_handler(
             (StatusCode::NOT_FOUND, "Card image unavailable").into_response()
         }
     }
+}
+
+#[derive(Debug, Serialize)]
+struct CardSourceInfoResponse {
+    relative_source_path: String,
+}
+
+async fn card_source_info_handler(
+    AxumPath(card_id): AxumPath<String>,
+    State(state): State<Arc<ServerState>>,
+) -> Response {
+    if !state.show_image_source_paths {
+        return (StatusCode::NOT_FOUND, "Card source info unavailable").into_response();
+    }
+
+    let Some(original_info) = state.original_cards.get(&card_id).cloned() else {
+        return (StatusCode::NOT_FOUND, "Card not found").into_response();
+    };
+
+    Json(CardSourceInfoResponse {
+        relative_source_path: original_info.relative_source_path,
+    })
+    .into_response()
 }
 
 async fn create_room_handler(State(state): State<Arc<ServerState>>, body: Bytes) -> String {

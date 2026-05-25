@@ -1,9 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
-	import { getToastStore } from '@skeletonlabs/skeleton';
 	import { getDesktopFitRowCount } from '$lib/cardGrid';
 	import { longPressCardCopy } from '$lib/cardLongPressCopy';
-	import { copyTextToClipboard } from '$lib/clipboard';
 	import { http_host } from '$lib/gameServer';
 	import { CARD_IMAGE_ALT_TEXT } from '$lib/cardImageText';
 	import {
@@ -12,6 +10,7 @@
 		getCardNumberNavigatorLabels
 	} from '$lib/cardNumberNavigator';
 	import CardImage from '$lib/CardImage.svelte';
+	import CardImagePopup from '$lib/CardImagePopup.svelte';
 	import { cardsFitToHeight } from '$lib/viewOptions';
 	import CardNumberNavigator from './CardNumberNavigator.svelte';
 	import ChooserNameOverlay from './ChooserNameOverlay.svelte';
@@ -58,7 +57,7 @@
 	export let pinTogglesEnabled = false;
 	export let copyCardUrlOnHold = false;
 
-	const toastStore = getToastStore();
+	let popupCard = '';
 
 	$: isHandMode = mode === 'hand';
 	$: desktopFitEnabled = $cardsFitToHeight && (isHandMode || desktopFitToHeight);
@@ -107,14 +106,8 @@
 		dispatch('pinToggle', image);
 	}
 
-	function handleCardUrlCopy(url: string) {
-		void copyTextToClipboard(url).then((copied) => {
-			toastStore.trigger({
-				message: copied ? '🖼️ Card image URL copied' : 'Could not copy card image URL',
-				autohide: true,
-				timeout: 1800
-			});
-		});
+	function openCardPopup(card: string) {
+		popupCard = card;
 	}
 </script>
 
@@ -170,7 +163,7 @@
 				use:longPressCardCopy={{
 					card: image,
 					enabled: copyCardUrlOnHold,
-					onCopy: handleCardUrlCopy
+					onCopy: () => openCardPopup(image)
 				}}
 				on:click={() => selectImage(image, isDisabled, canSelect)}
 			>
@@ -232,7 +225,7 @@
 				use:longPressCardCopy={{
 					card: image,
 					enabled: copyCardUrlOnHold,
-					onCopy: handleCardUrlCopy
+					onCopy: () => openCardPopup(image)
 				}}
 			>
 				<CardImage
@@ -286,6 +279,8 @@
 		{/if}
 	{/each}
 </section>
+
+<CardImagePopup card={popupCard} on:close={() => (popupCard = '')} />
 
 <style>
 	@media (min-width: 1024px) {

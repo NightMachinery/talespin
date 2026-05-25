@@ -1,10 +1,6 @@
-import { http_host } from '$lib/gameServer';
+import { cardImageUrl } from '$lib/cardImageUrls';
 
 const HOLD_MS = 600;
-
-export function cardImageUrl(card: string) {
-	return `${http_host}/cards/${card}`;
-}
 
 export function longPressCardCopy(
 	node: HTMLElement,

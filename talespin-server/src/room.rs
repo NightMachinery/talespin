@@ -247,6 +247,12 @@ pub(crate) fn win_condition_supported_by_game_mode(
     )
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum VoteCountKind {
+    Story,
+    Beauty,
+}
+
 #[derive(Debug, Serialize, Clone)]
 pub enum ServerMsg {
     JoinedAs {
@@ -406,6 +412,7 @@ pub enum ServerMsg {
         pinned_cards: Vec<String>,
         description: String,
         disabled_cards: Vec<String>,
+        selected_votes: Vec<String>,
         votes_per_guesser: u16,
         voting_layout_seed: String,
         server_time_ms: u64,
@@ -417,6 +424,7 @@ pub enum ServerMsg {
         pinned_cards: Vec<String>,
         description: String,
         disabled_cards: Vec<String>,
+        selected_votes: Vec<String>,
         votes_per_player: u16,
         allow_duplicate_votes: bool,
         voting_layout_seed: String,
@@ -2491,6 +2499,38 @@ impl Room {
         usize::from(state.beauty_votes_per_player.clamp(1, max_votes))
     }
 
+    fn selected_story_votes_for_player(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+        player_name: &str,
+    ) -> Vec<String> {
+        if let Some(votes) = state.player_to_votes.get(player_name) {
+            return self.sanitize_vote_cards(state, player_name, votes);
+        }
+
+        state
+            .player_to_vote_drafts
+            .get(player_name)
+            .map(|draft| self.sanitize_vote_cards(state, player_name, draft))
+            .unwrap_or_default()
+    }
+
+    fn selected_beauty_votes_for_player(
+        &self,
+        state: &RwLockWriteGuard<'_, RoomState>,
+        player_name: &str,
+    ) -> Vec<String> {
+        if let Some(votes) = state.player_to_beauty_votes.get(player_name) {
+            return self.sanitize_beauty_vote_cards(state, player_name, votes);
+        }
+
+        state
+            .player_to_beauty_vote_drafts
+            .get(player_name)
+            .map(|draft| self.sanitize_beauty_vote_cards(state, player_name, draft))
+            .unwrap_or_default()
+    }
+
     fn take_last_preserving_order(cards: Vec<String>, limit: usize) -> Vec<String> {
         cards
             .into_iter()
@@ -4461,6 +4501,91 @@ impl Room {
         }
     }
 
+    async fn handle_voting_count_change(
+        &self,
+        state: &mut RwLockWriteGuard<'_, RoomState>,
+        kind: VoteCountKind,
+        previous_count: usize,
+        next_count: usize,
+    ) -> Result<()> {
+        if previous_count == next_count {
+            return Ok(());
+        }
+
+        match kind {
+            VoteCountKind::Story if matches!(state.stage, RoomStage::Voting) => {
+                let active_player = self.active_player_name(state).map(str::to_string);
+                let submitted = state.player_to_votes.drain().collect::<Vec<_>>();
+                for (player, votes) in submitted {
+                    if !votes.is_empty() {
+                        state.player_to_vote_drafts.insert(player, votes);
+                    }
+                }
+
+                let voters = state
+                    .players
+                    .keys()
+                    .filter(|player| Some(player.as_str()) != active_player.as_deref())
+                    .cloned()
+                    .collect::<Vec<_>>();
+                for player in voters {
+                    if let Some(info) = state.players.get_mut(&player) {
+                        info.ready = false;
+                    }
+                    if let Some(socket) = state.player_to_socket.get(&player) {
+                        let _ = socket
+                            .send(
+                                ServerMsg::ErrorMsg(format!(
+                                    "Vote count changed to {}. Please submit again.",
+                                    next_count
+                                ))
+                                .into(),
+                            )
+                            .await;
+                    }
+                }
+            }
+            VoteCountKind::Beauty if matches!(state.stage, RoomStage::BeautyVoting) => {
+                let submitted = state.player_to_beauty_votes.drain().collect::<Vec<_>>();
+                for (player, votes) in submitted {
+                    if !votes.is_empty() {
+                        state.player_to_beauty_vote_drafts.insert(player, votes);
+                    }
+                }
+
+                let voters = state.players.keys().cloned().collect::<Vec<_>>();
+                for player in voters {
+                    if let Some(info) = state.players.get_mut(&player) {
+                        info.ready = false;
+                    }
+                    if let Some(socket) = state.player_to_socket.get(&player) {
+                        let _ = socket
+                            .send(
+                                ServerMsg::ErrorMsg(format!(
+                                    "Beauty vote count changed to {}. Please submit again.",
+                                    next_count
+                                ))
+                                .into(),
+                            )
+                            .await;
+                    }
+                }
+            }
+            _ => return Ok(()),
+        }
+
+        for player in state.player_order.clone() {
+            if state.players.contains_key(&player) {
+                let _ = self
+                    .send_msg(state, &player, self.get_msg(Some(&player), state)?)
+                    .await;
+            }
+        }
+        self.broadcast_msg(self.room_state(state))?;
+
+        Ok(())
+    }
+
     fn clamp_player_nominations_lengths(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
         let (_, max_nominations) = self.nominations_per_guesser_bounds(state);
         let max_nominations = usize::from(max_nominations);
@@ -5632,6 +5757,9 @@ impl Room {
             return Ok(false);
         }
 
+        let previous_story_vote_count = self.effective_votes_per_guesser(state);
+        let previous_beauty_vote_count = self.effective_beauty_votes_per_player(state);
+
         let was_preclue_storyteller = matches!(state.stage, RoomStage::ActiveChooses)
             && self.active_player_name(state) == Some(player_name)
             && state.current_description.trim().is_empty()
@@ -5719,6 +5847,22 @@ impl Room {
         self.clamp_player_nominations_lengths(state);
         self.clean_moderators(state);
         self.maybe_rescore_vote_divisor_for_player_order_change(state, removed_from_player_order);
+        let next_story_vote_count = self.effective_votes_per_guesser(state);
+        let next_beauty_vote_count = self.effective_beauty_votes_per_player(state);
+        self.handle_voting_count_change(
+            state,
+            VoteCountKind::Story,
+            previous_story_vote_count,
+            next_story_vote_count,
+        )
+        .await?;
+        self.handle_voting_count_change(
+            state,
+            VoteCountKind::Beauty,
+            previous_beauty_vote_count,
+            next_beauty_vote_count,
+        )
+        .await?;
         Ok(true)
     }
 
@@ -5786,6 +5930,9 @@ impl Room {
         if !state.players.contains_key(player_name) {
             return Ok(false);
         }
+
+        let previous_story_vote_count = self.effective_votes_per_guesser(state);
+        let previous_beauty_vote_count = self.effective_beauty_votes_per_player(state);
 
         let was_preclue_storyteller = matches!(state.stage, RoomStage::ActiveChooses)
             && self.active_player_name(state) == Some(player_name)
@@ -5878,6 +6025,22 @@ impl Room {
         self.clamp_player_nominations_lengths(state);
         self.clean_moderators(state);
         self.maybe_rescore_vote_divisor_for_player_order_change(state, removed_from_player_order);
+        let next_story_vote_count = self.effective_votes_per_guesser(state);
+        let next_beauty_vote_count = self.effective_beauty_votes_per_player(state);
+        self.handle_voting_count_change(
+            state,
+            VoteCountKind::Story,
+            previous_story_vote_count,
+            next_story_vote_count,
+        )
+        .await?;
+        self.handle_voting_count_change(
+            state,
+            VoteCountKind::Beauty,
+            previous_beauty_vote_count,
+            next_beauty_vote_count,
+        )
+        .await?;
         Ok(true)
     }
 
@@ -6287,6 +6450,9 @@ impl Room {
                             .unwrap_or_default()
                     })
                     .unwrap_or_default(),
+                selected_votes: name
+                    .map(|player_name| self.selected_story_votes_for_player(state, player_name))
+                    .unwrap_or_default(),
                 votes_per_guesser: {
                     let (min_votes, max_votes) = self.votes_per_guesser_bounds(state);
                     state.votes_per_guesser.clamp(min_votes, max_votes)
@@ -6308,6 +6474,9 @@ impl Room {
                 description: state.current_description.clone(),
                 disabled_cards: name
                     .map(|player_name| self.beauty_disabled_cards_for_player(state, player_name))
+                    .unwrap_or_default(),
+                selected_votes: name
+                    .map(|player_name| self.selected_beauty_votes_for_player(state, player_name))
                     .unwrap_or_default(),
                 votes_per_player: {
                     let (min_votes, max_votes) = self.beauty_votes_per_player_bounds(state);
@@ -13310,6 +13479,249 @@ mod tests {
                 );
             }
             _ => return Err(anyhow!("Expected BeginBeautyVoting for guesser")),
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn begin_voting_restores_submitted_or_draft_votes_for_rejoining_player() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        for player in ["a", "b", "c", "d"] {
+            add_player(&mut state, player, 0);
+        }
+        state.stage = RoomStage::Voting;
+        state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into()];
+        state.active_player = 0;
+        state.votes_per_guesser = 2;
+        state
+            .player_to_current_cards
+            .insert("a".into(), vec!["ca".into()]);
+        state
+            .player_to_current_cards
+            .insert("b".into(), vec!["cb".into()]);
+        state
+            .player_to_current_cards
+            .insert("c".into(), vec!["cc".into()]);
+        state
+            .player_to_current_cards
+            .insert("d".into(), vec!["cd".into()]);
+        state
+            .player_to_votes
+            .insert("b".into(), vec!["ca".into(), "cc".into()]);
+        state
+            .player_to_vote_drafts
+            .insert("c".into(), vec!["ca".into(), "cb".into()]);
+
+        match room.get_msg(Some("b"), &state)? {
+            ServerMsg::BeginVoting { selected_votes, .. } => {
+                assert_eq!(selected_votes, vec!["ca".to_string(), "cc".to_string()]);
+            }
+            _ => return Err(anyhow!("Expected BeginVoting for submitted voter")),
+        }
+
+        match room.get_msg(Some("c"), &state)? {
+            ServerMsg::BeginVoting { selected_votes, .. } => {
+                assert_eq!(selected_votes, vec!["ca".to_string(), "cb".to_string()]);
+            }
+            _ => return Err(anyhow!("Expected BeginVoting for draft voter")),
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn begin_beauty_voting_restores_submitted_or_draft_votes_for_rejoining_player(
+    ) -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        for player in ["a", "b", "c", "d"] {
+            add_player(&mut state, player, 0);
+        }
+        state.stage = RoomStage::BeautyVoting;
+        state.game_mode = GameMode::DixitPlus;
+        state.beauty_enabled = true;
+        state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into()];
+        state.active_player = 0;
+        state.beauty_votes_per_player = 2;
+        state
+            .player_to_current_cards
+            .insert("a".into(), vec!["ca".into()]);
+        state
+            .player_to_current_cards
+            .insert("b".into(), vec!["cb".into()]);
+        state
+            .player_to_current_cards
+            .insert("c".into(), vec!["cc".into()]);
+        state
+            .player_to_current_cards
+            .insert("d".into(), vec!["cd".into()]);
+        state
+            .player_to_beauty_votes
+            .insert("b".into(), vec!["ca".into(), "cc".into()]);
+        state
+            .player_to_beauty_vote_drafts
+            .insert("c".into(), vec!["ca".into(), "cb".into()]);
+
+        match room.get_msg(Some("b"), &state)? {
+            ServerMsg::BeginBeautyVoting { selected_votes, .. } => {
+                assert_eq!(selected_votes, vec!["ca".to_string(), "cc".to_string()]);
+            }
+            _ => return Err(anyhow!("Expected BeginBeautyVoting for submitted voter")),
+        }
+
+        match room.get_msg(Some("c"), &state)? {
+            ServerMsg::BeginBeautyVoting { selected_votes, .. } => {
+                assert_eq!(selected_votes, vec!["ca".to_string(), "cb".to_string()]);
+            }
+            _ => return Err(anyhow!("Expected BeginBeautyVoting for draft voter")),
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn story_vote_count_change_clears_submitted_ballots_and_notifies_voters() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        for player in ["a", "b", "c", "d"] {
+            add_player(&mut state, player, 0);
+        }
+        state.stage = RoomStage::Voting;
+        state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into()];
+        state.active_player = 0;
+        state.votes_per_guesser_auto = false;
+        state.votes_per_guesser = 2;
+        state
+            .player_to_current_cards
+            .insert("a".into(), vec!["ca".into()]);
+        state
+            .player_to_current_cards
+            .insert("b".into(), vec!["cb".into()]);
+        state
+            .player_to_current_cards
+            .insert("c".into(), vec!["cc".into()]);
+        state
+            .player_to_current_cards
+            .insert("d".into(), vec!["cd".into()]);
+        state
+            .player_to_votes
+            .insert("b".into(), vec!["ca".into()]);
+        state
+            .player_to_votes
+            .insert("c".into(), vec!["ca".into()]);
+        state
+            .players
+            .get_mut("b")
+            .expect("b exists")
+            .ready = true;
+        state
+            .players
+            .get_mut("c")
+            .expect("c exists")
+            .ready = true;
+        let mut b_socket = attach_test_socket(&mut state, "b");
+
+        room.handle_voting_count_change(&mut state, VoteCountKind::Story, 1, 2)
+            .await?;
+
+        assert!(
+            state.player_to_votes.is_empty(),
+            "submitted story ballots should be cleared when required vote count changes"
+        );
+        assert_eq!(
+            state.player_to_vote_drafts.get("b"),
+            Some(&vec!["ca".to_string()]),
+            "cleared submitted ballot should be preserved as the next draft"
+        );
+        assert!(
+            !state.players.get("b").expect("b exists").ready,
+            "voter should be asked to submit again"
+        );
+        let message = b_socket
+            .try_recv()
+            .map_err(|_| anyhow!("expected vote-count notification"))?;
+        match message {
+            ServerMsg::ErrorMsg(message) => {
+                assert!(
+                    message.contains("Vote count changed to 2"),
+                    "notification should include the new vote count, got {message}"
+                );
+            }
+            other => return Err(anyhow!("Expected ErrorMsg, got {:?}", other)),
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn beauty_vote_count_change_clears_submitted_ballots_and_notifies_voters() -> Result<()> {
+        let room = test_room();
+        let mut state = room.state.write().await;
+
+        for player in ["a", "b", "c", "d"] {
+            add_player(&mut state, player, 0);
+        }
+        state.stage = RoomStage::BeautyVoting;
+        state.game_mode = GameMode::DixitPlus;
+        state.beauty_enabled = true;
+        state.player_order = vec!["a".into(), "b".into(), "c".into(), "d".into()];
+        state.active_player = 0;
+        state.beauty_votes_per_player_auto = false;
+        state.beauty_votes_per_player = 2;
+        state
+            .player_to_current_cards
+            .insert("a".into(), vec!["ca".into()]);
+        state
+            .player_to_current_cards
+            .insert("b".into(), vec!["cb".into()]);
+        state
+            .player_to_current_cards
+            .insert("c".into(), vec!["cc".into()]);
+        state
+            .player_to_current_cards
+            .insert("d".into(), vec!["cd".into()]);
+        state
+            .player_to_beauty_votes
+            .insert("b".into(), vec!["ca".into()]);
+        state
+            .players
+            .get_mut("b")
+            .expect("b exists")
+            .ready = true;
+        let mut b_socket = attach_test_socket(&mut state, "b");
+
+        room.handle_voting_count_change(&mut state, VoteCountKind::Beauty, 1, 2)
+            .await?;
+
+        assert!(
+            state.player_to_beauty_votes.is_empty(),
+            "submitted beauty ballots should be cleared when required vote count changes"
+        );
+        assert_eq!(
+            state.player_to_beauty_vote_drafts.get("b"),
+            Some(&vec!["ca".to_string()]),
+            "cleared submitted beauty ballot should be preserved as the next draft"
+        );
+        assert!(
+            !state.players.get("b").expect("b exists").ready,
+            "beauty voter should be asked to submit again"
+        );
+        let message = b_socket
+            .try_recv()
+            .map_err(|_| anyhow!("expected beauty vote-count notification"))?;
+        match message {
+            ServerMsg::ErrorMsg(message) => {
+                assert!(
+                    message.contains("Beauty vote count changed to 2"),
+                    "notification should include the new beauty vote count, got {message}"
+                );
+            }
+            other => return Err(anyhow!("Expected ErrorMsg, got {:?}", other)),
         }
 
         Ok(())

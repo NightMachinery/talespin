@@ -8,8 +8,8 @@
 	} from '$lib/cardNumberNavigator';
 	import { CARD_IMAGE_ALT_TEXT } from '$lib/cardImageText';
 	import { longPressCardCopy } from '$lib/cardLongPressCopy';
-	import { copyTextToClipboard } from '$lib/clipboard';
 	import CardImage from '$lib/CardImage.svelte';
+	import CardImagePopup from '$lib/CardImagePopup.svelte';
 	import { http_host } from '$lib/gameServer';
 	import type GameServer from '$lib/gameServer';
 	import type { ObserverInfo, PlayerInfo, WinCondition } from '$lib/types';
@@ -118,12 +118,14 @@
 		target_points: 10
 	};
 	export let disabledCards: string[] = [];
+	export let restoredSelectedVotes: string[] = [];
 	export let myHandImages: string[] = [];
 	export let pinnedCards: string[] = [];
 
 	let selectedVotes: string[] = [];
 	let selectedVoteCounts: Record<string, number> = {};
 	let cardNumberLabelByImage: Record<string, number> = {};
+	let lastVoteRestoreKey = '';
 	let lastSyncedDraftKey = '';
 	let toastStore = getToastStore();
 	let isObserver = false;
@@ -132,6 +134,7 @@
 	let canForceRandomVote = false;
 	let canAutoObserverify = false;
 	let viewMode: 'table' | 'hand' = 'table';
+	let popupCard = '';
 	$: isObserver = !!observers[name];
 	$: isVoter = activePlayer !== name && !isObserver;
 	$: isModerator = new Set(moderators).has(name);
@@ -182,6 +185,20 @@
 	}
 	$: if (selectedVotes.length > effectiveVotesPerGuesser) {
 		selectedVotes = selectedVotes.slice(selectedVotes.length - effectiveVotesPerGuesser);
+	}
+	$: voteRestoreKey = `${isVoter}:${restoredSelectedVotes.join('||')}:${displayImages.join(
+		'||'
+	)}:${disabledCards.join('||')}:${effectiveVotesPerGuesser}`;
+	$: if (voteRestoreKey !== lastVoteRestoreKey) {
+		lastVoteRestoreKey = voteRestoreKey;
+		if (isVoter) {
+			const disabled = new Set(disabledCards);
+			const allowed = new Set(displayImages.filter((image) => !disabled.has(image)));
+			const filtered = restoredSelectedVotes.filter((card) => allowed.has(card));
+			selectedVotes = filtered.slice(Math.max(0, filtered.length - effectiveVotesPerGuesser));
+		} else {
+			selectedVotes = [];
+		}
 	}
 	$: {
 		const nextCounts: Record<string, number> = {};
@@ -251,14 +268,8 @@
 		});
 	}
 
-	function handleCardUrlCopy(url: string) {
-		void copyTextToClipboard(url).then((copied) => {
-			toastStore.trigger({
-				message: copied ? '🖼️ Card image URL copied' : 'Could not copy card image URL',
-				autohide: true,
-				timeout: 1800
-			});
-		});
+	function openCardPopup(card: string) {
+		popupCard = card;
 	}
 </script>
 
@@ -489,7 +500,7 @@
 						use:longPressCardCopy={{
 							card: image,
 							enabled: copyCardUrlOnHold,
-							onCopy: handleCardUrlCopy
+							onCopy: () => openCardPopup(image)
 						}}
 						on:click={() => cycleCardVote(image)}
 					>
@@ -522,6 +533,8 @@
 		{/if}
 	</div>
 </StageShell>
+
+<CardImagePopup card={popupCard} on:close={() => (popupCard = '')} />
 
 <style>
 	.double-vote-glow {

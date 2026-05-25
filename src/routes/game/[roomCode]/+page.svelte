@@ -215,6 +215,8 @@
 	let beautyDisabledCards: string[] = [];
 	let storytellerChosenCard = '';
 	let playersChooseSelectedCards: string[] = [];
+	let votingSelectedVotes: string[] = [];
+	let beautySelectedVotes: string[] = [];
 	let previousDixitResults: PreviousDixitResultsView | null = null;
 	let votingLayoutSeed: string | null = null;
 	let stageVisualCueVisible = false;
@@ -671,8 +673,10 @@
 				pinnedCards = data.BeginVoting.pinned_cards || [];
 				description = data.BeginVoting.description;
 				votingDisabledCards = data.BeginVoting.disabled_cards || [];
+				votingSelectedVotes = data.BeginVoting.selected_votes || [];
 				votesPerGuesser = data.BeginVoting.votes_per_guesser ?? votesPerGuesser;
 				beautyDisabledCards = [];
+				beautySelectedVotes = [];
 				playerToBeautyVotes = {};
 				beautyVoteTotals = {};
 				beautyWinningCards = [];
@@ -693,12 +697,14 @@
 				pinnedCards = data.BeginBeautyVoting.pinned_cards || [];
 				description = data.BeginBeautyVoting.description;
 				beautyDisabledCards = data.BeginBeautyVoting.disabled_cards || [];
+				beautySelectedVotes = data.BeginBeautyVoting.selected_votes || [];
 				beautyVotesPerPlayer = data.BeginBeautyVoting.votes_per_player ?? beautyVotesPerPlayer;
 				beautyAllowDuplicateVotes =
 					data.BeginBeautyVoting.allow_duplicate_votes ?? beautyAllowDuplicateVotes;
 				storytellerLeaderboardPointChange.set({});
 				beautyLeaderboardPointChange.set({});
 				votingDisabledCards = [];
+				votingSelectedVotes = [];
 				clearClueRatingResults();
 			} else if (data.BeginClueRating) {
 				syncStageTimer(
@@ -742,6 +748,8 @@
 				});
 				votingDisabledCards = [];
 				beautyDisabledCards = [];
+				votingSelectedVotes = [];
+				beautySelectedVotes = [];
 				storytellerChosenCard = '';
 				if (gameMode === 'dixit_plus') {
 					void refreshMostBeautifulStats();
@@ -767,6 +775,8 @@
 				beautyWinningCards = data.BeautyResults.beauty_winning_cards || [];
 				votingDisabledCards = [];
 				beautyDisabledCards = [];
+				votingSelectedVotes = [];
+				beautySelectedVotes = [];
 				clearClueRatingResults();
 				if (gameMode === 'dixit_plus') {
 					void refreshMostBeautifulStats();
@@ -1496,6 +1506,7 @@
 			{winCondition}
 			cardNumberLabels={displayImageBadgeLabels}
 			disabledCards={votingDisabledCards}
+			restoredSelectedVotes={votingSelectedVotes}
 		/>
 	{:else if stage === 'BeautyVoting'}
 		<BeautyVoting
@@ -1596,6 +1607,7 @@
 			{winCondition}
 			cardNumberLabels={displayImageBadgeLabels}
 			disabledCards={beautyDisabledCards}
+			restoredSelectedVotes={beautySelectedVotes}
 		/>
 	{:else if stage === 'ClueRating'}
 		<ClueRating
