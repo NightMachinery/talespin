@@ -130,15 +130,17 @@
 						<LinkIcon size="18" />
 						<span>Compressed URL</span>
 					</button>
-					<button
-						type="button"
-						class="btn variant-ghost-surface px-3 py-2 text-sm"
-						title="Copy source relative path"
-						on:click={() => copyValue(sourceInfo?.relative_source_path ?? '', 'Source path copied')}
-					>
-						<FileTextIcon size="18" />
-						<span>Source Path</span>
-					</button>
+					{#if import.meta.env.DEV && import.meta.env.TALESPIN_IMAGES_SHOW_PATH_P === 'y'}
+						<button
+							type="button"
+							class="btn variant-ghost-surface px-3 py-2 text-sm"
+							title="Copy source relative path"
+							on:click={() => copyValue(sourceInfo?.relative_source_path ?? '', 'Source path copied')}
+						>
+							<FileTextIcon size="18" />
+							<span>Source Path</span>
+						</button>
+					{/if}
 				{/if}
 				<button
 					type="button"
@@ -154,7 +156,7 @@
 			<div class="min-h-0 flex-1 overflow-hidden rounded bg-black/40">
 				<img
 					class="h-full w-full object-contain"
-					src={originalUrl}
+					src={compressedUrl}
 					alt={CARD_IMAGE_ALT_TEXT}
 					draggable="false"
 				/>

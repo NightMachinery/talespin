@@ -16,7 +16,6 @@
 	export let description = '';
 	export let players: { [key: string]: PlayerInfo } = {};
 	export let allowNewPlayersMidgame = true;
-	export let copyCardUrlOnHold = false;
 	export let moderatorAbsencePromotionDelayS = 480;
 	export let storytellerLossComplement = 0;
 	export let storytellerLossComplementMin = 0;
@@ -144,7 +143,6 @@
 	{gameServer}
 	{stage}
 	{allowNewPlayersMidgame}
-	{copyCardUrlOnHold}
 	{moderatorAbsencePromotionDelayS}
 	{storytellerLossComplement}
 	{storytellerLossComplementMin}
@@ -263,7 +261,7 @@
 
 	<div class="flex h-full min-h-0 flex-col justify-center">
 		{#if viewMode === 'hand'}
-			<MyCardsPanel hand={myHandImages} {pinnedCards} {gameServer} {copyCardUrlOnHold} />
+			<MyCardsPanel hand={myHandImages} {pinnedCards} {gameServer} />
 		{:else}
 			<div class="clue-rating-shell mx-auto w-full max-w-4xl rounded-[2rem] p-6 sm:p-8">
 				<div class="mx-auto max-w-3xl text-center">

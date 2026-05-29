@@ -17,7 +17,6 @@
 	export let gameServer: GameServer;
 	export let players: { [key: string]: PlayerInfo } = {};
 	export let allowNewPlayersMidgame = true;
-	export let copyCardUrlOnHold = false;
 	export let moderatorAbsencePromotionDelayS = 480;
 	export let storytellerLossComplement = 0;
 	export let storytellerLossComplementMin = 0;
@@ -222,7 +221,6 @@
 	{gameServer}
 	{stage}
 	{allowNewPlayersMidgame}
-	{copyCardUrlOnHold}
 	{moderatorAbsencePromotionDelayS}
 	{storytellerLossComplement}
 	{storytellerLossComplementMin}
@@ -414,7 +412,6 @@
 		<div class="min-h-0 flex-1 overflow-y-auto">
 			<Images
 				displayImages={visibleBoardCards}
-				{copyCardUrlOnHold}
 				selectedImages={selectedCards}
 				selectable={isScout && !stellaQueueDuringAssociation}
 				selectableImages={revealableCards}

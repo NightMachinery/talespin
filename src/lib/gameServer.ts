@@ -177,14 +177,6 @@ class GameServer {
 		});
 	}
 
-	setCopyCardUrlOnHold(enabled: boolean) {
-		this.send({
-			SetCopyCardUrlOnHold: {
-				enabled
-			}
-		});
-	}
-
 	setModeratorAbsencePromotionDelay(seconds: number) {
 		this.send({
 			SetModeratorAbsencePromotionDelay: {

@@ -55,7 +55,6 @@
 	export let pinnedImages: string[] = [];
 	export let showPinBadges = false;
 	export let pinTogglesEnabled = false;
-	export let copyCardUrlOnHold = false;
 
 	let popupCard = '';
 
@@ -162,7 +161,6 @@
 				tabindex={canSelect ? 0 : -1}
 				use:longPressCardCopy={{
 					card: image,
-					enabled: copyCardUrlOnHold,
 					onCopy: () => openCardPopup(image)
 				}}
 				on:click={() => selectImage(image, isDisabled, canSelect)}
@@ -224,7 +222,6 @@
 				style:scroll-margin-top={CARD_NUMBER_NAVIGATOR_SCROLL_MARGIN_TOP}
 				use:longPressCardCopy={{
 					card: image,
-					enabled: copyCardUrlOnHold,
 					onCopy: () => openCardPopup(image)
 				}}
 			>

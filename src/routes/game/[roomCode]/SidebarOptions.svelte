@@ -79,7 +79,6 @@
 	export let activePlayer = '';
 	export let gameMode: GameMode = 'dixit_plus';
 	export let allowNewPlayersMidgame = true;
-	export let copyCardUrlOnHold = false;
 	export let moderatorAbsencePromotionDelayS = 480;
 	export let storytellerLossComplement = 0;
 	export let storytellerLossComplementMin = 0;
@@ -399,15 +398,6 @@
 	function updateAllowMidgameJoin(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
 		gameServer.setAllowMidgameJoin(input.checked);
-	}
-
-	function updateCopyCardUrlOnHold(event: Event) {
-		const input = event.currentTarget as HTMLInputElement;
-		if (!isModerator) {
-			input.checked = copyCardUrlOnHold;
-			return;
-		}
-		gameServer.setCopyCardUrlOnHold(input.checked);
 	}
 
 	function updateModeratorAbsencePromotionDelay(event: Event) {
@@ -1558,21 +1548,6 @@
 					</label>
 				</div>
 				<div class="mt-3 rounded border border-white/20 px-2 py-2 space-y-3">
-					<label class="flex items-start gap-3 text-sm">
-						<input
-							type="checkbox"
-							class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
-							checked={copyCardUrlOnHold}
-							on:change={updateCopyCardUrlOnHold}
-							disabled={!isModerator}
-						/>
-						<div>
-							<span class="block font-semibold">Card preview on hold</span>
-							<p class="text-xs opacity-70">
-								Long-pressing a card opens a full image preview with URL and download actions.
-							</p>
-						</div>
-					</label>
 					<div>
 						<label class="block text-sm font-medium" for="auto-mod-delay">
 							Auto-mod delay with no mods online

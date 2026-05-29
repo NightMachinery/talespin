@@ -20,7 +20,7 @@ describe('longPressCardCopy', () => {
 		const { longPressCardCopy } = await import('./cardLongPressCopy');
 		const node = new EventTarget() as HTMLElement;
 		const onCopy = vi.fn();
-		longPressCardCopy(node, { card: '12.jpeg', enabled: true, onCopy });
+		longPressCardCopy(node, { card: '12.jpeg', onCopy });
 
 		node.dispatchEvent(pointerEvent('pointerdown'));
 		vi.advanceTimersByTime(599);
@@ -33,7 +33,7 @@ describe('longPressCardCopy', () => {
 		const { longPressCardCopy } = await import('./cardLongPressCopy');
 		const node = new EventTarget() as HTMLElement;
 		const onCopy = vi.fn();
-		longPressCardCopy(node, { card: '12.jpeg', enabled: true, onCopy });
+		longPressCardCopy(node, { card: '12.jpeg', onCopy });
 
 		node.dispatchEvent(pointerEvent('pointerdown'));
 		vi.advanceTimersByTime(600);
@@ -49,7 +49,7 @@ describe('longPressCardCopy', () => {
 		const { longPressCardCopy } = await import('./cardLongPressCopy');
 		const node = new EventTarget() as HTMLElement;
 		const onCopy = vi.fn();
-		longPressCardCopy(node, { card: '12.jpeg', enabled: true, onCopy });
+		longPressCardCopy(node, { card: '12.jpeg', onCopy });
 
 		node.dispatchEvent(pointerEvent('pointerdown'));
 		vi.advanceTimersByTime(300);
@@ -63,7 +63,7 @@ describe('longPressCardCopy', () => {
 	test('a qualified hold suppresses the following click', async () => {
 		const { longPressCardCopy } = await import('./cardLongPressCopy');
 		const node = new EventTarget() as HTMLElement;
-		longPressCardCopy(node, { card: '12.jpeg', enabled: true, onCopy: vi.fn() });
+		longPressCardCopy(node, { card: '12.jpeg', onCopy: vi.fn() });
 
 		node.dispatchEvent(pointerEvent('pointerdown'));
 		vi.advanceTimersByTime(600);

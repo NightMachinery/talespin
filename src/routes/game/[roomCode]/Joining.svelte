@@ -42,7 +42,6 @@
 	export let stage = 'Joining';
 	export let gameMode: GameMode = 'dixit_plus';
 	export let winCondition: WinCondition = { mode: 'cards_finish' };
-	export let copyCardUrlOnHold = false;
 	export let moderatorAbsencePromotionDelayS = 480;
 	export let storytellerPoolEnabled = false;
 	export let storytellerPoolActive = false;
@@ -50,9 +49,12 @@
 	export let storytellerSuccessPoints = 3;
 	export let storytellerSuccessPointsMin = 0;
 	export let storytellerSuccessPointsMax = 10;
-	export let cardsPerHand = 12;
+	export let cardsPerHand = 7;
 	export let cardsPerHandMin = 1;
 	export let cardsPerHandMax = 100;
+	export let nominationsPerGuesser = 1;
+	export let nominationsPerGuesserMin = 1;
+	export let nominationsPerGuesserMax = 1;
 	export let beautyEnabled = false;
 	export let beautyVotesPerPlayer = 1;
 	export let beautyVotesPerPlayerMin = 1;
@@ -241,10 +243,11 @@
 		gameServer.setCardsPerHand(value);
 	}
 
-	function updateCopyCardUrlOnHold(event: Event) {
+	function updateNominationsPerGuesser(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
-		if (!canEditSettings) return;
-		gameServer.setCopyCardUrlOnHold(input.checked);
+		const value = Number(input.value);
+		if (!canEditSettings || !Number.isInteger(value)) return;
+		gameServer.setNominationsPerGuesser(value);
 	}
 
 	function updateModeratorAbsencePromotionDelay(event: Event) {
@@ -614,19 +617,6 @@
 						<p class="mt-2 text-xs opacity-70">Current: {formatWinCondition(winCondition)}</p>
 					</div>
 					<div class="rounded border border-white/20 p-3 space-y-3">
-						<label class="flex items-start gap-3 text-sm">
-							<input
-								type="checkbox"
-								class="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500"
-								checked={copyCardUrlOnHold}
-								on:change={updateCopyCardUrlOnHold}
-								disabled={!canEditSettings}
-							/>
-							<div>
-								<span class="block font-semibold">Card preview on hold</span>
-								<p class="text-xs opacity-70">Long-pressing a card opens a full image preview.</p>
-							</div>
-						</label>
 						<div>
 							<label class="text-sm font-semibold" for="moderatorAbsencePromotionDelay">
 								Auto-mod delay when no mods are online
@@ -661,6 +651,22 @@
 								/>
 								<p class="mt-1 text-xs opacity-70">
 									Range: {cardsPerHandMin}–{cardsPerHandMax}
+								</p>
+							</div>
+							<div>
+								<label class="text-sm font-semibold" for="nominationsPerGuesser">Nominations per guesser</label>
+								<input
+									id="nominationsPerGuesser"
+									class="mt-1 w-full rounded border px-3 py-2 text-gray-700"
+									type="number"
+									min={nominationsPerGuesserMin}
+									max={nominationsPerGuesserMax}
+									value={nominationsPerGuesser}
+									on:change={updateNominationsPerGuesser}
+									disabled={!canEditSettings}
+								/>
+								<p class="mt-1 text-xs opacity-70">
+									Range: {nominationsPerGuesserMin}–{nominationsPerGuesserMax}
 								</p>
 							</div>
 							<div class="rounded border border-white/20 p-3 space-y-3">

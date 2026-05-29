@@ -39,7 +39,6 @@
 	export let playerToBeautyVotes: { [key: string]: string[] } = {};
 	export let players: { [key: string]: PlayerInfo } = {};
 	export let allowNewPlayersMidgame = true;
-	export let copyCardUrlOnHold = false;
 	export let moderatorAbsencePromotionDelayS = 480;
 	export let storytellerLossComplement = 0;
 	export let storytellerLossComplementMin = 0;
@@ -257,7 +256,6 @@
 	{gameServer}
 	{stage}
 	{allowNewPlayersMidgame}
-	{copyCardUrlOnHold}
 	{moderatorAbsencePromotionDelayS}
 	{storytellerLossComplement}
 	{storytellerLossComplementMin}
@@ -453,7 +451,7 @@
 
 	<div class="flex h-full min-h-0 flex-col">
 		{#if viewMode === 'hand'}
-			<MyCardsPanel hand={myHandImages} {pinnedCards} {gameServer} {copyCardUrlOnHold} />
+			<MyCardsPanel hand={myHandImages} {pinnedCards} {gameServer} />
 		{:else}
 			<h2 class="mb-2 hidden text-lg font-semibold lg:block">Round cards</h2>
 			<CardNumberNavigator
@@ -470,7 +468,6 @@
 						style:scroll-margin-top={CARD_NUMBER_NAVIGATOR_SCROLL_MARGIN_TOP}
 						use:longPressCardCopy={{
 							card: image,
-							enabled: copyCardUrlOnHold,
 							onCopy: () => openCardPopup(image)
 						}}
 					>

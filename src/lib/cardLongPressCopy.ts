@@ -4,13 +4,12 @@ const HOLD_MS = 600;
 
 export function longPressCardCopy(
 	node: HTMLElement,
-	{ card, enabled, onCopy }: { card: string; enabled: boolean; onCopy?: (url: string) => void }
+	{ card, onCopy }: { card: string; onCopy?: (url: string) => void }
 ) {
 	let timer: number | undefined;
 	let copied = false;
 	let qualified = false;
 	let latestCard = card;
-	let latestEnabled = enabled;
 	let latestOnCopy = onCopy;
 
 	function clear() {
@@ -21,7 +20,7 @@ export function longPressCardCopy(
 	}
 
 	function start(event: PointerEvent) {
-		if (!latestEnabled || event.button !== 0) return;
+		if (event.button !== 0) return;
 		copied = false;
 		qualified = false;
 		clear();
@@ -58,9 +57,8 @@ export function longPressCardCopy(
 	node.addEventListener('click', click, true);
 
 	return {
-		update(next: { card: string; enabled: boolean; onCopy?: (url: string) => void }) {
+		update(next: { card: string; onCopy?: (url: string) => void }) {
 			latestCard = next.card;
-			latestEnabled = next.enabled;
 			latestOnCopy = next.onCopy;
 			cancel();
 		},

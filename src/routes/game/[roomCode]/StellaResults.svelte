@@ -21,7 +21,6 @@
 	export let gameServer: GameServer;
 	export let players: { [key: string]: PlayerInfo } = {};
 	export let allowNewPlayersMidgame = true;
-	export let copyCardUrlOnHold = false;
 	export let moderatorAbsencePromotionDelayS = 480;
 	export let storytellerLossComplement = 0;
 	export let storytellerLossComplementMin = 0;
@@ -152,7 +151,6 @@
 	{gameServer}
 	{stage}
 	{allowNewPlayersMidgame}
-	{copyCardUrlOnHold}
 	{moderatorAbsencePromotionDelayS}
 	{storytellerLossComplement}
 	{storytellerLossComplementMin}
@@ -306,7 +304,6 @@
 				indexOverlayPosition="left"
 				showCardNumberNavigator
 				cardNumberNavigatorScope="stella-results-board"
-				{copyCardUrlOnHold}
 			/>
 		</div>
 	</div>

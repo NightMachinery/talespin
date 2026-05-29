@@ -104,7 +104,6 @@
 	let creator = '';
 	let moderators: string[] = [];
 	let allowNewPlayersMidgame = true;
-	let copyCardUrlOnHold = false;
 	let moderatorAbsencePromotionDelayS = 480;
 	let pausedReason = '';
 	let storytellerLossComplement = 0;
@@ -464,7 +463,6 @@
 				moderators = data.RoomState.moderators || [];
 				setStage(data.RoomState.stage, { suppressCue: !hasReceivedRoomState });
 				allowNewPlayersMidgame = data.RoomState.allow_new_players_midgame ?? true;
-				copyCardUrlOnHold = data.RoomState.copy_card_url_on_hold ?? false;
 				moderatorAbsencePromotionDelayS = data.RoomState.moderator_absence_promotion_delay_s ?? 480;
 				pausedReason = data.RoomState.paused_reason || '';
 				storytellerLossComplement = data.RoomState.storyteller_loss_complement ?? 0;
@@ -982,6 +980,9 @@
 				{cardsPerHand}
 				{cardsPerHandMin}
 				{cardsPerHandMax}
+				{nominationsPerGuesser}
+				{nominationsPerGuesserMin}
+				{nominationsPerGuesserMax}
 				{beautyEnabled}
 				{beautyVotesPerPlayer}
 				{beautyVotesPerPlayerMin}
@@ -1004,7 +1005,6 @@
 				{stellaScoutTimerEnabled}
 				{stellaScoutTimerDurationS}
 				{forceStellaScoutTimer}
-				{copyCardUrlOnHold}
 				{moderatorAbsencePromotionDelayS}
 				roomStateLoaded={hasReceivedRoomState}
 			/>
@@ -1020,7 +1020,6 @@
 			{gameServer}
 			{players}
 			{allowNewPlayersMidgame}
-			{copyCardUrlOnHold}
 			{moderatorAbsencePromotionDelayS}
 			{storytellerLossComplement}
 			{storytellerLossComplementMin}
@@ -1118,7 +1117,6 @@
 			{gameServer}
 			{players}
 			{allowNewPlayersMidgame}
-			{copyCardUrlOnHold}
 			{moderatorAbsencePromotionDelayS}
 			{storytellerLossComplement}
 			{storytellerLossComplementMin}
@@ -1222,7 +1220,6 @@
 			{gameServer}
 			{players}
 			{allowNewPlayersMidgame}
-			{copyCardUrlOnHold}
 			{moderatorAbsencePromotionDelayS}
 			{storytellerLossComplement}
 			{storytellerLossComplementMin}
@@ -1320,7 +1317,6 @@
 			{previousDixitResults}
 			{players}
 			{allowNewPlayersMidgame}
-			{copyCardUrlOnHold}
 			{moderatorAbsencePromotionDelayS}
 			{storytellerLossComplement}
 			{storytellerLossComplementMin}
@@ -1421,7 +1417,6 @@
 			{description}
 			{players}
 			{allowNewPlayersMidgame}
-			{copyCardUrlOnHold}
 			{moderatorAbsencePromotionDelayS}
 			{storytellerLossComplement}
 			{storytellerLossComplementMin}
@@ -1522,7 +1517,6 @@
 			{description}
 			{players}
 			{allowNewPlayersMidgame}
-			{copyCardUrlOnHold}
 			{moderatorAbsencePromotionDelayS}
 			{storytellerLossComplement}
 			{storytellerLossComplementMin}
@@ -1622,7 +1616,6 @@
 			{description}
 			{players}
 			{allowNewPlayersMidgame}
-			{copyCardUrlOnHold}
 			{moderatorAbsencePromotionDelayS}
 			{storytellerLossComplement}
 			{storytellerLossComplementMin}
@@ -1727,7 +1720,6 @@
 			{activePlayer}
 			{players}
 			{allowNewPlayersMidgame}
-			{copyCardUrlOnHold}
 			{moderatorAbsencePromotionDelayS}
 			{storytellerLossComplement}
 			{storytellerLossComplementMin}
@@ -1830,7 +1822,6 @@
 			{playerToBeautyVotes}
 			{players}
 			{allowNewPlayersMidgame}
-			{copyCardUrlOnHold}
 			{moderatorAbsencePromotionDelayS}
 			{resultsNextAction}
 			{storytellerLossComplement}
@@ -1928,7 +1919,6 @@
 			{gameServer}
 			{players}
 			{allowNewPlayersMidgame}
-			{copyCardUrlOnHold}
 			{moderatorAbsencePromotionDelayS}
 			{storytellerLossComplement}
 			{storytellerLossComplementMin}
@@ -2026,7 +2016,6 @@
 			{players}
 			{gameServer}
 			{allowNewPlayersMidgame}
-			{copyCardUrlOnHold}
 			{moderatorAbsencePromotionDelayS}
 			{storytellerLossComplement}
 			{storytellerLossComplementMin}
