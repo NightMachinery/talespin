@@ -8,7 +8,6 @@ export function longPressCardCopy(
 ) {
 	let timer: number | undefined;
 	let copied = false;
-	let qualified = false;
 	let latestCard = card;
 	let latestOnCopy = onCopy;
 
@@ -22,25 +21,20 @@ export function longPressCardCopy(
 	function start(event: PointerEvent) {
 		if (event.button !== 0) return;
 		copied = false;
-		qualified = false;
 		clear();
 		timer = window.setTimeout(() => {
-			qualified = true;
+			copied = true;
 			timer = undefined;
+			latestOnCopy?.(cardImageUrl(latestCard));
 		}, HOLD_MS);
 	}
 
 	function release() {
 		clear();
-		if (!qualified) return;
-		copied = true;
-		qualified = false;
-		latestOnCopy?.(cardImageUrl(latestCard));
 	}
 
 	function cancel() {
 		clear();
-		qualified = false;
 	}
 
 	function click(event: MouseEvent) {

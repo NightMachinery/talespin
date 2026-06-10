@@ -29,7 +29,7 @@ describe('longPressCardCopy', () => {
 		expect(onCopy).not.toHaveBeenCalled();
 	});
 
-	test('copies the card URL on pointerup after the hold threshold', async () => {
+	test('copies the card URL when the hold threshold elapses before pointerup', async () => {
 		const { longPressCardCopy } = await import('./cardLongPressCopy');
 		const node = new EventTarget() as HTMLElement;
 		const onCopy = vi.fn();
@@ -38,11 +38,11 @@ describe('longPressCardCopy', () => {
 		node.dispatchEvent(pointerEvent('pointerdown'));
 		vi.advanceTimersByTime(600);
 
-		expect(onCopy).not.toHaveBeenCalled();
+		expect(onCopy).toHaveBeenCalledWith('https://talespin.example/cards/12.jpeg');
 
 		node.dispatchEvent(pointerEvent('pointerup'));
 
-		expect(onCopy).toHaveBeenCalledWith('https://talespin.example/cards/12.jpeg');
+		expect(onCopy).toHaveBeenCalledTimes(1);
 	});
 
 	test('cancelling before the hold threshold prevents copy', async () => {
