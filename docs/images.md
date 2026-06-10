@@ -9,6 +9,10 @@ Cards are loaded at backend startup from:
 
 `TALESPIN_EXTRA_IMAGE_DIRS` is newline-separated and supports `~/...` paths. Extra directories are scanned recursively.
 
+Set `TALESPIN_WATCH_IMAGE_P=true` to watch those extra image directories while the backend is
+running. Startup still performs the normal full scan once. After startup, watch events process only
+the changed file path instead of rescanning the whole image tree.
+
 ## Supported Formats
 
 - `.jpg`
@@ -30,6 +34,19 @@ Cards are not copied/symlinked into `static/assets/cards/` at runtime anymore.
 
 The `_original` route serves the source image bytes for the card without Talespin's crop, resize,
 or cache encoding. The in-game card preview uses this route for copy, open, and download actions.
+
+## Watching Extra Images
+
+Watch mode applies only to `TALESPIN_EXTRA_IMAGE_DIRS`, not the built-in card directory.
+
+When a watched file is added or updated, the backend normalizes that one source image and updates
+the active card catalog. When a watched file is deleted, that source is removed from the active
+catalog. New game rooms use the latest active catalog when they are created.
+
+Existing game rooms keep the deck snapshot they were created with, so they do not gain or lose
+cards after watch updates. Old card IDs remain registered for serving cached `/cards/:card_id`
+images when the cache file still exists. If the original source file was deleted, the corresponding
+`/cards/:card_id_original` route may return 404.
 
 ## Dev Source Metadata
 

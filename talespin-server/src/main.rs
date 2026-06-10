@@ -13,6 +13,7 @@ use axum::{
 use dashmap::DashMap;
 use image::{codecs::jpeg::JpegEncoder, imageops::FilterType, GenericImageView};
 use indicatif::{ProgressBar, ProgressStyle};
+use notify::{EventKind, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -23,6 +24,7 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
+use tokio::sync::RwLock;
 use tower_http::{
     cors::{Any, CorsLayer},
     trace::TraceLayer,
@@ -50,6 +52,7 @@ const LEGACY_EXTRA_CARD_PREFIX: &str = "extra_dir__";
 const EXTRA_IMAGE_DIRS_ENV: &str = "TALESPIN_EXTRA_IMAGE_DIRS";
 const DISABLE_BUILTIN_IMAGES_ENV: &str = "TALESPIN_DISABLE_BUILTIN_IMAGES_P";
 const SNIFF_EXTENSIONLESS_IMAGES_ENV: &str = "TALESPIN_SNIFF_EXTENSIONLESS_IMAGES_P";
+const WATCH_IMAGE_ENV: &str = "TALESPIN_WATCH_IMAGE_P";
 const CACHE_DIR_ENV: &str = "TALESPIN_CACHE_DIR";
 const CARD_ASPECT_RATIO_ENV: &str = "TALESPIN_CARD_ASPECT_RATIO";
 const CARD_LONG_SIDE_ENV: &str = "TALESPIN_CARD_LONG_SIDE";
@@ -137,7 +140,7 @@ impl NormalizationConfig {
         let avif_encoder_backend = parse_avif_encoder_backend_from_env();
         let avif_threads = parse_avif_threads_from_env();
         let validate_cache_hits = parse_validate_cache_hits_from_env();
-        let production_mode = env_is_y(PRODUCTION_ENV);
+        let production_mode = env_is_truthy(PRODUCTION_ENV);
 
         let cache_root = env::var(CACHE_DIR_ENV)
             .map(|v| expand_home(v.trim()))
@@ -202,9 +205,17 @@ struct LoadedCards {
     deck: Vec<String>,
     cards: HashMap<String, PathBuf>,
     original_cards: HashMap<String, OriginalCardInfo>,
+    sources: HashMap<PathBuf, SourceCardEntry>,
     loaded_builtin: usize,
     loaded_extra: usize,
     failed_sources: usize,
+}
+
+#[derive(Debug, Clone)]
+struct SourceCardEntry {
+    card_id: String,
+    cache_path: PathBuf,
+    original_info: OriginalCardInfo,
 }
 
 #[derive(Debug, Clone)]
@@ -492,9 +503,18 @@ fn parse_mb_stats_db_path_from_env() -> PathBuf {
         .unwrap_or_else(|_| cache_root_dir_from_env().join(DEFAULT_MB_STATS_DB_FILENAME))
 }
 
-fn env_is_y(key: &str) -> bool {
+fn parse_bool_env_value(raw: &str) -> Option<bool> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "y" | "yes" | "true" | "1" => Some(true),
+        "n" | "no" | "false" | "0" => Some(false),
+        _ => None,
+    }
+}
+
+fn env_is_truthy(key: &str) -> bool {
     env::var(key)
-        .map(|v| v.trim().eq_ignore_ascii_case("y"))
+        .ok()
+        .and_then(|v| parse_bool_env_value(&v))
         .unwrap_or(false)
 }
 
@@ -911,6 +931,7 @@ fn load_cards(
     let mut deck = Vec::new();
     let mut cards = HashMap::new();
     let mut original_cards = HashMap::new();
+    let mut sources = HashMap::new();
     let mut loaded_builtin = 0usize;
     let mut loaded_extra = 0usize;
     let mut failed_sources = 0usize;
@@ -955,16 +976,25 @@ fn load_cards(
 
         match normalize_source_to_cache(&source, config) {
             Ok((card_id, cache_path)) => {
+                let original_info = OriginalCardInfo {
+                    path: source.clone(),
+                    relative_source_path: relative_source_path(&source_root, &source),
+                    content_type: source_image_content_type(&source),
+                };
+                sources.insert(
+                    source.clone(),
+                    SourceCardEntry {
+                        card_id: card_id.clone(),
+                        cache_path: cache_path.clone(),
+                        original_info: original_info.clone(),
+                    },
+                );
                 if seen_card_ids.insert(card_id.clone()) {
                     deck.push(card_id.clone());
                     cards.insert(card_id, cache_path);
                     original_cards.insert(
                         deck.last().expect("card id was just pushed").clone(),
-                        OriginalCardInfo {
-                            path: source.clone(),
-                            relative_source_path: relative_source_path(&source_root, &source),
-                            content_type: source_image_content_type(&source),
-                        },
+                        original_info,
                     );
                     match kind {
                         SourceKind::Builtin => loaded_builtin += 1,
@@ -1006,9 +1036,112 @@ fn load_cards(
         deck,
         cards,
         original_cards,
+        sources,
         loaded_builtin,
         loaded_extra,
         failed_sources,
+    })
+}
+
+#[derive(Debug, Clone)]
+struct CardCatalog {
+    active_deck: Vec<String>,
+    active_cards: HashMap<String, PathBuf>,
+    active_original_cards: HashMap<String, OriginalCardInfo>,
+    serving_cards: HashMap<String, PathBuf>,
+    serving_original_cards: HashMap<String, OriginalCardInfo>,
+    source_index: HashMap<PathBuf, SourceCardEntry>,
+}
+
+impl CardCatalog {
+    fn from_loaded_cards(loaded_cards: LoadedCards) -> Self {
+        Self {
+            active_deck: loaded_cards.deck,
+            active_cards: loaded_cards.cards.clone(),
+            active_original_cards: loaded_cards.original_cards.clone(),
+            serving_cards: loaded_cards.cards,
+            serving_original_cards: loaded_cards.original_cards,
+            source_index: loaded_cards.sources,
+        }
+    }
+
+    fn active_deck_snapshot(&self) -> Arc<Vec<String>> {
+        Arc::new(self.active_deck.clone())
+    }
+
+    fn upsert_extra_source(
+        &mut self,
+        source_root: &Path,
+        source: &Path,
+        config: &NormalizationConfig,
+        sniff_extensionless_images: bool,
+    ) -> Result<Option<String>> {
+        let source_key = canonical_source_key(source);
+        if !source_key.is_file() || !is_supported_image(&source_key, sniff_extensionless_images) {
+            self.remove_extra_source(&source_key);
+            return Ok(None);
+        }
+
+        let (card_id, cache_path) = normalize_source_to_cache(&source_key, config)?;
+        let original_info = OriginalCardInfo {
+            path: source_key.clone(),
+            relative_source_path: relative_source_path(source_root, &source_key),
+            content_type: source_image_content_type(&source_key),
+        };
+
+        if let Some(previous) = self.source_index.insert(
+            source_key,
+            SourceCardEntry {
+                card_id: card_id.clone(),
+                cache_path: cache_path.clone(),
+                original_info: original_info.clone(),
+            },
+        ) {
+            self.serving_cards
+                .entry(previous.card_id.clone())
+                .or_insert(previous.cache_path);
+            self.serving_original_cards
+                .entry(previous.card_id)
+                .or_insert(previous.original_info);
+        }
+
+        self.serving_cards.insert(card_id.clone(), cache_path);
+        self.serving_original_cards
+            .insert(card_id.clone(), original_info);
+        self.rebuild_active_catalog();
+
+        Ok(Some(card_id))
+    }
+
+    fn remove_extra_source(&mut self, source: &Path) -> Option<String> {
+        let source_key = canonical_source_key(source);
+        let removed = self.source_index.remove(&source_key)?;
+        self.rebuild_active_catalog();
+        Some(removed.card_id)
+    }
+
+    fn rebuild_active_catalog(&mut self) {
+        self.active_cards.clear();
+        self.active_original_cards.clear();
+        for entry in self.source_index.values() {
+            self.active_cards
+                .entry(entry.card_id.clone())
+                .or_insert_with(|| entry.cache_path.clone());
+            self.active_original_cards
+                .entry(entry.card_id.clone())
+                .or_insert_with(|| entry.original_info.clone());
+        }
+        self.active_deck = self.active_cards.keys().cloned().collect();
+        self.active_deck.sort();
+    }
+}
+
+fn canonical_source_key(path: &Path) -> PathBuf {
+    fs::canonicalize(path).unwrap_or_else(|_| {
+        path.parent()
+            .and_then(|parent| fs::canonicalize(parent).ok())
+            .and_then(|parent| path.file_name().map(|name| parent.join(name)))
+            .unwrap_or_else(|| path.to_path_buf())
     })
 }
 
@@ -1090,11 +1223,12 @@ fn parse_create_room_win_condition(
 #[derive(Debug, Clone)]
 struct ServerState {
     rooms: DashMap<String, Arc<Room>>,
-    base_deck: Arc<Vec<String>>,
-    cards: Arc<HashMap<String, PathBuf>>,
-    original_cards: Arc<HashMap<String, OriginalCardInfo>>,
+    catalog: Arc<RwLock<CardCatalog>>,
     card_content_type: &'static str,
     show_image_source_paths: bool,
+    normalization_config: NormalizationConfig,
+    extra_image_dirs: Arc<Vec<PathBuf>>,
+    sniff_extensionless_images: bool,
     most_beautiful_stats: Arc<MostBeautifulStatsStore>,
     default_stella_word_pack: Arc<Vec<String>>,
     stella_word_pack_presets: Arc<Vec<StellaWordPackPreset>>,
@@ -1115,8 +1249,8 @@ impl ServerState {
         let word_pack_presets = load_word_pack_presets(Path::new(WORD_PACKS_DIR))?;
         let default_word_pack = choose_default_word_pack(&word_pack_presets)?;
         let extra_image_dirs = get_extra_image_dirs();
-        let disable_builtin_images = env_is_y(DISABLE_BUILTIN_IMAGES_ENV);
-        let sniff_extensionless_images = env_is_y(SNIFF_EXTENSIONLESS_IMAGES_ENV);
+        let disable_builtin_images = env_is_truthy(DISABLE_BUILTIN_IMAGES_ENV);
+        let sniff_extensionless_images = env_is_truthy(SNIFF_EXTENSIONLESS_IMAGES_ENV);
 
         let loaded_cards = load_cards(
             &config,
@@ -1125,13 +1259,17 @@ impl ServerState {
             sniff_extensionless_images,
         )?;
         most_beautiful_stats.register_card_paths(get_time_s(), &loaded_cards.cards)?;
+        let loaded_card_count = loaded_cards.deck.len();
+        let loaded_builtin = loaded_cards.loaded_builtin;
+        let loaded_extra = loaded_cards.loaded_extra;
+        let failed_sources = loaded_cards.failed_sources;
 
         println!(
             "Loaded {} cards ({} built-in, {} extra, {} failed; builtins {}; extensionless sniff {}; ratio {}:{}, long side {}; cache format {}; avif encoder {}; avif threads {}; cache validation {}; cache {}; default word pack {}; loaded word packs {}; default points target {}; max members {})",
-            loaded_cards.deck.len(),
-            loaded_cards.loaded_builtin,
-            loaded_cards.loaded_extra,
-            loaded_cards.failed_sources,
+            loaded_card_count,
+            loaded_builtin,
+            loaded_extra,
+            failed_sources,
             if disable_builtin_images { "disabled" } else { "enabled" },
             if sniff_extensionless_images {
                 "enabled"
@@ -1154,11 +1292,12 @@ impl ServerState {
 
         Ok(ServerState {
             rooms: DashMap::new(),
-            base_deck: Arc::new(loaded_cards.deck),
-            cards: Arc::new(loaded_cards.cards),
-            original_cards: Arc::new(loaded_cards.original_cards),
+            catalog: Arc::new(RwLock::new(CardCatalog::from_loaded_cards(loaded_cards))),
             card_content_type: config.cache_format.mime_type(),
-            show_image_source_paths: !config.production_mode && env_is_y(SHOW_IMAGE_PATH_ENV),
+            show_image_source_paths: !config.production_mode && env_is_truthy(SHOW_IMAGE_PATH_ENV),
+            normalization_config: config,
+            extra_image_dirs: Arc::new(extra_image_dirs),
+            sniff_extensionless_images,
             most_beautiful_stats,
             default_stella_word_pack: Arc::new(default_word_pack.words.clone()),
             stella_word_pack_presets: Arc::new(word_pack_presets),
@@ -1182,9 +1321,10 @@ impl ServerState {
         let room_password_hash = room_password
             .as_ref()
             .map(|password| hash_room_password(&room_id, password));
+        let base_deck = self.catalog.read().await.active_deck_snapshot();
         let room = Room::new(
             &room_id,
-            self.base_deck.clone(),
+            base_deck,
             win_condition,
             creator_name,
             self.max_members,
@@ -1218,6 +1358,75 @@ impl ServerState {
 
     fn get_room(&self, room_id: &str) -> Option<Arc<Room>> {
         self.rooms.get(room_id).map(|r| r.value().clone())
+    }
+
+    fn watch_images_enabled(&self) -> bool {
+        env_is_truthy(WATCH_IMAGE_ENV) && !self.extra_image_dirs.is_empty()
+    }
+
+    async fn handle_image_path_changed(&self, path: PathBuf) {
+        let Some(source_root) = self.extra_image_root_for_path(&path) else {
+            return;
+        };
+
+        let changed_path = canonical_source_key(&path);
+        if changed_path.exists() {
+            let mut catalog = self.catalog.write().await;
+            match catalog.upsert_extra_source(
+                &source_root,
+                &changed_path,
+                &self.normalization_config,
+                self.sniff_extensionless_images,
+            ) {
+                Ok(Some(card_id)) => {
+                    if let Some(cache_path) = catalog.serving_cards.get(&card_id).cloned() {
+                        let mut changed_cards = HashMap::new();
+                        changed_cards.insert(card_id.clone(), cache_path);
+                        if let Err(err) = self
+                            .most_beautiful_stats
+                            .register_card_paths(get_time_s(), &changed_cards)
+                        {
+                            println!(
+                                "Warning: failed to register updated card path for {}: {}",
+                                changed_path.display(),
+                                err
+                            );
+                        }
+                    }
+                    println!(
+                        "Updated watched image {} as card {}",
+                        changed_path.display(),
+                        card_id
+                    );
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    println!(
+                        "Warning: failed to update watched image {}: {}",
+                        changed_path.display(),
+                        err
+                    );
+                }
+            }
+        } else {
+            let mut catalog = self.catalog.write().await;
+            if let Some(card_id) = catalog.remove_extra_source(&changed_path) {
+                println!(
+                    "Removed watched image {} from active deck (old card {} remains servable if cached)",
+                    changed_path.display(),
+                    card_id
+                );
+            }
+        }
+    }
+
+    fn extra_image_root_for_path(&self, path: &Path) -> Option<PathBuf> {
+        let canonical_path = canonical_source_key(path);
+        self.extra_image_dirs
+            .iter()
+            .map(|dir| canonical_source_key(dir))
+            .filter(|root| canonical_path.starts_with(root))
+            .max_by_key(|root| root.components().count())
     }
 
     fn stats(&self) -> HashMap<String, (usize, u64)> {
@@ -1274,6 +1483,92 @@ async fn room_maintenance(state: Arc<ServerState>) {
     }
 }
 
+async fn watch_extra_images(state: Arc<ServerState>) {
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<notify::Result<notify::Event>>();
+    let mut watcher = match notify::recommended_watcher(move |event| {
+        let _ = tx.send(event);
+    }) {
+        Ok(watcher) => watcher,
+        Err(err) => {
+            println!("Warning: failed to start image watcher: {}", err);
+            return;
+        }
+    };
+
+    let mut watched_any = false;
+    for dir in state.extra_image_dirs.iter() {
+        match watcher.watch(dir, RecursiveMode::Recursive) {
+            Ok(()) => {
+                watched_any = true;
+                println!("Watching extra image directory {}", dir.display());
+            }
+            Err(err) => {
+                println!(
+                    "Warning: failed to watch extra image directory {}: {}",
+                    dir.display(),
+                    err
+                );
+            }
+        }
+    }
+
+    if !watched_any {
+        println!("Warning: image watch requested but no extra image directories could be watched");
+        return;
+    }
+
+    let mut pending_paths = HashSet::<PathBuf>::new();
+    let debounce = tokio::time::sleep(std::time::Duration::from_secs(24 * 60 * 60));
+    tokio::pin!(debounce);
+
+    loop {
+        tokio::select! {
+            maybe_event = rx.recv() => {
+                let Some(event_result) = maybe_event else {
+                    break;
+                };
+
+                match event_result {
+                    Ok(event) => {
+                        if is_relevant_image_event(&event.kind) {
+                            for path in event.paths {
+                                pending_paths.insert(path);
+                            }
+                            debounce.as_mut().reset(tokio::time::Instant::now() + std::time::Duration::from_millis(500));
+                        }
+                    }
+                    Err(err) => {
+                        println!("Warning: image watcher error: {}", err);
+                    }
+                }
+            }
+            () = &mut debounce, if !pending_paths.is_empty() => {
+                let paths = pending_paths.drain().collect::<Vec<_>>();
+                for path in paths {
+                    if path.is_dir() {
+                        if let Err(err) = watcher.watch(&path, RecursiveMode::Recursive) {
+                            println!(
+                                "Warning: failed to watch new image directory {}: {}",
+                                path.display(),
+                                err
+                            );
+                        }
+                        continue;
+                    }
+                    state.handle_image_path_changed(path).await;
+                }
+            }
+        }
+    }
+}
+
+fn is_relevant_image_event(kind: &EventKind) -> bool {
+    matches!(
+        kind,
+        EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
+    )
+}
+
 fn generate_room_id(length: usize) -> String {
     let mut rng = rand::thread_rng();
     let letters = Uniform::new_inclusive(b'a', b'z');
@@ -1288,6 +1583,9 @@ async fn main() {
 
     tokio::spawn(garbage_collect(state.clone()));
     tokio::spawn(room_maintenance(state.clone()));
+    if state.watch_images_enabled() {
+        tokio::spawn(watch_extra_images(state.clone()));
+    }
 
     let cors = CorsLayer::new()
         .allow_origin(Any)
@@ -1322,7 +1620,14 @@ async fn card_handler(
     State(state): State<Arc<ServerState>>,
 ) -> Response {
     if let Some(original_card_id) = card_id.strip_suffix("_original") {
-        let Some(original_info) = state.original_cards.get(original_card_id).cloned() else {
+        let original_info = {
+            let catalog = state.catalog.read().await;
+            catalog
+                .serving_original_cards
+                .get(original_card_id)
+                .cloned()
+        };
+        let Some(original_info) = original_info else {
             return (StatusCode::NOT_FOUND, "Card not found").into_response();
         };
 
@@ -1346,7 +1651,11 @@ async fn card_handler(
         };
     }
 
-    let Some(cache_path) = state.cards.get(&card_id).cloned() else {
+    let cache_path = {
+        let catalog = state.catalog.read().await;
+        catalog.serving_cards.get(&card_id).cloned()
+    };
+    let Some(cache_path) = cache_path else {
         return (StatusCode::NOT_FOUND, "Card not found").into_response();
     };
 
@@ -1383,7 +1692,11 @@ async fn card_source_info_handler(
         return (StatusCode::NOT_FOUND, "Card source info unavailable").into_response();
     }
 
-    let Some(original_info) = state.original_cards.get(&card_id).cloned() else {
+    let original_info = {
+        let catalog = state.catalog.read().await;
+        catalog.serving_original_cards.get(&card_id).cloned()
+    };
+    let Some(original_info) = original_info else {
         return (StatusCode::NOT_FOUND, "Card not found").into_response();
     };
 
@@ -1431,6 +1744,132 @@ mod tests {
     use super::*;
 
     #[test]
+    fn watch_image_bool_parser_accepts_true_false_spellings() {
+        assert_eq!(parse_bool_env_value("true"), Some(true));
+        assert_eq!(parse_bool_env_value("y"), Some(true));
+        assert_eq!(parse_bool_env_value("yes"), Some(true));
+        assert_eq!(parse_bool_env_value("1"), Some(true));
+        assert_eq!(parse_bool_env_value("false"), Some(false));
+        assert_eq!(parse_bool_env_value("n"), Some(false));
+        assert_eq!(parse_bool_env_value("no"), Some(false));
+        assert_eq!(parse_bool_env_value("0"), Some(false));
+        assert_eq!(parse_bool_env_value("sometimes"), None);
+    }
+
+    #[test]
+    fn watch_image_catalog_processes_changed_files_incrementally() -> Result<()> {
+        let temp_dir = test_temp_dir("watch-image-catalog");
+        let source_dir = temp_dir.join("sources");
+        let cache_dir = temp_dir.join("cache");
+        fs::create_dir_all(&source_dir)?;
+        fs::create_dir_all(&cache_dir)?;
+        let config = test_normalization_config(cache_dir);
+
+        let first_source = source_dir.join("first.png");
+        write_test_image(&first_source, [255, 0, 0])?;
+        let loaded = load_cards(&config, &[source_dir.clone()], true, false)?;
+        let mut catalog = CardCatalog::from_loaded_cards(loaded);
+        assert_eq!(catalog.active_deck_snapshot().len(), 1);
+
+        let first_key = canonical_source_key(&first_source);
+        let first_id = catalog
+            .source_index
+            .get(&first_key)
+            .expect("first source should be indexed")
+            .card_id
+            .clone();
+
+        let second_source = source_dir.join("second.png");
+        write_test_image(&second_source, [0, 255, 0])?;
+        catalog.upsert_extra_source(&source_dir, &second_source, &config, false)?;
+        assert_eq!(
+            catalog.active_deck_snapshot().len(),
+            2,
+            "adding one changed file should add one active card"
+        );
+
+        write_test_image(&first_source, [0, 0, 255])?;
+        catalog.upsert_extra_source(&source_dir, &first_source, &config, false)?;
+        let updated_first_id = catalog
+            .source_index
+            .get(&first_key)
+            .expect("first source should still be indexed")
+            .card_id
+            .clone();
+        assert_ne!(
+            first_id, updated_first_id,
+            "modifying one source should replace that source's active card id"
+        );
+        assert!(
+            catalog.serving_cards.contains_key(&first_id),
+            "old modified card ids should remain servable for existing rooms"
+        );
+        assert!(
+            !catalog.active_deck_snapshot().contains(&first_id),
+            "old modified card ids should leave the active deck for new rooms"
+        );
+
+        let second_key = canonical_source_key(&second_source);
+        let second_id = catalog
+            .source_index
+            .get(&second_key)
+            .expect("second source should be indexed")
+            .card_id
+            .clone();
+        fs::remove_file(&second_source)?;
+        assert_eq!(
+            canonical_source_key(&second_source),
+            second_key,
+            "deleted source paths should still map to the same canonical source key"
+        );
+        catalog.remove_extra_source(&second_source);
+        assert!(
+            !catalog.active_deck_snapshot().contains(&second_id),
+            "deleted files should leave the active deck for new rooms"
+        );
+        assert!(
+            catalog.serving_cards.contains_key(&second_id),
+            "deleted card ids should remain servable from cache for existing rooms"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn watch_image_catalog_keeps_existing_room_deck_snapshots() -> Result<()> {
+        let temp_dir = test_temp_dir("watch-image-room-snapshot");
+        let source_dir = temp_dir.join("sources");
+        let cache_dir = temp_dir.join("cache");
+        fs::create_dir_all(&source_dir)?;
+        fs::create_dir_all(&cache_dir)?;
+        let config = test_normalization_config(cache_dir);
+
+        let first_source = source_dir.join("first.png");
+        write_test_image(&first_source, [255, 0, 0])?;
+        let loaded = load_cards(&config, &[source_dir.clone()], true, false)?;
+        let mut catalog = CardCatalog::from_loaded_cards(loaded);
+        let existing_room_deck = catalog.active_deck_snapshot();
+
+        let second_source = source_dir.join("second.png");
+        write_test_image(&second_source, [0, 255, 0])?;
+        catalog.upsert_extra_source(&source_dir, &second_source, &config, false)?;
+        let new_room_deck = catalog.active_deck_snapshot();
+
+        assert_eq!(
+            existing_room_deck.len(),
+            1,
+            "rooms that already cloned the deck should keep their original card list"
+        );
+        assert_eq!(
+            new_room_deck.len(),
+            2,
+            "rooms created after the incremental update should see the new deck"
+        );
+
+        Ok(())
+    }
+
+    #[test]
     fn create_room_defaults_to_single_dixit_cycle_when_body_is_empty() {
         let config = parse_create_room_win_condition(&[], DEFAULT_WIN_POINTS).unwrap();
         assert_eq!(
@@ -1448,6 +1887,40 @@ mod tests {
             config.win_condition,
             room::default_win_condition_for_game_mode(room::GameMode::DixitPlus)
         );
+    }
+
+    fn test_temp_dir(name: &str) -> PathBuf {
+        let dir = env::temp_dir().join(format!(
+            "talespin-{name}-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        if dir.exists() {
+            fs::remove_dir_all(&dir).expect("failed to clear stale test temp dir");
+        }
+        fs::create_dir_all(&dir).expect("failed to create test temp dir");
+        dir
+    }
+
+    fn test_normalization_config(cards_cache_dir: PathBuf) -> NormalizationConfig {
+        NormalizationConfig {
+            ratio_width: 2,
+            ratio_height: 3,
+            long_side: 6,
+            cache_format: CacheImageFormat::Jpeg,
+            avif_encoder_backend: DEFAULT_CARD_AVIF_ENCODER,
+            avif_threads: DEFAULT_CARD_AVIF_THREADS,
+            validate_cache_hits: true,
+            production_mode: true,
+            cards_cache_dir,
+        }
+    }
+
+    fn write_test_image(path: &Path, rgb: [u8; 3]) -> Result<()> {
+        let image = image::RgbImage::from_pixel(4, 6, image::Rgb(rgb));
+        image
+            .save(path)
+            .with_context(|| format!("failed to write test image {}", path.display()))
     }
 }
 
