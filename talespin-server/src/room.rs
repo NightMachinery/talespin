@@ -2260,11 +2260,6 @@ impl Room {
         };
     }
 
-    fn apply_auto_vote_counts(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
-        self.clamp_votes_per_guesser(state);
-        self.clamp_beauty_votes_per_player(state);
-    }
-
     fn clamp_beauty_points_bonus(&self, state: &mut RwLockWriteGuard<'_, RoomState>) {
         let (min_points, max_points) = self.beauty_points_bonus_bounds();
         state.beauty_points_bonus = state.beauty_points_bonus.clamp(min_points, max_points);
@@ -15796,14 +15791,14 @@ mod tests {
         }
         state.nominations_per_guesser = 1;
         state.votes_per_guesser_auto = true;
-        room.apply_auto_vote_counts(&mut state);
+        room.clamp_votes_per_guesser(&mut state);
         assert_eq!(
             state.votes_per_guesser, 1,
             "10 active players with one nomination each gives a guesser 9 votable table cards"
         );
 
         state.nominations_per_guesser = 2;
-        room.apply_auto_vote_counts(&mut state);
+        room.clamp_votes_per_guesser(&mut state);
         assert_eq!(
             state.votes_per_guesser, 2,
             "two nominations each pushes per-guesser votable table cards above the story auto threshold"
@@ -15822,14 +15817,14 @@ mod tests {
         }
         state.nominations_per_guesser = 3;
         state.beauty_votes_per_player_auto = true;
-        room.apply_auto_vote_counts(&mut state);
+        room.clamp_beauty_votes_per_player(&mut state);
         assert_eq!(
             state.beauty_votes_per_player, 1,
             "beauty vote auto should ignore nominations and stay at 1 below 10 active players"
         );
 
         add_player(&mut state, "p9", 0);
-        room.apply_auto_vote_counts(&mut state);
+        room.clamp_beauty_votes_per_player(&mut state);
         assert_eq!(
             state.beauty_votes_per_player, 2,
             "beauty vote auto should switch to 2 at 10 active players"
@@ -15852,7 +15847,8 @@ mod tests {
         state.votes_per_guesser = 1;
         state.beauty_votes_per_player = 1;
 
-        room.apply_auto_vote_counts(&mut state);
+        room.clamp_votes_per_guesser(&mut state);
+        room.clamp_beauty_votes_per_player(&mut state);
         assert_eq!(state.votes_per_guesser, 1);
         assert_eq!(state.beauty_votes_per_player, 1);
 
