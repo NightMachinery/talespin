@@ -22,7 +22,6 @@ const DEFAULT_MODERATOR_ABSENCE_PROMOTION_DELAY_S: u64 = 8 * 60;
 const DEFAULT_CARDS_PER_HAND: u16 = 26;
 const MAX_CARDS_PER_HAND: u16 = 100;
 const DEFAULT_NOMINATIONS_PER_GUESSER: u16 = 1;
-const THREE_PLAYER_NOMINATIONS_PER_GUESSER: u16 = 2;
 const DEFAULT_STELLA_BOARD_SIZE: u16 = 15;
 const MAX_STELLA_BOARD_SIZE: u16 = 100;
 const DEFAULT_STELLA_SELECTION_MIN: u16 = 1;
@@ -4648,19 +4647,6 @@ impl Room {
         self.auto_votes_per_guesser(state)
     }
 
-    fn default_nominations_per_guesser_on_game_start(
-        &self,
-        state: &RwLockWriteGuard<'_, RoomState>,
-    ) -> u16 {
-        let default_cards = if state.players.len() == 3 {
-            THREE_PLAYER_NOMINATIONS_PER_GUESSER
-        } else {
-            DEFAULT_NOMINATIONS_PER_GUESSER
-        };
-        let (min_cards, max_cards) = self.nominations_per_guesser_bounds(state);
-        default_cards.clamp(min_cards, max_cards)
-    }
-
     fn disconnect_previous_session(
         &self,
         state: &mut RwLockWriteGuard<'_, RoomState>,
@@ -8184,8 +8170,6 @@ impl Room {
             state.player_order.shuffle(&mut rand::thread_rng());
             state.storyteller_loss_complement =
                 self.default_storyteller_loss_complement_on_game_start(state);
-            state.nominations_per_guesser =
-                self.default_nominations_per_guesser_on_game_start(state);
             state.votes_per_guesser = self.default_votes_per_guesser_on_game_start(state);
             state.beauty_votes_per_player = self.auto_beauty_votes_per_player(state);
             state.member_to_beauty_points.clear();
@@ -19961,6 +19945,77 @@ alpha
                 "first-round dealing should use the clamped preserved lobby setting"
             );
         }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn start_game_preserves_lobby_selected_nominations_per_guesser() -> Result<()> {
+        let room = test_room();
+        let mut test_sockets = Vec::new();
+        {
+            let mut state = room.state.write().await;
+            add_player(&mut state, "host", 0);
+            add_player(&mut state, "p2", 0);
+            add_player(&mut state, "p3", 0);
+            add_player(&mut state, "p4", 0);
+            state.cards_per_hand = 8;
+            state.nominations_per_guesser = 3;
+            state.moderators.insert("host".to_string());
+            setup_connected_member(&mut state, "host", "t-host", 11_004);
+            for player in ["host", "p2", "p3", "p4"] {
+                test_sockets.push(attach_test_socket(&mut state, player));
+            }
+        }
+
+        room.handle_client_msg("host", 11_004, to_ws(ClientMsg::StartGame {}))
+            .await?;
+
+        let state = room.state.read().await;
+        assert_eq!(
+            state.nominations_per_guesser, 3,
+            "starting the first round should preserve the lobby-selected nominations per guesser"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn start_game_clamps_preserved_lobby_nominations_per_guesser_instead_of_resetting_to_default(
+    ) -> Result<()> {
+        let room = test_room();
+        let mut test_sockets = Vec::new();
+        {
+            let mut state = room.state.write().await;
+            for i in 0..25 {
+                let player = format!("p{}", i);
+                add_player(&mut state, &player, 0);
+                test_sockets.push(attach_test_socket(&mut state, &player));
+            }
+            state.cards_per_hand = 20;
+            state.nominations_per_guesser = 20;
+            room.clamp_nominations_per_guesser(&mut state);
+            state.moderators.insert("p0".to_string());
+            setup_connected_member(&mut state, "p0", "t-host", 11_005);
+            assert_eq!(
+                state.nominations_per_guesser, 20,
+                "lobby update should accept nominations up to the current cards-per-hand max"
+            );
+        }
+
+        {
+            let mut state = room.state.write().await;
+            state.cards_per_hand = 12;
+        }
+
+        room.handle_client_msg("p0", 11_005, to_ws(ClientMsg::StartGame {}))
+            .await?;
+
+        let state = room.state.read().await;
+        assert_eq!(
+            state.nominations_per_guesser, 12,
+            "first-round start should clamp the preserved lobby nomination setting instead of resetting to default"
+        );
 
         Ok(())
     }
