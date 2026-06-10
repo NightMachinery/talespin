@@ -58,7 +58,7 @@ The script preserves the existing Talespin self-host env behavior, including:
 
 - proxy exports (`127.0.0.1:1087` by default unless proxy env vars are already set)
 - tmux-managed runtime sessions now receive proxy values as literal environment entries, so `NO_PROXY` lists such as `127.0.0.1,localhost,::1` do not depend on shell quoting
-- `TALESPIN_EXTRA_IMAGE_DIRS` (newline-separated dirs) for loading extra card images
+- `TALESPIN_EXTRA_IMAGE_DIRS` (newline-separated dirs) for loading extra card images; all entries are passed through to the backend
 - `TALESPIN_WATCH_IMAGE_P=true` to watch extra image dirs and incrementally update changed files
 - optional auto-clone of missing extra-image repos when `TALESPIN_AUTO_DOWNLOAD_EXTRA_IMAGES_P=y`
 - `TALESPIN_DISABLE_BUILTIN_IMAGES_P` (default `y`, but forced to `n` if no extra image dirs exist)

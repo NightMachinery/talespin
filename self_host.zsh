@@ -243,7 +243,9 @@ prepare_talespin_env() {
 	export TALESPIN_AUTO_DOWNLOAD_EXTRA_IMAGES_P
 }
 
-launch_env_assignments() {
+typeset -ga launch_env_assignments_result=()
+
+build_launch_env_assignments() {
 	local -a env_vars=(
 		ALL_PROXY all_proxy http_proxy https_proxy HTTP_PROXY HTTPS_PROXY NO_PROXY no_proxy
 		TALESPIN_PRODUCTION_P
@@ -263,14 +265,13 @@ launch_env_assignments() {
 		TALESPIN_MAX_MEMBERS
 	)
 	local var_name value
-	local -a assignments=()
+	launch_env_assignments_result=()
 	for var_name in "${env_vars[@]}"; do
 		if [[ -v "$var_name" ]]; then
 			value="${(P)var_name}"
-			assignments+=("${var_name}=${value}")
+			launch_env_assignments_result+=("${var_name}=${value}")
 		fi
 	done
-	print -r -- "${(F)assignments}"
 }
 
 port_is_busy() {
@@ -436,22 +437,14 @@ stop_app() {
 }
 
 start_backend() {
-	local -a env_assignments=()
-	local env_assignment
-	while IFS= read -r env_assignment; do
-		[[ -n "$env_assignment" ]] && env_assignments+=("$env_assignment")
-	done < <(launch_env_assignments)
-	tmuxnew_with_env "$BACKEND_SESSION" "zsh -lc 'cd ${(q)ROOT_DIR}/talespin-server; exec ./target/release/talespin-server'" "${env_assignments[@]}"
+	build_launch_env_assignments
+	tmuxnew_with_env "$BACKEND_SESSION" "zsh -lc 'cd ${(q)ROOT_DIR}/talespin-server; exec ./target/release/talespin-server'" "${launch_env_assignments_result[@]}"
 	note "Started tmux session: $BACKEND_SESSION"
 }
 
 start_frontend_dev() {
-	local -a env_assignments=()
-	local env_assignment
-	while IFS= read -r env_assignment; do
-		[[ -n "$env_assignment" ]] && env_assignments+=("$env_assignment")
-	done < <(launch_env_assignments)
-	tmuxnew_with_env "$FRONTEND_SESSION" "zsh -lc 'source ~/.shared.sh >/dev/null 2>&1 || true; nvm-load >/dev/null 2>&1; nvm use ${(q)DEFAULT_NODE_VERSION} >/dev/null; cd ${(q)ROOT_DIR}; exec npm run dev -- --host 127.0.0.1 --port ${FRONTEND_PORT} --debug'" "${env_assignments[@]}"
+	build_launch_env_assignments
+	tmuxnew_with_env "$FRONTEND_SESSION" "zsh -lc 'source ~/.shared.sh >/dev/null 2>&1 || true; nvm-load >/dev/null 2>&1; nvm use ${(q)DEFAULT_NODE_VERSION} >/dev/null; cd ${(q)ROOT_DIR}; exec npm run dev -- --host 127.0.0.1 --port ${FRONTEND_PORT} --debug'" "${launch_env_assignments_result[@]}"
 	note "Started tmux session: $FRONTEND_SESSION"
 }
 

@@ -1145,6 +1145,61 @@ fn canonical_source_key(path: &Path) -> PathBuf {
     })
 }
 
+fn extra_image_root_for_path(path: &Path, extra_image_dirs: &[PathBuf]) -> Option<PathBuf> {
+    let canonical_path = canonical_source_key(path);
+    extra_image_dirs
+        .iter()
+        .filter_map(|dir| {
+            let root = canonical_source_key(dir);
+            if canonical_path.starts_with(&root)
+                || root_recursively_contains_canonical_path(dir, &canonical_path)
+            {
+                Some(root)
+            } else {
+                None
+            }
+        })
+        .max_by_key(|root| root.components().count())
+}
+
+fn root_recursively_contains_canonical_path(root: &Path, canonical_path: &Path) -> bool {
+    let mut dirs_to_scan = VecDeque::from([root.to_path_buf()]);
+    let mut visited_dirs = HashSet::new();
+
+    while let Some(scan_dir) = dirs_to_scan.pop_front() {
+        let resolved_scan_dir = match fs::canonicalize(&scan_dir) {
+            Ok(path) => path,
+            Err(_) => continue,
+        };
+
+        if !visited_dirs.insert(resolved_scan_dir.clone()) {
+            continue;
+        }
+
+        if canonical_path.starts_with(&resolved_scan_dir) {
+            return true;
+        }
+
+        let Ok(entries) = fs::read_dir(&resolved_scan_dir) else {
+            continue;
+        };
+
+        for entry in entries.flatten() {
+            let Ok(file_type) = entry.file_type() else {
+                continue;
+            };
+            let Ok(resolved_entry) = fs::canonicalize(entry.path()) else {
+                continue;
+            };
+            if file_type.is_dir() || resolved_entry.is_dir() {
+                dirs_to_scan.push_back(resolved_entry);
+            }
+        }
+    }
+
+    false
+}
+
 #[derive(Debug, Deserialize)]
 struct CreateRoomRequest {
     win_condition: Option<WinCondition>,
@@ -1421,12 +1476,7 @@ impl ServerState {
     }
 
     fn extra_image_root_for_path(&self, path: &Path) -> Option<PathBuf> {
-        let canonical_path = canonical_source_key(path);
-        self.extra_image_dirs
-            .iter()
-            .map(|dir| canonical_source_key(dir))
-            .filter(|root| canonical_path.starts_with(root))
-            .max_by_key(|root| root.components().count())
+        extra_image_root_for_path(path, &self.extra_image_dirs)
     }
 
     fn stats(&self) -> HashMap<String, (usize, u64)> {
@@ -1864,6 +1914,29 @@ mod tests {
             new_room_deck.len(),
             2,
             "rooms created after the incremental update should see the new deck"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn watch_image_root_resolution_follows_symlinked_recursive_dirs() -> Result<()> {
+        let temp_dir = test_temp_dir("watch-image-symlink-root");
+        let configured_root = temp_dir.join("configured-root");
+        let symlink_target = temp_dir.join("symlink-target");
+        fs::create_dir_all(&configured_root)?;
+        fs::create_dir_all(&symlink_target)?;
+
+        let linked_dir = configured_root.join("linked");
+        std::os::unix::fs::symlink(&symlink_target, &linked_dir)?;
+
+        let changed_source = symlink_target.join("changed.png");
+        write_test_image(&changed_source, [0, 255, 0])?;
+
+        assert_eq!(
+            extra_image_root_for_path(&changed_source, &[configured_root.clone()]),
+            Some(configured_root),
+            "changed files under symlinked recursive dirs should map back to the configured extra root"
         );
 
         Ok(())

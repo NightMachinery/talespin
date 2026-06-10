@@ -7,7 +7,7 @@ Cards are loaded at backend startup from:
 - built-in directory: `static/assets/cards/`
 - optional extra directories from `TALESPIN_EXTRA_IMAGE_DIRS`
 
-`TALESPIN_EXTRA_IMAGE_DIRS` is newline-separated and supports `~/...` paths. Extra directories are scanned recursively.
+`TALESPIN_EXTRA_IMAGE_DIRS` is newline-separated and supports `~/...` paths. Extra directories are scanned recursively, including symlinked directories.
 
 Set `TALESPIN_WATCH_IMAGE_P=true` to watch those extra image directories while the backend is
 running. Startup still performs the normal full scan once. After startup, watch events process only
@@ -37,7 +37,7 @@ or cache encoding. The in-game card preview uses this route for copy, open, and 
 
 ## Watching Extra Images
 
-Watch mode applies only to `TALESPIN_EXTRA_IMAGE_DIRS`, not the built-in card directory.
+Watch mode applies only to `TALESPIN_EXTRA_IMAGE_DIRS`, not the built-in card directory. Every configured extra directory is registered with the watcher, and recursive watching follows symlinked directories the same way startup loading does.
 
 When a watched file is added or updated, the backend normalizes that one source image and updates
 the active card catalog. When a watched file is deleted, that source is removed from the active
